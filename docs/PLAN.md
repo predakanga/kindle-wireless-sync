@@ -207,6 +207,10 @@ sync works end to end with only stock Calibre.
   to ship series data anyway (useful wherever grouping is on), or bring
   collections forward. A test series is still on the device (see the
   research note).
+  **Update (2026-10-16):** the developer has turned series grouping on for
+  their device, in a separate session. Now the two test books disappear from
+  the Library, but the "kws-test series" tile doesn't appear. Not yet
+  investigated; wait for the developer before looking into it.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
@@ -247,7 +251,14 @@ Not part of any phase. Pick these up after the base and stretch goals
    devices, empty there, since sideloaded books don't sync; check that
    first. Deferred on 2026-10-16: Series uses the native series grouping
    instead (see Phase 5).
-4. **A tap-debugging helper in this repo.** UI checks over SSH currently
+4. **A script that turns series grouping on or off**, packaged but **not
+   shown in the UI**. Before it changes anything, it requires the user to
+   pass their device's UUID as an argument, as a deliberate confirmation
+   (like typing a repo's name to delete it), so users know what they're
+   doing. It changes Amazon-side settings, so document the risk. It builds
+   on the developer's own enabling work (2026-10-16). Still to decide:
+   which identifier counts as the "device UUID".
+5. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
    installed on the reference device. Add our own (or a vendored, credited
    copy, after checking its licence), plus a recipe that taps, screenshots
