@@ -258,6 +258,17 @@ For the `.txt` probe and every `.sh` scriptlet on the device,
 `*74be0406…`. The `cdeType` was `PDOC`. Books with EXTH 113 use that value
 instead (see above).
 
+#### PDF (2026-10-15)
+
+A one-page PDF got `cdeKey` `"*" + sha1(path)`, `PDOC`, `application/pdf`,
+but **no thumbnail**: `p_thumbnail` was `0`, the asset DB `THUMBNAIL` was
+empty, and no thumbnail file was created. The indexer did create a `.sdr/`
+folder with render-cache subdirectories. The Library showed a generic tile
+with a PDF icon and the title. Writing `thumbnail_<cdeKey>_PDOC_portrait.jpg`
+by hand **had no effect** after a redraw. So covers can only be supplied for
+EXTH-bearing formats (AZW3/MOBI/AZW) and probably KFX. PDF and TXT keep
+generic tiles.
+
 ### Verifying the UI from SSH
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to
