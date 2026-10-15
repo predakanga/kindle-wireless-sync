@@ -172,10 +172,11 @@ repository, uninstalled it cleanly (twice) and installed it fresh.
 **Exit criterion met (2026-10-15):** after a fresh KPM install, Find
 libraries, Allow and a book sent from Calibre (MOBI) showed up in
 the library, with only stock Calibre. Distribution: GitHub Releases plus a KPM
-index on GitHub Pages, published by a release workflow (ADR 0014,
-Proposed). That work is still to do, followed by an end-to-end check: a
-release, `kpm add-repo` of the Pages URL, then install and upgrade on the
-device.
+index on GitHub Pages, published by a release workflow (ADR 0014). The
+workflow, packaging script, index generator and install page are written.
+Still to do: the first release, then an end-to-end check on the device
+(`kpm add-repo` of the Pages URL, install, and an upgrade to a second
+release).
 
 **Adopting USB-sent books (ADR 0013, 2026-10-15):** done and tested on the
 device. Books Calibre sent over USB are added to our book list at the start

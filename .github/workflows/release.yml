@@ -1,0 +1,109 @@
+# Release (ADR 0014): on a vX.Y.Z tag, check, test and package, publish a
+# GitHub Release with the .kpkg, then rebuild the KPM index on GitHub Pages.
+# Run it by hand (workflow_dispatch) to rebuild only the Pages site.
+#
+# Modelled on Kindle Button Mapper's .github/workflows/build-arm.yml
+# (armv7-musl build, manifest-at-root check, release asset), but the KPM
+# index is generated here from the Releases API instead of being committed.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+      - name: Install the Rust target and tools
+        run: |
+          rustup target add armv7-unknown-linux-musleabihf
+          rustup component add clippy rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v4
+
+      - run: just check
+      - run: cargo test
+      - run: just package
+
+      - name: Check the package
+        run: |
+          bin=target/armv7-unknown-linux-musleabihf/release/kindle-wireless-sync
+          file "$bin" | grep -q ARM || { echo "::error::not an ARM binary"; exit 1; }
+          if grep -q 'Development commands' "$bin"; then
+            echo "::error::the release binary includes dev-tools"
+            exit 1
+          fi
+          size=$(stat -c %s "$bin")
+          echo "binary size: $size bytes"
+          [ "$size" -lt 5000000 ] || { echo "::error::binary is over 5 MB"; exit 1; }
+          tar -tzvf target/package/kindle-wireless-sync.kpkg
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" target/package/kindle-wireless-sync.kpkg \
+            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+
+  pages:
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/configure-pages@v6
+        id: pages
+
+      - name: Build the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          mkdir -p site
+          gh api --paginate "repos/$REPO/releases" --jq '.[]' | jq -s . > releases.json
+          tools/kpm-index.sh releases.json "$REPO" > site/repo.json
+          latest=$(jq -r '.packages[].artifacts[0].version // [] | map(tostring) | join(".")' site/repo.json)
+          sed -e "s|@INDEX_URL@|$PAGES_URL/repo.json|g" \
+              -e "s|@REPO_URL@|https://github.com/$REPO|g" \
+              -e "s|@VERSION@|${latest:-none yet}|g" \
+              package/pages/index.html > site/index.html
+          cat site/repo.json
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v5
+        id: deploy

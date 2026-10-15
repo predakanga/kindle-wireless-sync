@@ -1,6 +1,6 @@
 # 0014: Releases on GitHub, KPM index on GitHub Pages
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 
 ## Context
@@ -93,3 +93,23 @@ upgrades work.
 - A user who first installed from a file can move to the repository by
   adding it and running `kpm install kindle-wireless-sync`. Their settings
   are kept, because that runs the upgrade path (ADR 0012).
+
+## Implementation notes (2026-10-15)
+- The repository is `predakanga/kindle-wireless-sync`. The index URL is
+  `https://predakanga.github.io/kindle-wireless-sync/repo.json`, and the
+  licence is GPLv3 (`LICENSE`; `Cargo.toml` says `GPL-3.0-or-later`).
+- `.github/workflows/release.yml` creates the release with the runner's `gh`
+  CLI rather than `softprops/action-gh-release`, which leaves one
+  third-party action fewer.
+- `tools/package.sh` builds the `.kpkg` for both `just package` and CI, and
+  handles bsdtar and GNU tar. `tools/kpm-index.sh` writes `repo.json` from
+  the Releases API, skipping drafts, pre-releases and releases without the
+  package. `package/pages/index.html` is the install page.
+- **Setup:** besides *Pages → Source: GitHub Actions*, the `github-pages`
+  environment must allow deployments from `v*` tags. Its default branch
+  policy only allows the default branch, and the deploy runs on the tag.
+- **How to add the repository:** HID Passthrough's README tells users to
+  run `kpm add-repo <url>` in a shell (kterm or SSH), and that's how it was
+  added on the reference device. Our page does the same. The search-bar form
+  (`;kpm add-repo <url>`) is the one that KPM issue #5 reports as silently
+  returning to the home screen.

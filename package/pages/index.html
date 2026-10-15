@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kindle Wireless Sync</title>
+<style>
+  :root { --fg: #1a1a1a; --bg: #fff; --muted: #555; --code: #f2f2f2; --link: #0b57d0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6e6e6; --bg: #121212; --muted: #aaa; --code: #222; --link: #8ab4f8; }
+  }
+  body { font: 16px/1.55 system-ui, sans-serif; color: var(--fg); background: var(--bg);
+         max-width: 42rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  h1 { margin-bottom: .25rem; }
+  .lead { color: var(--muted); margin-top: 0; }
+  pre, code { background: var(--code); border-radius: 4px; font-size: .92em; }
+  pre { padding: .75rem 1rem; overflow-x: auto; }
+  code { padding: .1em .3em; }
+  pre code { padding: 0; }
+  a { color: var(--link); }
+</style>
+</head>
+<body>
+<h1>Kindle Wireless Sync</h1>
+<p class="lead">Receive books from Calibre's wireless device connection straight into a
+jailbroken Kindle's built-in library. Latest release: <strong>@VERSION@</strong>.</p>
+
+<h2>Install with KPM</h2>
+<p>You need a jailbroken Kindle with
+<a href="https://kindlemodding.org/jailbreaking/whats-next/installing-homebrew.html#kpm">KPM</a>
+installed. In kterm or over SSH on the Kindle, add this repository once and install:</p>
+<pre><code>kpm add-repo @INDEX_URL@
+kpm update
+kpm install kindle-wireless-sync</code></pre>
+<p>Run <code>kpm update</code> and <code>kpm install kindle-wireless-sync</code> again to
+upgrade. Your settings are kept. Install from this repository rather than from a
+downloaded <code>.kpkg</code> file: KPM can't upgrade a package installed from a file.</p>
+
+<h2>Use</h2>
+<ol>
+  <li>In Calibre, choose <em>Connect/share → Start wireless device connection</em>.</li>
+  <li>On the Kindle, open <strong>Wireless Sync</strong> from the Library, tap
+      <strong>Find libraries</strong>, then <strong>Allow</strong> your library.</li>
+  <li>Send books from Calibre as usual. They appear in the Kindle library as soon as
+      each transfer finishes.</li>
+</ol>
+
+<p>Source, releases and issues: <a href="@REPO_URL@">@REPO_URL@</a>.
+Licensed under the GNU GPL v3.</p>
+</body>
+</html>

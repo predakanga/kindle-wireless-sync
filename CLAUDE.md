@@ -47,6 +47,12 @@ just package              # build target/package/kindle-wireless-sync.kpkg (ADR 
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 ```
 
+**Releases (ADR 0014):** bump `version` in `Cargo.toml`, commit, then push a
+matching `vX.Y.Z` tag. `.github/workflows/release.yml` checks, tests and
+packages the release, publishes it on GitHub, and rebuilds the KPM index on
+GitHub Pages (`https://predakanga.github.io/kindle-wireless-sync/repo.json`).
+Run the workflow by hand to rebuild only the Pages site.
+
 `discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
 0009). The packaged binary has `daemon`, `find`, `add-server`, `allow`
 and `status`. In Calibre, run *Connect/share → Start wireless device
