@@ -171,8 +171,11 @@ on the device installed it over the development setup, upgraded it from a
 repository, uninstalled it cleanly (twice) and installed it fresh.
 **Exit criterion met (2026-10-15):** after a fresh KPM install, Find
 libraries, Allow and a book sent from Calibre (MOBI) showed up in
-the library, with only stock Calibre. Still open: how to distribute the
-package (see Open questions).
+the library, with only stock Calibre. Distribution: GitHub Releases plus a KPM
+index on GitHub Pages, published by a release workflow (ADR 0014,
+Proposed). That work is still to do, followed by an end-to-end check: a
+release, `kpm add-repo` of the Pages URL, then install and upgrade on the
+device.
 
 
 - On-device UI for discovered Calibre instances and the allowlist (with
@@ -237,8 +240,3 @@ Track these here until they become decisions.
   `books.json`/`driveinfo.json`.)
 - What does a running service cost in battery, and does it stop the device
   from sleeping?
-- How do we distribute the package? KPM 0.2.2 can't install a local `.kpkg`
-  over an installed one (ADR 0012), so upgrades need a KPM repository
-  (`repo.json` hosted somewhere, as HID Passthrough does), or users must
-  uninstall first and lose their settings. Should we also report the bug
-  upstream (KindleModding/KPM)?
