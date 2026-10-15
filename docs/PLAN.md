@@ -174,8 +174,8 @@ libraries, Allow and a book sent from Calibre (MOBI) showed up in
 the library, with only stock Calibre. Distribution: GitHub Releases plus a KPM
 index on GitHub Pages, published by a release workflow (ADR 0014). The
 first release, `v0.1.0`, is published, and installing it on the device from
-the Pages repository worked (ADR 0014, first release). Still to test: an
-upgrade to a second release.
+the Pages repository worked. `v0.1.1` followed, and `kpm upgrade` from
+0.1.0 to 0.1.1 worked on the device (ADR 0014).
 
 **Adopting USB-sent books (ADR 0013, 2026-10-15):** done and tested on the
 device. Books Calibre sent over USB are added to our book list at the start
@@ -197,7 +197,7 @@ sync works end to end with only stock Calibre.
 - Collections from Series.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
-- ✅ Kindle device name as the Calibre device name (ADR 0015, for
+- ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
     lipc property or event for changes?

@@ -127,5 +127,26 @@ KPM now records the package as coming from repository
 A first attempt failed with `Could not add repository … (4)`, which is
 `KPM_CURL_ERROR`, because Wi-Fi was down (the screensaver had come on). KPM
 gives no clearer message, so the install page should say Wi-Fi must be on.
-Still to test: an upgrade to a second release through `kpm update` and
-`kpm install`.
+## Second release and upgrade (2026-10-16)
+`v0.1.1`'s release notes came from its `CHANGELOG.md` section
+(`tools/changelog-notes.sh`), and the index listed 0.1.1 and 0.1.0 newest
+first. **Upgrade verified:** the device was put on 0.1.0, recorded against
+repository `kindle-wireless-sync` as a real 0.1.0 user's would be (using a
+temporary index with the same id that listed only the v0.1.0 asset). Then
+`kpm upgrade` ran `uninstall.sh upgrade` and installed 0.1.1. The binary
+matched the release, the settings and books were kept, and the root
+filesystem wasn't touched.
+
+KPM 0.2.2 details seen on the way (`cli/main.c`):
+- `kpm upgrade` only looks for newer versions in the repository a package
+  was installed from.
+- `kpm install` can't pin a version, and always refreshes the index first.
+- Installing an older version is a "downgrade", which skips the uninstall
+  hook.
+- Its closing "Upgraded N package(s)" counts *installed* packages, not
+  upgraded ones.
+
+v0.1.0 shipped without the tile icon. A global gitignore pattern `Icon`
+(for macOS `Icon\r` files) matched `package/icon/` on a case-insensitive
+filesystem, so the icon was never committed. The repo's `.gitignore` now
+un-ignores it, and the build fails if the icon is missing.
