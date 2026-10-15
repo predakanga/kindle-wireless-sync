@@ -86,7 +86,7 @@ pub fn validate(lpath: &str, allowed_extensions: Option<&[String]>) -> Result<Pa
             Some((stem, ext)) if !stem.is_empty() => ext.to_ascii_lowercase(),
             _ => String::new(),
         };
-        if !allowed.iter().any(|a| *a == ext) {
+        if !allowed.contains(&ext) {
             return Err(LpathError::ExtensionNotAllowed(ext));
         }
     }
