@@ -157,11 +157,14 @@ received test book (AZW3) opened in the built-in reader without a reboot
 
 Checked on the device: the app shows live status, Pause/Resume work, the
 tile opens the app (starting the service if needed), and the `Origin`
-values are as expected. Still to do:
-- check that the on-screen keyboard works in the Add server and password
-  fields
-- try Find libraries, Add server (including the failure message), Forget
-  (two taps) and the autostart toggle from the app
+values are as expected. Also checked: the on-screen keyboard types into the
+Add server and password fields, Find libraries ("No new libraries found",
+then found and allowed after a Forget), Add server with a bad address (an
+error message and nothing stored), the password form (save, clear, cancel),
+Forget (two taps) and the autostart toggle. These checks found and fixed
+three problems: the keyboard covered the fields and Enter did nothing; a
+Forget during a session was undone when the session ended; and a requested
+reconnect waited out the backoff. Still to do:
 - the KPM package: `manifest.json`, `install.sh` (copy files, install the
   upstart jobs only if changed, register the app, add the scriptlet),
   `uninstall.sh` (exit early on `upgrade`; keep received books), a

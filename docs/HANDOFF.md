@@ -28,16 +28,9 @@ tests, including a replay of real Calibre sessions
 
 ## Next steps (in order)
 
-1. **Finish checking the UI on the device** (`just deploy-ui`, then
-   `just open-ui`):
-   - Does the on-screen keyboard appear and type into the Add server
-     fields and the per-library password field? This is unverified. Kindle
-     Button Mapper's app has text inputs, so it should work.
-   - Find libraries: with only the developer's (allowed) Calibre on the
-     network it should say "No new libraries found" (allowed servers are
-     skipped). A server busy with another device gives the "busy" message.
-   - Add server with a bad address: an error message and nothing stored.
-   - Forget (two taps), the Password form, and the autostart checkbox.
+1. ~~Finish checking the UI on the device~~ (done; see `docs/PLAN.md`).
+   Possible polish: the status messages vanish after 6 s, which is easy to
+   miss on e-ink.
 2. **KPM package** (ADR 0004, 0010; see `docs/research/kindle-platform.md`):
    - `manifest.json` (manifest_version 2, id `kindle-wireless-sync`,
      `supported_platforms: ["kindlehf"]`), at the **root** of a gzip tarball
