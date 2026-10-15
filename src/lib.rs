@@ -1,6 +1,9 @@
+pub mod config;
+pub mod daemon;
 pub mod discovery;
 pub mod kindle;
 pub mod library;
 pub mod lpath;
+pub mod network;
 pub mod protocol;
 pub mod session;

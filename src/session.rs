@@ -27,7 +27,6 @@ pub struct DeviceConfig {
     pub device_name: String,
     pub device_kind: String,
     pub accepted_extensions: Vec<String>,
-    pub password: Option<String>,
     pub cover_height: u32,
 }
 
@@ -37,7 +36,6 @@ impl Default for DeviceConfig {
             device_name: "Kindle".into(),
             device_kind: "Kindle".into(),
             accepted_extensions: DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect(),
-            password: None,
             cover_height: 500,
         }
     }
@@ -49,6 +47,24 @@ pub struct CalibreInfo {
     pub library_uuid: String,
     pub library_name: String,
     pub calibre_version: String,
+}
+
+impl CalibreInfo {
+    /// Reads the library identity from a `GET_INITIALIZATION_INFO` payload.
+    pub fn from_init_payload(p: &Value) -> CalibreInfo {
+        CalibreInfo {
+            library_uuid: str_field(p, "currentLibraryUUID"),
+            library_name: str_field(p, "currentLibraryName"),
+            calibre_version: version_string(&p["calibre_version"]),
+        }
+    }
+}
+
+/// The answer to "may we talk to this library?", with the password it needs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Admission {
+    Reject,
+    Accept { password: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,13 +85,13 @@ fn protocol_error(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
 }
 
-/// Runs a session until Calibre disconnects. `allow` decides whether to stay
-/// connected to the library Calibre announces.
+/// Runs a session until Calibre disconnects. `admit` decides whether to stay
+/// connected to the library Calibre announces, and with which password.
 pub fn run<R: BufRead, W: Write>(
     conn: &mut Connection<R, W>,
     lib: &mut Library,
     cfg: &DeviceConfig,
-    allow: &mut dyn FnMut(&CalibreInfo) -> bool,
+    admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
 ) -> io::Result<SessionEnd> {
     loop {
         let Some(msg) = conn.recv()? else {
@@ -88,26 +104,30 @@ pub fn run<R: BufRead, W: Write>(
         let p = &msg.payload;
         match op {
             Opcode::GetInitializationInfo => {
-                let info = CalibreInfo {
-                    library_uuid: str_field(p, "currentLibraryUUID"),
-                    library_name: str_field(p, "currentLibraryName"),
-                    calibre_version: version_string(&p["calibre_version"]),
-                };
+                let info = CalibreInfo::from_init_payload(p);
                 let version_ok = p["serverProtocolVersion"].as_u64() == Some(PROTOCOL_VERSION);
-                if version_ok && !allow(&info) {
+                let admission = if version_ok {
+                    admit(&info)
+                } else {
+                    Admission::Accept { password: None }
+                };
+                let Admission::Accept { password } = admission else {
                     log::warn!(
                         "library {:?} ({}) is not allowed",
                         info.library_name,
                         info.library_uuid
                     );
                     return Ok(SessionEnd::LibraryRejected(info));
-                }
+                };
                 log::info!(
                     "connected to calibre {} library {:?}",
                     info.calibre_version,
                     info.library_name
                 );
-                conn.send(Opcode::Ok, init_info(cfg, p, version_ok))?;
+                conn.send(
+                    Opcode::Ok,
+                    init_info(cfg, p, version_ok, password.as_deref()),
+                )?;
                 if !version_ok {
                     return Ok(SessionEnd::ProtocolMismatch);
                 }
@@ -236,9 +256,9 @@ pub fn run<R: BufRead, W: Write>(
     }
 }
 
-fn init_info(cfg: &DeviceConfig, p: &Value, version_ok: bool) -> Value {
+fn init_info(cfg: &DeviceConfig, p: &Value, version_ok: bool, password: Option<&str>) -> Value {
     let challenge = str_field(p, "passwordChallenge");
-    let password_hash = match &cfg.password {
+    let password_hash = match password {
         Some(pw) if !challenge.is_empty() => {
             let mut h = sha1_smol::Sha1::new();
             h.update(pw.as_bytes());
@@ -428,11 +448,27 @@ mod tests {
     }
 
     fn run_script(lib: &mut Library, cfg: &DeviceConfig, script: Script) -> Outcome {
+        run_script_with_password(lib, cfg, script, None)
+    }
+
+    /// Admits library "lib-1" with `password`.
+    fn run_script_with_password(
+        lib: &mut Library,
+        cfg: &DeviceConfig,
+        script: Script,
+        password: Option<&str>,
+    ) -> Outcome {
         let mut out = Vec::new();
         let end = {
             let mut conn = Connection::new(Cursor::new(script.0), &mut out);
             run(&mut conn, lib, cfg, &mut |info| {
-                info.library_uuid == "lib-1"
+                if info.library_uuid == "lib-1" {
+                    Admission::Accept {
+                        password: password.map(str::to_owned),
+                    }
+                } else {
+                    Admission::Reject
+                }
             })
             .unwrap()
         };
@@ -519,16 +555,13 @@ mod tests {
     #[test]
     fn password_hash_is_sha1_of_password_and_challenge() {
         let (_tmp, mut lib) = setup();
-        let cfg = DeviceConfig {
-            password: Some("pw".into()),
-            ..Default::default()
-        };
+        let cfg = DeviceConfig::default();
         let script = Script::new().msg(
             Opcode::GetInitializationInfo,
             json!({"serverProtocolVersion": 1, "passwordChallenge": "2026-10-15T00:00:00",
                    "currentLibraryUUID": "lib-1", "calibre_version": [9, 16, 0]}),
         );
-        let o = run_script(&mut lib, &cfg, script);
+        let o = run_script_with_password(&mut lib, &cfg, script, Some("pw"));
         let mut h = sha1_smol::Sha1::new();
         h.update(b"pw2026-10-15T00:00:00");
         assert_eq!(o.replies[0].1["passwordHash"], h.digest().to_string());
