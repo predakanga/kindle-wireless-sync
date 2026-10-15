@@ -194,7 +194,9 @@ sync works end to end with only stock Calibre.
 
 ### Phase 5: Stretch goals
 
-- Collections from Series.
+- Series from Calibre as the Kindle's **native series grouping** (one tile per
+  series, in series order), through the catalog's ChangeRequest endpoint.
+  Decided 2026-10-16. Collections in general are on the "Later" list.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
@@ -228,7 +230,14 @@ Not part of any phase. Pick these up after the base and stretch goals
    label, hint and message. Consider moving the text into a translation
    file. Known item: status messages disappear after 6 s, which is easy to
    miss.
-3. **A tap-debugging helper in this repo.** UI checks over SSH currently
+3. **Kindle collections from Calibre fields** (series, tags, custom
+   columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
+   `insert` a `Collection`, then `addCollectionMember`. That's the command
+   the Library app sends. Cloud collections may sync to the user's other
+   devices, empty there, since sideloaded books don't sync; check that
+   first. Deferred on 2026-10-16: Series uses the native series grouping
+   instead (see Phase 5).
+4. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
    installed on the reference device. Add our own (or a vendored, credited
    copy, after checking its licence), plus a recipe that taps, screenshots
@@ -238,8 +247,6 @@ Not part of any phase. Pick these up after the base and stretch goals
 
 Track these here until they become decisions.
 
-- Should Series map to Kindle *collections*, the native *series grouping*
-  (5.13.4+), or both?
 - Should we also *write* the USB driver's `metadata.calibre`, so that USB
   connections see books we received over Wi-Fi? We keep our own state in
   `books.json`/`driveinfo.json`, and since ADR 0013 we only *read*
