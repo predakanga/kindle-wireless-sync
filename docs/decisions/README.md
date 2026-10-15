@@ -31,5 +31,5 @@ What this commits us to, and any follow-up work or risks.
 - [0001: Target device and firmware](0001-target-device-and-firmware.md)
 - [0002: Run lifecycle](0002-run-lifecycle.md)
 - [0003: Calibre trust model and allowlist](0003-calibre-trust-model.md)
-- [0004: UI as a WAF app over a localhost API](0004-ui-architecture.md) (Proposed)
+- [0004: UI, daemon and service layout](0004-ui-architecture.md)
 - [0005: Register books through the system scanner](0005-library-registration-via-scanner.md)

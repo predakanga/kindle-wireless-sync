@@ -43,7 +43,7 @@ Phase 1 finds.
 
 - Repo, CLAUDE.md, this plan, decision log.
 
-### Phase 1: Research and feasibility (no product code)
+### Phase 1: Research and feasibility (no product code) ✅
 
 The aim is to answer the open questions below and confirm that every base
 requirement can be met without a Calibre plugin. If one can't, stop and
@@ -85,8 +85,8 @@ decide what to do before building anything.
 every base requirement, and a first set of architecture decisions.
 
 **Status:** the desk research and on-device probes are done (see
-[research/](research/), probed on 5.20.1 on 2026-10-15). Phase 1 is complete
-once the proposed decisions are accepted.
+[research/](research/), probed on 5.20.1 on 2026-10-15). **Phase 1 is
+complete:** ADRs 0001–0005 are accepted.
 
 | Requirement | Verdict so far |
 |---|---|
@@ -119,8 +119,9 @@ send books to it and delete books from it.
   on Kindle Button Mapper).
 - Run the client on the device, write to the correct documents location, and
   trigger library registration so books show up immediately.
-- Service lifecycle per [0002](decisions/0002-run-lifecycle.md): start and stop
-  from the UI, with optional autostart at boot or network-up.
+- Service layout per [0004](decisions/0004-ui-architecture.md): a daemon job
+  plus an autostart task gated by a sentinel, files in `/var/local/kws/`. The
+  daemon waits for Wi-Fi CONNECTED before it connects.
 
 **Exit criteria:** a book sent from Calibre opens in the built-in reader
 without a reboot.

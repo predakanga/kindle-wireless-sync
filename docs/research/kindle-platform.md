@@ -40,9 +40,14 @@ Research for Phase 1, item 6. Sources:
 
 - The root filesystem is read-only. Use `/usr/sbin/mntroot rw` and then
   `mntroot ro`, with a trap so it is always set back to ro.
-- App state lives under `/mnt/us/<app>/` (the user-visible FAT partition,
-  which is case-insensitive). Logs go to `/var/log/<app>.log`.
-- On FAT, a running binary can't be overwritten. Copy to `*.new`, then `mv`.
+- The references keep app state under `/mnt/us/<app>/` and logs in
+  `/var/log/<app>.log`. On FW 5.20.1, `/mnt/us` is a FUSE layer (`fsp`) over
+  ext4 (`/mnt/base-us`), and it's what the user sees over USB. The
+  references' notes call it vfat and case-insensitive; that may hold for
+  older devices or describe how `fsp` behaves. `/var/local` is persistent rw
+  ext4 that isn't exposed over USB (we keep our files there, see ADR 0004).
+- The references can't overwrite a running binary in place, so they copy to
+  `*.new` and then `mv`. Do the same.
 
 ## Service (upstart)
 
@@ -57,6 +62,7 @@ Research for Phase 1, item 6. Sources:
   turns itself off. The daemon resets the counter once it is running stably.
   We should copy this, because a crash-looping job at boot can make the
   device unusable.
+- Upstart is **0.6.6**, and `start` supports `-n/--no-wait`.
 - **Autostart toggle (HID passthrough):** autostart is on exactly when the
   upstart `.conf` file exists. The UI turns it on or off by installing or
   removing that file. Start/stop of the *feature* is separate: a flag inside
