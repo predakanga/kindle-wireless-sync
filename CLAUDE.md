@@ -22,8 +22,9 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 
 ## Current status
 
-Phases 1–3 are done. Phase 4 (UI and KPM package) is in progress; see
-`docs/PLAN.md` for what's left. Research notes, including on-device probe
+Phases 1–3 are done. Phase 4 (UI and KPM package) is in progress. **Start
+with `docs/HANDOFF.md`**, which has the next steps, gotchas and device state,
+then `docs/PLAN.md`. Research notes, including on-device probe
 results for FW 5.20.1, are in `docs/research/`. Read them before making
 design changes.
 
