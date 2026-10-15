@@ -440,6 +440,7 @@ impl Daemon {
             // connection. Apply any network changes that arrived meanwhile.
             let mut went_down = false;
             let mut shutdown = false;
+            let mut connect_now = false;
             while let Ok(msg) = self.rx.try_recv() {
                 match msg {
                     Control::Network(false) => {
@@ -450,6 +451,7 @@ impl Daemon {
                     Control::ConnectNow => {
                         bad_password.clear();
                         attempt = 0;
+                        connect_now = true;
                     }
                     Control::Pause => self.paused = true,
                     Control::Resume => {
@@ -479,6 +481,9 @@ impl Daemon {
             let delay = self.opts.backoff[attempt.min(self.opts.backoff.len() - 1)];
             let secs = delay.as_secs();
             match outcome {
+                // Forget, a new password or Connect now cut the session:
+                // go round again at once, without a "lost" status.
+                Outcome::Lost(_) | Outcome::NotFound | Outcome::Busy if connect_now => continue,
                 Outcome::Ejected => {
                     ejected = true;
                     attempt = 0;
@@ -793,6 +798,14 @@ mod tests {
         state: &Path,
         allowed: Option<(&str, SocketAddr)>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
+        start_with_backoff(state, allowed, Duration::from_millis(50))
+    }
+
+    fn start_with_backoff(
+        state: &Path,
+        allowed: Option<(&str, SocketAddr)>,
+        backoff: Duration,
+    ) -> (Handle, std::thread::JoinHandle<()>) {
         let mut config = Config::load(state).unwrap();
         if let Some((uuid, addr)) = allowed {
             config.upsert_allowed(AllowedLibrary {
@@ -808,7 +821,7 @@ mod tests {
         let opts = Options {
             device: DeviceConfig::default(),
             state_dir: state.to_path_buf(),
-            backoff: vec![Duration::from_millis(50)],
+            backoff: vec![backoff],
             read_timeout: Duration::from_secs(5),
             discover: Box::new(Vec::new),
         };
@@ -889,7 +902,9 @@ mod tests {
     fn forget_during_a_session_sticks() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre_with("lib-1", false);
-        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        // A backoff longer than wait_until's deadline: the forget must not wait it out.
+        let (h, thread) =
+            start_with_backoff(tmp.path(), Some(("lib-1", addr)), Duration::from_secs(60));
 
         wait_until("connected", || h.status().state == State::Connected);
         // What the API's /forget does.
