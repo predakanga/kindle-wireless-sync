@@ -286,6 +286,48 @@
         };
         el("allowedList").onclick = onListClick;
         el("seenList").onclick = onListClick;
+        bindKeyboard();
+    }
+
+    // ---- on-screen keyboard ----
+
+    // The keyboard covers the bottom of the screen, and the page doesn't move
+    // out of its way. While an input has focus, pad the page so any field can
+    // scroll to the top, then scroll it there.
+    function isInput(t) { return t && t.tagName === "INPUT" && t.type !== "checkbox"; }
+
+    function bindKeyboard() {
+        document.addEventListener("focus", function (e) {
+            if (!isInput(e.target)) return;
+            document.body.style.paddingBottom = window.innerHeight + "px";
+            var t = e.target;
+            setTimeout(function () {
+                var y = 0;
+                for (var n = t; n; n = n.offsetParent) y += n.offsetTop;
+                window.scrollTo(0, Math.max(0, y - window.innerHeight / 10));
+            }, 50);
+        }, true);
+        document.addEventListener("blur", function () {
+            // Moving to the next field blurs then focuses: keep the padding.
+            setTimeout(function () {
+                if (!isInput(document.activeElement)) document.body.style.paddingBottom = "";
+            }, 50);
+        }, true);
+        // Enter moves to the next field in the same card; on the last one it
+        // closes the keyboard so the buttons are visible again.
+        document.addEventListener("keydown", function (e) {
+            if (e.keyCode !== 13 || !isInput(e.target)) return;
+            e.preventDefault();
+            var card = e.target;
+            while (card && !/\bcard\b/.test(card.className)) card = card.parentNode;
+            var inputs = card ? card.getElementsByTagName("input") : [];
+            var next = null;
+            for (var i = 0; i < inputs.length - 1; i++) {
+                if (inputs[i] === e.target && isInput(inputs[i + 1])) next = inputs[i + 1];
+            }
+            if (next) next.focus();
+            else e.target.blur();
+        }, true);
     }
 
     function init() {
