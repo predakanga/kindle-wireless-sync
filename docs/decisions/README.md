@@ -40,3 +40,4 @@ What this commits us to, and any follow-up work or risks.
 - [0010: Autostart sentinel and crash-loop guard](0010-autostart-and-crash-loop-guard.md)
 - [0011: Localhost API for the on-device UI](0011-localhost-api.md)
 - [0012: KPM package install, upgrade and uninstall](0012-kpm-package-lifecycle.md)
+- [0013: Adopt books that Calibre sent over USB](0013-adopt-usb-transferred-books.md)
