@@ -38,33 +38,45 @@ pub fn default_targets() -> Vec<IpAddr> {
     vec![IpAddr::V4(Ipv4Addr::BROADCAST)]
 }
 
-/// Probes every broadcast port on each target and collects replies until
-/// `timeout` passes.
+/// Wi-Fi drops broadcast datagrams (no retransmission, power-save), so the
+/// probes are repeated this often until the timeout.
+const RESEND_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Probes every broadcast port on each target, repeating every
+/// [`RESEND_INTERVAL`], and collects replies until `timeout` passes.
 pub fn discover(timeout: Duration, targets: &[IpAddr]) -> io::Result<Vec<CalibreServer>> {
     let sock = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
     sock.set_broadcast(true)?;
-    let mut sent = 0;
-    for target in targets {
-        for port in BROADCAST_PORTS {
-            match sock.send_to(b"hello", (*target, port)) {
-                Ok(_) => sent += 1,
-                Err(e) => log::debug!("probe to {target}:{port} failed: {e}"),
+    let send_probes = || {
+        let mut sent = 0;
+        for target in targets {
+            for port in BROADCAST_PORTS {
+                match sock.send_to(b"hello", (*target, port)) {
+                    Ok(_) => sent += 1,
+                    Err(e) => log::debug!("probe to {target}:{port} failed: {e}"),
+                }
             }
         }
-    }
-    if sent == 0 {
+        sent
+    };
+    if send_probes() == 0 {
         return Err(io::Error::other("could not send any discovery probe"));
     }
 
     let deadline = Instant::now() + timeout;
+    let mut next_send = Instant::now() + RESEND_INTERVAL;
     let mut found: Vec<CalibreServer> = Vec::new();
     let mut buf = [0u8; 512];
     loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
+        let now = Instant::now();
+        if now >= deadline {
             break;
         }
-        sock.set_read_timeout(Some(left))?;
+        if now >= next_send {
+            send_probes();
+            next_send = now + RESEND_INTERVAL;
+        }
+        sock.set_read_timeout(Some(deadline.min(next_send) - now))?;
         let (n, from) = match sock.recv_from(&mut buf) {
             Ok(r) => r,
             Err(e)
@@ -73,7 +85,7 @@ pub fn discover(timeout: Duration, targets: &[IpAddr]) -> io::Result<Vec<Calibre
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) =>
             {
-                break
+                continue
             }
             Err(e) => return Err(e),
         };
