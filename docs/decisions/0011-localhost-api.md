@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended: 2026-10-15 (config ownership; see below)
 
 ## Context
 ADR 0004 puts the UI in a WAF app that talks to the daemon over a localhost
@@ -47,9 +48,11 @@ a page add an attacker's Calibre to the allowlist (ADR 0003).
 - **Pause** is a daemon state (`paused`), not an upstart stop, so the UI can
   always reach the API. It isn't persisted: a restart or reboot (with
   autostart) resumes syncing.
-- `config.json` is changed only through one load-modify-save function
-  guarded by a process-wide lock, because the API thread and the daemon
-  thread both write it.
+- `config.json` is changed only through `config::update`: an exclusive
+  `flock` on `state/config.lock`, then load, change and save. The change
+  itself goes through `Config`'s typed operations (`allow_seen`, `forget`,
+  `set_password`, `record_seen`, …), so the API can only make the changes its
+  endpoints name. See the amendment below.
 
 ## Alternatives considered
 - A custom request header to force a CORS preflight: may break requests
@@ -63,3 +66,28 @@ a page add an attacker's Calibre to the allowlist (ADR 0003).
   running locally on a jailbroken Kindle already has root.
 - The `Origin` value mesquite actually sends must be checked on the device
   when the WAF app is first tested.
+
+## Amendment (2026-10-15): who owns `config.json`
+
+The developer asked whether the UI should send update messages to the
+backend rather than having it read-modify-write JSON. It already does: each
+endpoint maps to one typed operation. What was open was how the writers
+coordinate. The writers are the daemon loop (on every connection), the API
+thread (user actions), and CLI processes (development and headless use).
+The options considered:
+
+- **A. The file is the source of truth, with locked load-modify-save.**
+  Works with or without the daemon running; hand edits are always safe. The
+  in-process lock didn't cover CLI processes.
+- **B. The daemon owns an in-memory config, and the CLI becomes an API
+  client.** One writer, but CLI management needs a running daemon, hand
+  edits made while it runs are lost, and it needs an HTTP client in the
+  binary. A mutex is still needed between the two threads.
+- **C. An actor thread owns the config.** The same guarantee as B, with more
+  boilerplate. The daemon loop can't be the actor, because it blocks inside
+  sessions.
+
+**Chosen: A, with an `flock`** (developer's decision). It closes the
+cross-process gap with a few lines. `tests: config::concurrent_updates_are_not_lost`
+fails without the lock. `/forget` and `/password` call `Handle::reconnect`
+so the change takes effect at once.

@@ -2,23 +2,45 @@
 //! libraries" but not yet allowed (ADR 0003, ADR 0008). Stored as
 //! `config.json` in the state directory.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
 pub const CONFIG_FILE: &str = "config.json";
+const LOCK_FILE: &str = "config.lock";
 
-/// Serialises load-modify-save cycles: the API thread and the daemon thread
-/// both change the config (ADR 0011).
-static UPDATE_LOCK: Mutex<()> = Mutex::new(());
+/// An exclusive `flock` on the state directory's lock file, released when
+/// dropped. `flock` locks belong to the open file, so this serialises
+/// threads within the daemon as well as separate CLI processes.
+struct ConfigLock {
+    /// Kept open only to hold the lock.
+    _file: File,
+}
 
-/// Loads the config, applies `f`, and saves it, under a process-wide lock.
+impl ConfigLock {
+    fn acquire(state_dir: &Path) -> io::Result<ConfigLock> {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(state_dir.join(LOCK_FILE))?;
+        // SAFETY: the descriptor is valid for the lifetime of `file`.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ConfigLock { _file: file })
+    }
+}
+
+/// Loads the config, applies `f`, and saves it, holding the config lock.
+/// Every change to `config.json` goes through here (ADR 0011); `f` should
+/// use `Config`'s typed operations.
 pub fn update<T>(state_dir: &Path, f: impl FnOnce(&mut Config) -> T) -> io::Result<T> {
-    let _guard = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = ConfigLock::acquire(state_dir)?;
     let mut config = Config::load(state_dir)?;
     let result = f(&mut config);
     config.save()?;
@@ -302,6 +324,27 @@ mod tests {
         assert!(update(tmp.path(), |c| c.forget("lib-1")).unwrap());
         assert!(!update(tmp.path(), |c| c.forget("lib-1")).unwrap());
         assert!(Config::load(tmp.path()).unwrap().allowed.is_empty());
+    }
+
+    #[test]
+    fn concurrent_updates_are_not_lost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    for i in 0..10 {
+                        let uuid = format!("lib-{t}-{i}");
+                        update(&dir, |c| c.record_seen(&uuid, "n", "h", 1, "x")).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        assert_eq!(Config::load(&dir).unwrap().seen.len(), 80);
     }
 
     #[test]
