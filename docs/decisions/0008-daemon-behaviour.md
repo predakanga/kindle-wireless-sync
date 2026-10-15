@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended: 2026-10-15 (see "Amendment" below; it replaces "Avoiding unwanted
+  libraries")
 
 ## Context
 ADR 0004 runs the client as a long-lived upstart job that waits for Wi-Fi.
@@ -65,3 +67,36 @@ error (message).
   as non-allowed is only noticed after Wi-Fi cycles or on "Connect now".
 - On the host there is no lipc, so the network monitor is pluggable and
   treats the network as always up there.
+
+## Amendment (2026-10-15): find libraries on request; add servers directly
+
+Calibre's discovery replies carry no library identity. The UDP reply has
+only the short hostname and ports (`driver.py` ~L130). The mDNS record has an
+empty property set (~L2031). The UUID only arrives after connecting. Two
+things the developer reported or decided: the refused connection in Phase 2
+produced no error or popup in Calibre, and the behaviours below.
+
+- **The background loop only connects to allowed libraries.** Candidates are
+  (a) discovered servers whose broadcast hostname or address matches an
+  allowed library's last-seen hostname or host, and (b) each allowed
+  library's last known `host:port`, tried directly, so libraries outside the
+  broadcast domain work too. The UUID is still checked after connecting
+  (ADR 0003). If a different library answers at an allowed address, it is
+  recorded in `seen` and that address is skipped until Wi-Fi cycles. A
+  Calibre that has never been allowed is never contacted in the background.
+  With an empty allowlist the status says so and the loop just waits.
+- **Find libraries** (a UI action, and `kindle-wireless-sync find` until the
+  UI exists) runs discovery and connects once to each server not already
+  matched to an allowed library. It reads `currentLibraryUUID` and
+  `currentLibraryName` from the first message, disconnects without replying,
+  and records the result in `seen` for the user to approve.
+- **Add server** takes a host, port and optional password and is
+  **synchronous**. The daemon connects to that address immediately. If it
+  can't connect, or the first message isn't a Calibre handshake, the user
+  is told why and **nothing is stored**. If it succeeds, the library's UUID
+  and name are read and the library is **added to the allowlist** with that
+  address, as if it had been found and approved.
+
+This replaces "Avoiding unwanted libraries" above. With no background
+connections to non-allowed libraries, the per-address skip list is only
+needed for the mismatch case.

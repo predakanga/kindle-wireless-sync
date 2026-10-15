@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended: 2026-10-15. How libraries get onto the allowlist is refined in ADR
+  0008's amendment: "Find libraries" lists them for approval, and "Add server"
+  probes an address and allows the library that answers. Entries stay keyed by
+  library UUID.
 
 ## Context
 In the wireless protocol, Calibre is the TCP server and the Kindle connects to
