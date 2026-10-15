@@ -176,6 +176,7 @@ fn respond(api: &Api, stream: &TcpStream) -> io::Result<()> {
             return write_response(stream, 413, &json!({"ok": false, "error": "too large"}))
         }
     };
+    log::debug!("api: {} {} origin={:?}", req.method, req.path, req.origin);
     if let Some(origin) = req.origin.as_deref().filter(|o| is_web_origin(o)) {
         log::warn!("api: refused request from origin {origin}");
         return write_response(stream, 403, &json!({"ok": false, "error": "forbidden"}));

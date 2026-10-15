@@ -20,8 +20,9 @@ a page add an attacker's Calibre to the allowlist (ADR 0003).
 ## Decision
 - The daemon serves HTTP/1.1 on **`127.0.0.1:8325`**, one request per
   connection, from a thread inside the daemon process. It is a small
-  hand-written server, because an HTTP crate would cost binary size (ADR
-  0006). Requests are capped at 16 KB.
+  hand-written server (about 150 lines in `api.rs`). Requests are capped at
+  16 KB, and reads time out after 5 s. See "HTTP server: hand-written vs
+  `tiny_http`" below for the size measurement behind this choice.
 - **Origin check:** any request whose `Origin` header is an `http://` or
   `https://` origin gets 403. The WAF app is loaded from `file://`, so
   browsers send `null`, `file://` or nothing. Responses carry
@@ -53,6 +54,24 @@ a page add an attacker's Calibre to the allowlist (ADR 0003).
   itself goes through `Config`'s typed operations (`allow_seen`, `forget`,
   `set_password`, `record_seen`, …), so the API can only make the changes its
   endpoints name. See the amendment below.
+
+## HTTP server: hand-written vs `tiny_http`
+
+The developer asked whether a crate such as `tiny_http` would be better.
+Measured on 2026-10-15 (armv7-musl, release profile from ADR 0006): a
+minimal `std::net` server parsing and serving JSON came to 364,300 B, and
+the same with `tiny_http` 0.12 (`default-features = false`, pulling in
+`ascii`, `chunked_transfer` and `httpdate`) came to 506,920 B: **+143 KB**,
+about 22% of our 656 KB binary.
+
+`tiny_http` brings chunked bodies, keep-alive, pipelining and broad client
+compatibility. We have one known client (the WAF app's `XMLHttpRequest`,
+small `Content-Length` bodies) on localhost. The hand-written server's
+risks are bounded by the size caps, the read timeout and the loopback bind,
+and its edge cases are covered by tests (bad request line, oversized body,
+unknown path, wrong method, origin, `OPTIONS`). **Kept hand-written.** We'll
+revisit if the API gains other clients, for example over the network. All
+the HTTP code is in `api.rs`.
 
 ## Alternatives considered
 - A custom request header to force a CORS preflight: may break requests
