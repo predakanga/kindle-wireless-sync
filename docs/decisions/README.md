@@ -30,3 +30,5 @@ What this commits us to, and any follow-up work or risks.
 
 - [0001: Target device and firmware](0001-target-device-and-firmware.md)
 - [0002: Run lifecycle](0002-run-lifecycle.md)
+- [0003: Calibre trust model and allowlist](0003-calibre-trust-model.md) (Proposed)
+- [0004: UI as a WAF app over a localhost API](0004-ui-architecture.md) (Proposed)
