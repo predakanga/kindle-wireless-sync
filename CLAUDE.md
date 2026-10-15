@@ -49,6 +49,9 @@ single-test and deploy-to-device commands here.**
 - Never write to `/var/local/cc.db` or `/var/local/ksdk.asset.db`. The two
   stores are kept in sync by triggers, and hand edits can desync the library
   (ADR 0005). Reads must tolerate `database is locked`.
+- To check the UI from SSH, run `/usr/sbin/screenshot`. It writes a PNG to
+  `/mnt/us/screenshots/`; delete it after fetching. Button Mapper's
+  `/mnt/us/kindle-button-mapper/scripts/tap.sh 76 96` taps the Library tab.
 - Name test files `kws-*`. When cleaning up, also remove the `.sdr/` folder
   the indexer creates for each file, because it is not removed automatically.
 

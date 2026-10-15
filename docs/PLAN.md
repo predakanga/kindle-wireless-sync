@@ -85,16 +85,15 @@ decide what to do before building anything.
 every base requirement, and a first set of architecture decisions.
 
 **Status:** the desk research and on-device probes are done (see
-[research/](research/), probed on 5.20.1 on 2026-10-15). **One probe is
-left:** index a fresh Calibre-converted AZW3, to check the mobi8 extractor's
-timing and its thumbnail.
+[research/](research/), probed on 5.20.1 on 2026-10-15). Phase 1 is complete
+once the proposed decisions are accepted.
 
 | Requirement | Verdict so far |
 |---|---|
 | Rust | Feasible: static `armv7-unknown-linux-musleabihf`, as in the references |
 | KPM package | Feasible: `.kpkg` tarball with `manifest.json` at its root |
 | Allowlist UI | Feasible: WAF app plus localhost API ([0004](decisions/0004-ui-architecture.md)), trust model in [0003](decisions/0003-calibre-trust-model.md) |
-| Immediate library availability | **Confirmed** (TXT): the scanner indexes new, changed and deleted files in ~2 s ([0005](decisions/0005-library-registration-via-scanner.md)). AZW3 still to check |
+| Immediate library availability | **Confirmed** (TXT and AZW3): the scanner indexes new, changed and deleted files in ~2 s. We must write the cover ourselves, before the rename ([0005](decisions/0005-library-registration-via-scanner.md)) |
 | Built-in reader | Feasible: declare only AZW3/MOBI/KFX/PDF/TXT, and Calibre converts. Confirmed that sideloaded EPUBs are ignored |
 | Stock Calibre only | Feasible: no plugin needed for any base requirement |
 | Stretch: Series → collections | Feasible with stock Calibre (collections map in `SEND_BOOKLISTS`). Native series grouping is also possible. The write path must keep `cc.db` and `ksdk.asset.db` consistent: ChangeRequest API on :9101 (still to test) rather than direct SQL |

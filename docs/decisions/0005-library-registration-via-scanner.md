@@ -28,11 +28,14 @@ direct-SQL tools restart doesn't exist. Evidence:
   copy is local and fast, which keeps the window for a torn file small.
 - **Delete:** remove the book, then its `<name>.sdr/` folder and our cover
   files. The indexer leaves the `.sdr` behind.
-- **Cover:** write Calibre's thumbnail to
-  `system/thumbnails/thumbnail_<cdeKey>_<cdeType>_portrait.jpg` and a backup
-  in `amazon-cover-bug/`, and restore missing ones on connect, as Calibre's
-  USB driver does. Whether to skip this when the extractor produces its own
-  thumbnail depends on the pending AZW3 probe.
+- **Cover (required):** the mobi8 extractor only writes a 60×40 "No image
+  available" placeholder, so the Library shows a generic tile. Write Calibre's
+  thumbnail to `system/thumbnails/thumbnail_<cdeKey>_<cdeType>_portrait.jpg`
+  **before** renaming the book into place, so the first time the Library
+  draws the book it shows the real cover. Keep a backup in
+  `amazon-cover-bug/` and restore missing or placeholder covers on connect,
+  as Calibre's USB driver does. `cdeKey`/`cdeType` come from the book's EXTH
+  113/501 records, which we parse ourselves.
 - Treat `cc.db` as **read-only, lock-tolerant input** for stretch goals: open
   it read-only and retry on `SQLITE_BUSY`.
 
@@ -50,5 +53,7 @@ direct-SQL tools restart doesn't exist. Evidence:
   layout is decided later.
 - File names need to be stable across updates, so that an update is an
   in-place rewrite and not a delete plus add, which would lose progress.
-- Still to confirm with a real AZW3: the mobi8 extractor's timing and its
-  thumbnail behaviour.
+- Confirmed with real AZW3s: indexed in ~2 s. Without our cover the book
+  shows a generic tile. A cover written before the rename shows straight away.
+- We need a small MOBI/KF8 EXTH parser (and later a KFX one, if we accept
+  KFX).

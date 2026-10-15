@@ -202,10 +202,34 @@ and **leaves it behind** when the book is deleted. Sidecar files are named
 the path.
 
 **So requirement 4 is met by the scanner alone:** a book written into
-`documents/` appears in the library within seconds. Not yet tested: an
-**AZW3** (mobi8 extractor) from Calibre with a UUID new to the device,
-including its timing and whether the extractor creates a thumbnail itself.
-That needs a fresh Calibre-converted AZW3.
+`documents/` appears in the library within seconds.
+
+#### AZW3 (mobi8 extractor)
+
+Two books from the Calibre library were converted with `ebook-convert`
+(Calibre 9.16.0) and uploaded with the ADR 0005 pattern: a dot-prefixed temp
+file, then `mv` to the final name.
+
+- Indexed into **both** stores in **~2 s**: `EBOK`,
+  `application/x-mobi8-ebook`, with title and credits taken from the file.
+  `cdeKey` = the book's EXTH 113 value, and `ASSET_ID = <cdeKey>!!EBOK`. It
+  appeared at the top of the Library with the **"New"** badge.
+- The extractor writes `system/thumbnails/thumbnail_<cdeKey>_EBOK_portrait.jpg`
+  itself, but it's a **60×40 "No image available" placeholder** (961 bytes).
+  With no other cover, the Library shows a **grey generic tile** with the
+  title and author (confirmed by screenshot).
+- Overwriting that file with Calibre's cover (331×500 JPEG, ~41 KB) **was not
+  undone** within 60 s. The Library showed the real cover **the next time it
+  drew the grid**; it does not update an already-drawn tile. So the cover
+  must be written **before** the book is renamed into place.
+- The `.sdr/` folder is created lazily (for one book it only appeared once
+  the Library had drawn it), and it's still left behind after deletion.
+- Standalone `ebook-convert` takes the EPUB's own embedded metadata, so the
+  title was "Artificial Condition--The Murderbot Diaries" and EXTH 113 was a
+  **new random UUID** (not the library UUID `673695bc…`). When Calibre sends
+  to a device it writes the library metadata into the file first, so the
+  client should expect EXTH 113 to be the Calibre book UUID. **Still to
+  check** once the client exists.
 
 ### Covers
 
@@ -214,6 +238,14 @@ and `cdeType = EBOK`. Its thumbnail is at
 `system/thumbnails/thumbnail_<uuid>_EBOK_portrait.jpg` (written by Calibre's
 USB driver), with a backup in `/mnt/us/amazon-cover-bug/`. The asset DB's
 `Nodes.THUMBNAIL` points at the same path.
+
+### Verifying the UI from SSH
+
+`/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to
+`/mnt/us/screenshots/`. Kindle Button Mapper's `scripts/tap.sh X% Y%` injects
+a tap, for example `76 96` for the Library tab on the reference device.
+`lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home` goes to
+Home.
 
 ### Network-up events
 
