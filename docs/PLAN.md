@@ -21,6 +21,8 @@ Stretch (a Calibre plugin is allowed for these):
 
 1. Create Kindle collections from Calibre's Series metadata.
 2. Send reading progress and rating back to Calibre.
+3. Use the Kindle's own device name as the device name shown in Calibre.
+   Low priority.
 
 ## References
 
@@ -147,6 +149,15 @@ sync works end to end with only stock Calibre.
 - Collections from Series.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
+- Kindle device name as the Calibre device name (low priority). Questions to
+  answer first:
+  - Where does the firmware store the user-set device name, and is there a
+    lipc property or event for changes?
+  - What happens when the name changes while connected or between
+    connections? Calibre shows `deviceName` from the handshake and keeps
+    `device_name` in the driveinfo it stores on the device.
+  - Which characters and lengths does Calibre accept? Sanitize the name, and
+    fall back to "Kindle" if it is empty or unusable.
 
 ### Phase 6: Other firmware (stretch stretch goal)
 
