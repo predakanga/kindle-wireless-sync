@@ -475,8 +475,19 @@ investigated: `QuickSettingsWidgetProvider::getIconPanelWidgetList`). The
 `kws-test series` books disappeared without a series tile taking their
 place. They're probably hidden as members (`VISIBILITY_WITH_GROUPING = 1`),
 and our container is missing something that the series-tile query needs.
-Next step: compare an Amazon series container with ours, read-only, in
-`cc.db` and `ksdk.asset.db`.
+Why is **out of scope** for this investigation, which is only about turning
+grouping on.
+
+Next steps, in order:
+
+1. Find out which change does it: the `dcc` marketplace override, `dcc`
+   `series.grouping.enabled`, the UserDefaults flag, or a combination.
+   Also find out whether grouping only makes the Settings switch appear,
+   or works without the switch being touched.
+2. Then, if there's time, why Quick Settings still has no tile.
+3. Then a developer script (checked in, with a `just` task, not shipped in
+   the package) that turns grouping on and off using only the settings
+   that step 1 shows are needed.
 
 Undo:
 
