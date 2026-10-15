@@ -563,9 +563,13 @@ impl Daemon {
         Ok((end, answered))
     }
 
+    /// Remembers where an allowed library answered. Runs when the session
+    /// ends, so the library may have been forgotten meanwhile: never re-add it.
     fn record_connected(&self, info: &CalibreInfo, cand: &Candidate) {
         let result = config::update(&self.opts.state_dir, |c| {
-            let previous = c.allowed(&info.library_uuid).cloned().unwrap_or_default();
+            let Some(previous) = c.allowed(&info.library_uuid).cloned() else {
+                return;
+            };
             c.upsert_allowed(AllowedLibrary {
                 uuid: info.library_uuid.clone(),
                 name: info.library_name.clone(),
@@ -877,6 +881,23 @@ mod tests {
         });
         h.reconnect();
         wait_until("reconnect", || count.load(Ordering::SeqCst) == 3);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn forget_during_a_session_sticks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre_with("lib-1", false);
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+
+        wait_until("connected", || h.status().state == State::Connected);
+        // What the API's /forget does.
+        assert!(config::update(tmp.path(), |c| c.forget("lib-1")).unwrap());
+        h.reconnect();
+        wait_until("no libraries", || h.status().state == State::NoLibraries);
+        assert!(Config::load(tmp.path()).unwrap().allowed.is_empty());
+        assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after forget");
         h.shutdown();
         thread.join().unwrap();
     }
