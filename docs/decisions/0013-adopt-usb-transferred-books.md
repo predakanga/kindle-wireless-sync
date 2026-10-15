@@ -105,3 +105,24 @@ size and mtime are unchanged. That memory is kept in RAM, not persisted.
 - New code: a `documents/` scan, a `metadata.calibre` reader, EXTH 100/112/503
   reading, tests with fake files, and a replay case. The binary size cost
   should be small, since `serde_json` is already used, but measure it.
+
+## Findings from the device test (2026-10-15)
+Built in `src/adopt.rs`, with hooks in `Library::adopt_existing` and
+`session::run`. Tested on the PW12 against Calibre 9.16.0:
+- **From `metadata.calibre`:** a USB-sent AZW3 was adopted at the next
+  session start. The EPUBs and Amazon dictionaries were skipped, and the
+  existing cover was backed up. Calibre then listed the book as on the
+  device, with title, author and cover.
+- **From EXTH (verified):** a Calibre-made MOBI copied onto the device by
+  hand (`kws-exth-test.mobi`, so no `metadata.calibre` entry) was adopted
+  from its EXTH. Calibre matched it on the cache miss and sent its full
+  library record (`application_id`, series) in place of our minimal one.
+  Deleting it from Calibre removed the file, its `.sdr`, both copies of its
+  cover and its catalog entry.
+- **USB while connected (verified from source):** `DeviceManager.detect_device`
+  (`src/calibre/gui2/device.py`) only checks that the connected device is
+  still present while one is connected. It detects and connects other
+  devices, USB/MTP included, only when none is connected. So Calibre can't
+  take a USB connection during our session, and a USB transfer from the same
+  Calibre always falls between sessions. Not observed on the device, because
+  switching the Kindle to MTP drops the SSH session.

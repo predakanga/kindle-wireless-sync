@@ -55,8 +55,10 @@ connection* first.
 ## Code layout
 
 One package, `kindle-wireless-sync` (ADR 0006): the binary has that name and the library crate is `kws`. It uses blocking std I/O and
-`serde_json::Value` without serde derives, to keep the binary small. Measure
-the size cost of any new dependency.
+`serde_json::Value` without serde derives, to keep the binary small. The
+size budget is loose: keep the packaged binary well under 5 MB (`just
+size-kindle`), and check it when adding a dependency. There's no need to
+track individual bytes.
 
 - `protocol`: opcodes and the length-prefixed JSON framing. A `Connection`
   wraps a reader and writer and can record a JSONL transcript.
@@ -70,6 +72,9 @@ the size cost of any new dependency.
   deleting the `.sdr` folder along with a book.
 - `lpath`: validation of server-supplied paths. Calibre is untrusted (ADR 0003).
 - `discovery`: UDP broadcast to Calibre's fixed ports.
+- `adopt`: finds book files Calibre sent over USB and builds records for them
+  from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
+  it once per session.
 
 `tests/replay.rs` replays anonymized recordings of real Calibre sessions from
 `tests/fixtures/`. To add one, record with `just connect ... --transcript

@@ -166,7 +166,7 @@ three problems: the keyboard covered the fields and Enter did nothing; a
 Forget during a session was undone when the session ended; and a requested
 reconnect waited out the backoff.
 
-The KPM package (ADR 0012, Proposed) is built by `just package`. KPM 0.2.2
+The KPM package (ADR 0012) is built by `just package`. KPM 0.2.2
 on the device installed it over the development setup, upgraded it from a
 repository, uninstalled it cleanly (twice) and installed it fresh.
 **Exit criterion met (2026-10-15):** after a fresh KPM install, Find
@@ -176,6 +176,11 @@ index on GitHub Pages, published by a release workflow (ADR 0014,
 Proposed). That work is still to do, followed by an end-to-end check: a
 release, `kpm add-repo` of the Pages URL, then install and upgrade on the
 device.
+
+**Adopting USB-sent books (ADR 0013, 2026-10-15):** done and tested on the
+device. Books Calibre sent over USB are added to our book list at the start
+of each session, from `metadata.calibre` or the file's EXTH, so Calibre sees
+them as on the device and stops sending duplicates.
 
 
 - On-device UI for discovered Calibre instances and the allowlist (with
@@ -235,8 +240,10 @@ Track these here until they become decisions.
 
 - Should Series map to Kindle *collections*, the native *series grouping*
   (5.13.4+), or both?
-- Should we share Calibre's `metadata.calibre`/`driveinfo.calibre` files with
-  the USB driver, or keep our own state? (Phase 2 keeps its own state in
-  `books.json`/`driveinfo.json`.)
+- Should we also *write* the USB driver's `metadata.calibre`, so that USB
+  connections see books we received over Wi-Fi? We keep our own state in
+  `books.json`/`driveinfo.json`, and since ADR 0013 we only *read*
+  `metadata.calibre` to adopt USB-sent books. Calibre's USB driver also
+  reads metadata from files it doesn't know, so this may not be needed.
 - What does a running service cost in battery, and does it stop the device
   from sleeping?
