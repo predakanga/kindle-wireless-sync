@@ -149,6 +149,25 @@ received test book (AZW3) opened in the built-in reader without a reboot
 
 ### Phase 4: UI and packaging
 
+**Status (2026-10-15, in progress):** done:
+- the localhost API (ADR 0011) in the daemon, with tests
+- the WAF settings app (`package/ui/`), the appreg registration script, and
+  the Library scriptlet with its icon
+- deploy recipes (`just deploy-ui`, `just open-ui`)
+
+Checked on the device: the app shows live status, Pause/Resume work, the
+tile opens the app (starting the service if needed), and the `Origin`
+values are as expected. Still to do:
+- check that the on-screen keyboard works in the Add server and password
+  fields
+- try Find libraries, Add server (including the failure message), Forget
+  (two taps) and the autostart toggle from the app
+- the KPM package: `manifest.json`, `install.sh` (copy files, install the
+  upstart jobs only if changed, register the app, add the scriptlet),
+  `uninstall.sh` (exit early on `upgrade`; keep received books), a
+  `just package` recipe, and a real install and uninstall through KPM
+
+
 - On-device UI for discovered Calibre instances and the allowlist (with
   password if one is needed), service start/stop and autostart settings, and
   connection and sync status.

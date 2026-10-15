@@ -83,8 +83,10 @@ the HTTP code is in `api.rs`.
 ## Consequences
 - Local processes can still use the API. That's acceptable: anything
   running locally on a jailbroken Kindle already has root.
-- The `Origin` value mesquite actually sends must be checked on the device
-  when the WAF app is first tested.
+- Checked on FW 5.20.1 (2026-10-15): the WAF app's GET requests carry **no
+  `Origin`**, and its POSTs carry **`Origin: file://`**. Both are allowed.
+  Requests with a web origin are refused (tested with
+  `Origin: http://evil.example` → 403).
 
 ## Amendment (2026-10-15): who owns `config.json`
 
