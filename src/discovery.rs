@@ -123,8 +123,9 @@ mod tests {
 
     #[test]
     fn discovers_a_fake_calibre_on_loopback() {
-        // Bind one of the real ports if free; skip quietly if not (e.g. a real
-        // Calibre is running on this machine).
+        // Bind one of the real ports if free; skip quietly if not. A real
+        // Calibre on this machine may also answer the probe, so look for the
+        // fake among the results.
         let Some(listener) = BROADCAST_PORTS
             .iter()
             .find_map(|p| UdpSocket::bind(("127.0.0.1", *p)).ok())
@@ -140,8 +141,11 @@ mod tests {
         });
         let found = discover(Duration::from_millis(500), &["127.0.0.1".parse().unwrap()]).unwrap();
         handle.join().unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].hostname, "fake");
-        assert_eq!(found[0].port, 9191);
+        let fake = found
+            .iter()
+            .find(|s| s.hostname == "fake")
+            .expect("fake calibre not found");
+        assert_eq!(fake.port, 9191);
+        assert_eq!(fake.content_server_port, None);
     }
 }
