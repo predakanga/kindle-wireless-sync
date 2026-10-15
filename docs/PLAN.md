@@ -147,7 +147,7 @@ cleared after 2 minutes. **Phase 3 is complete.** **Exit criterion met:** the
 received test book (AZW3) opened in the built-in reader without a reboot
 (screenshot, 2026-10-15).
 
-### Phase 4: UI and packaging
+### Phase 4: UI and packaging ✅
 
 **Status (2026-10-15, in progress):** done:
 - the localhost API (ADR 0011) in the daemon, with tests
@@ -164,11 +164,15 @@ error message and nothing stored), the password form (save, clear, cancel),
 Forget (two taps) and the autostart toggle. These checks found and fixed
 three problems: the keyboard covered the fields and Enter did nothing; a
 Forget during a session was undone when the session ended; and a requested
-reconnect waited out the backoff. Still to do:
-- the KPM package: `manifest.json`, `install.sh` (copy files, install the
-  upstart jobs only if changed, register the app, add the scriptlet),
-  `uninstall.sh` (exit early on `upgrade`; keep received books), a
-  `just package` recipe, and a real install and uninstall through KPM
+reconnect waited out the backoff.
+
+The KPM package (ADR 0012, Proposed) is built by `just package`. KPM 0.2.2
+on the device installed it over the development setup, upgraded it from a
+repository, uninstalled it cleanly (twice) and installed it fresh.
+**Exit criterion met (2026-10-15):** after a fresh KPM install, Find
+libraries, Allow and a book sent from Calibre (MOBI) showed up in
+the library, with only stock Calibre. Still open: how to distribute the
+package (see Open questions).
 
 
 - On-device UI for discovered Calibre instances and the allowlist (with
@@ -213,3 +217,8 @@ Track these here until they become decisions.
   `books.json`/`driveinfo.json`.)
 - What does a running service cost in battery, and does it stop the device
   from sleeping?
+- How do we distribute the package? KPM 0.2.2 can't install a local `.kpkg`
+  over an installed one (ADR 0012), so upgrades need a KPM repository
+  (`repo.json` hosted somewhere, as HID Passthrough does), or users must
+  uninstall first and lose their settings. Should we also report the bug
+  upstream (KindleModding/KPM)?

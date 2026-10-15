@@ -105,3 +105,31 @@ just as the Library tile does.
   platform can still install. ADR 0001 makes other devices best-effort.
 - Testing: a recipe installs the built package with the device's own
   `kpm install file://...` and removes it with `kpm uninstall`.
+
+## Findings from the device test (2026-10-15)
+All on the PW12 with KPM 0.2.2:
+- **The package works.** Install over an existing (development) setup,
+  upgrade, uninstall, and a fresh install all behaved as described above.
+  After the fresh install, Find libraries, Allow and a book sent from
+  Calibre worked end to end. The root filesystem was remounted only when
+  job files were added or removed, and was read-only afterwards.
+- **KPM bug: a local file can't replace an installed package.**
+  `kpm install file:///x.kpkg` fails with "Could not resolve dependency
+  graph" when the package is already installed, whatever the version. KPM
+  leaves an installed package out of the graph only if its id equals a
+  target's id (`src/install.c`, the `installing` check). For a `file://`
+  target the "id" is the URL, so the installed copy stays in the graph and
+  conflicts. Master (`215736c`) has the same code. So a user who installed
+  from a file must uninstall (losing settings) before installing a newer
+  file. Upgrades from a **repository** work: tested by serving this package
+  from a temporary `file://` `repo.json` (`kpm add-repo`, `update`,
+  `install`). KPM ran `uninstall.sh upgrade`, then `install.sh`, and the
+  settings, allowlist and autostart were kept.
+- After uninstall, the scanner removed the tile's catalog entry 10–15 s
+  later, slower than the ~2 s seen for books, probably because KPM starts a
+  full rescan.
+
+**Coming in KPM after 0.2.2 (master, unreleased):** `install.sh` gets an
+`upgrade` argument (`7471a4e`), which ours ignores. If `install.sh` fails,
+KPM runs `uninstall.sh` *without* `upgrade` (`67233d9`), so a failed upgrade
+removes the app and its settings, but not the books.
