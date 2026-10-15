@@ -466,9 +466,11 @@ at `/mnt/us/kws-appreg.db.bak`):
    Error" dialog from appmgrd, which was harmless).
 2. Set `dcc series.grouping.enabled` to `true`, and inserted
    `1 | IGNITE_LIBRARY_NAMESPACE.IGNITE_SERIES_GROUPING_ENABLED_KEY | 1`.
-   No restart.
+   Then the developer **rebooted the device**, before noticing the result.
+   So we don't know whether the change applies live, needs a reboot, or
+   just a restart of some process other than `kppmainapp`.
 
-Result, as the developer saw it: **Amazon series are grouped**, and a
+Result, as the developer saw it after the reboot: **Amazon series are grouped**, and a
 "Group by series" switch appears in the full **Settings** page (but still
 not in Quick Settings, so that tile list has another filter, which wasn't
 investigated: `QuickSettingsWidgetProvider::getIconPanelWidgetList`). The
@@ -483,7 +485,10 @@ Next steps, in order:
 1. Find out which change does it: the `dcc` marketplace override, `dcc`
    `series.grouping.enabled`, the UserDefaults flag, or a combination.
    Also find out whether grouping only makes the Settings switch appear,
-   or works without the switch being touched.
+   or works without the switch being touched, and what has to restart for a
+   change to apply (nothing, a reboot, or some process other than
+   `kppmainapp`). Don't touch the Settings switch while testing, because
+   it writes both the `dcc` and UserDefaults values.
 2. Then, if there's time, why Quick Settings still has no tile.
 3. Then a developer script (checked in, with a `just` task, not shipped in
    the package) that turns grouping on and off using only the settings
