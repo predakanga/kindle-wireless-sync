@@ -37,3 +37,4 @@ What this commits us to, and any follow-up work or risks.
 - [0007: Accept every format the built-in reader opens](0007-accepted-formats.md)
 - [0008: Daemon connection behaviour and status](0008-daemon-behaviour.md)
 - [0009: Development commands behind a `dev-tools` feature](0009-dev-tools-feature.md)
+- [0010: Autostart sentinel and crash-loop guard](0010-autostart-and-crash-loop-guard.md)

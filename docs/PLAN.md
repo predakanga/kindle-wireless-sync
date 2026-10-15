@@ -120,7 +120,7 @@ connect, receive (with auto-conversion), list from cache on reconnect,
 delete and eject. 32 tests, including a replay of two anonymized real
 sessions. The Kindle binary is 528 KB.
 
-### Phase 3: Running on the Kindle
+### Phase 3: Running on the Kindle ✅
 
 - Cross-compile and set up the build and deploy workflow (a justfile modelled
   on Kindle Button Mapper).
@@ -139,8 +139,11 @@ the device (receive, live appearance with covers, in-place update, delete).
 Daemon mode (ADR 0008) works on the device against Calibre 9.16.0:
 `find` and `allow` from the Kindle, automatic connection, Wi-Fi drop
 detected at once (the socket is cut), reconnect about 5 s after Wi-Fi
-returns, and staying disconnected after an eject until Wi-Fi cycles. Still
-to do: the upstart jobs from ADR 0004. **Exit criterion met:** the
+returns, and staying disconnected after an eject until Wi-Fi cycles. The
+upstart jobs (ADR 0004, ADR 0010) are installed on the device. Start and
+stop work through `initctl`. With autostart on, the service started about
+65 s after a reboot and connected to Calibre, and the crash-loop counter
+cleared after 2 minutes. **Phase 3 is complete.** **Exit criterion met:** the
 received test book (AZW3) opened in the built-in reader without a reboot
 (screenshot, 2026-10-15).
 
