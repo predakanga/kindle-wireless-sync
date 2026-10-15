@@ -59,8 +59,10 @@ pub fn discover(timeout: Duration, targets: &[IpAddr]) -> io::Result<Vec<Calibre
         }
         sent
     };
+    // Sends can fail briefly right after Wi-Fi reports connected, before the
+    // route is up; keep trying for the whole window.
     if send_probes() == 0 {
-        return Err(io::Error::other("could not send any discovery probe"));
+        log::debug!("no discovery probe could be sent yet; will retry");
     }
 
     let deadline = Instant::now() + timeout;

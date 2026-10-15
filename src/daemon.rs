@@ -379,6 +379,35 @@ impl Daemon {
                 }
             }
 
+            // A session cut by Wi-Fi going down: report that, not a lost
+            // connection. Apply any network changes that arrived meanwhile.
+            let mut went_down = false;
+            let mut shutdown = false;
+            while let Ok(msg) = self.rx.try_recv() {
+                match msg {
+                    Control::Network(false) => {
+                        went_down = true;
+                        self.net_up = false;
+                    }
+                    Control::Network(true) => self.net_up = true,
+                    Control::ConnectNow => attempt = 0,
+                    Control::Shutdown => shutdown = true,
+                }
+            }
+            if shutdown {
+                break;
+            }
+            if went_down {
+                if self.net_up {
+                    // Down and back up already: a Wi-Fi cycle.
+                    ejected = false;
+                    skip.clear();
+                    bad_password.clear();
+                    attempt = 0;
+                }
+                continue;
+            }
+
             let delay = self.opts.backoff[attempt.min(self.opts.backoff.len() - 1)];
             let secs = delay.as_secs();
             match outcome {
