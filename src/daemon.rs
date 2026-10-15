@@ -39,6 +39,7 @@ pub enum State {
     Ejected,
     PasswordRejected,
     Error,
+    Paused,
     Stopped,
 }
 
@@ -53,6 +54,7 @@ impl State {
             State::Ejected => "ejected",
             State::PasswordRejected => "password_rejected",
             State::Error => "error",
+            State::Paused => "paused",
             State::Stopped => "stopped",
         }
     }
@@ -68,6 +70,8 @@ pub struct Status {
 }
 
 pub enum Control {
+    Pause,
+    Resume,
     Network(bool),
     ConnectNow,
     Shutdown,
@@ -133,6 +137,24 @@ impl Handle {
         let _ = self.tx.send(Control::ConnectNow);
     }
 
+    /// Ends the current session (if any) and connects again at once, so a
+    /// changed allowlist or password takes effect.
+    pub fn reconnect(&self) {
+        self.shared.interrupt();
+        let _ = self.tx.send(Control::ConnectNow);
+    }
+
+    /// Disconnects and stops syncing until [`Handle::resume`]. The process
+    /// and its API keep running (ADR 0011).
+    pub fn pause(&self) {
+        self.shared.interrupt();
+        let _ = self.tx.send(Control::Pause);
+    }
+
+    pub fn resume(&self) {
+        let _ = self.tx.send(Control::Resume);
+    }
+
     pub fn shutdown(&self) {
         self.shared.interrupt();
         let _ = self.tx.send(Control::Shutdown);
@@ -166,11 +188,13 @@ pub struct Daemon {
     rx: Receiver<Control>,
     shared: Arc<Shared>,
     net_up: bool,
+    paused: bool,
 }
 
 enum Wake {
     Network(bool),
     ConnectNow,
+    Pause,
     Shutdown,
     Timeout,
 }
@@ -213,6 +237,7 @@ impl Daemon {
                 rx,
                 shared,
                 net_up,
+                paused: false,
             },
             handle,
         )
@@ -222,7 +247,9 @@ impl Daemon {
         self.shared.set(state, detail.into());
     }
 
-    fn wait(&self, timeout: Option<Duration>) -> Wake {
+    /// Waits for a control message. Pause and resume are applied here, so
+    /// every wait honours them; resuming counts as "Connect now".
+    fn wait(&mut self, timeout: Option<Duration>) -> Wake {
         let msg = match timeout {
             Some(t) => match self.rx.recv_timeout(t) {
                 Ok(m) => m,
@@ -237,6 +264,14 @@ impl Daemon {
         match msg {
             Control::Network(up) => Wake::Network(up),
             Control::ConnectNow => Wake::ConnectNow,
+            Control::Pause => {
+                self.paused = true;
+                Wake::Pause
+            }
+            Control::Resume => {
+                self.paused = false;
+                Wake::ConnectNow
+            }
             Control::Shutdown => Wake::Shutdown,
         }
     }
@@ -250,6 +285,26 @@ impl Daemon {
         let mut attempt = 0usize;
 
         loop {
+            if self.paused {
+                self.set(State::Paused, "Sync paused. Resume to reconnect.");
+                match self.wait(None) {
+                    Wake::Network(up) => {
+                        if up && !self.net_up {
+                            ejected = false;
+                            skip.clear();
+                            bad_password.clear();
+                        }
+                        self.net_up = up;
+                    }
+                    Wake::ConnectNow => {
+                        ejected = false;
+                        attempt = 0;
+                    }
+                    Wake::Shutdown => break,
+                    _ => {}
+                }
+                continue;
+            }
             if !self.net_up {
                 self.set(State::WaitingForWifi, "Waiting for Wi-Fi.");
                 match self.wait(None) {
@@ -391,11 +446,19 @@ impl Daemon {
                     }
                     Control::Network(true) => self.net_up = true,
                     Control::ConnectNow => attempt = 0,
+                    Control::Pause => self.paused = true,
+                    Control::Resume => {
+                        self.paused = false;
+                        attempt = 0;
+                    }
                     Control::Shutdown => shutdown = true,
                 }
             }
             if shutdown {
                 break;
+            }
+            if self.paused {
+                continue;
             }
             if went_down {
                 if self.net_up {
@@ -441,7 +504,7 @@ impl Daemon {
                 Wake::Network(false) => self.net_up = false,
                 Wake::ConnectNow => attempt = 0,
                 Wake::Shutdown => break,
-                Wake::Network(true) | Wake::Timeout => {}
+                Wake::Network(true) | Wake::Timeout | Wake::Pause => {}
             }
         }
         self.set(State::Stopped, "Stopped.");
@@ -675,6 +738,12 @@ mod tests {
     /// A fake Calibre: on each connection it announces `uuid`, and if the
     /// device answers, ejects it.
     fn fake_calibre(uuid: &'static str) -> (SocketAddr, Arc<AtomicUsize>) {
+        fake_calibre_with(uuid, true)
+    }
+
+    /// Like [`fake_calibre`], but with `eject: false` it keeps an admitted
+    /// device connected (sending keepalives) until the device hangs up.
+    fn fake_calibre_with(uuid: &'static str, eject: bool) -> (SocketAddr, Arc<AtomicUsize>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let count = Arc::new(AtomicUsize::new(0));
@@ -693,8 +762,16 @@ mod tests {
                 if !matches!(read_message(&mut reader), Ok(Some(_))) {
                     continue; // device refused or probed
                 }
-                let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
-                let _ = read_message(&mut reader);
+                if eject {
+                    let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
+                    let _ = read_message(&mut reader);
+                } else {
+                    while write_message(&mut stream, Opcode::Noop, &json!({})).is_ok()
+                        && matches!(read_message(&mut reader), Ok(Some(_)))
+                    {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
             }
         });
         (addr, count)
@@ -767,6 +844,33 @@ mod tests {
         let status: serde_json::Value =
             serde_json::from_slice(&fs::read(tmp.path().join(STATUS_FILE)).unwrap()).unwrap();
         assert_eq!(status["state"], "stopped");
+    }
+
+    #[test]
+    fn pause_disconnects_and_resume_reconnects() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre_with("lib-1", false);
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+
+        wait_until("connected", || h.status().state == State::Connected);
+        h.pause();
+        wait_until("paused", || h.status().state == State::Paused);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect while paused");
+        // Wi-Fi changes while paused don't resume syncing.
+        h.network_changed(false);
+        h.network_changed(true);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(h.status().state, State::Paused);
+
+        h.resume();
+        wait_until("reconnected", || {
+            count.load(Ordering::SeqCst) == 2 && h.status().state == State::Connected
+        });
+        h.reconnect();
+        wait_until("reconnect", || count.load(Ordering::SeqCst) == 3);
+        h.shutdown();
+        thread.join().unwrap();
     }
 
     #[test]
