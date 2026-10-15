@@ -16,7 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use crate::config::{AllowedLibrary, Config};
+use crate::config::{self, AllowedLibrary, Config};
 use crate::discovery::CalibreServer;
 use crate::library::Library;
 use crate::protocol::{read_message, Connection, Opcode};
@@ -493,7 +493,7 @@ impl Daemon {
     }
 
     fn record_connected(&self, info: &CalibreInfo, cand: &Candidate) {
-        let result = Config::load(&self.opts.state_dir).and_then(|mut c| {
+        let result = config::update(&self.opts.state_dir, |c| {
             let previous = c.allowed(&info.library_uuid).cloned().unwrap_or_default();
             c.upsert_allowed(AllowedLibrary {
                 uuid: info.library_uuid.clone(),
@@ -505,7 +505,6 @@ impl Daemon {
                     .or(previous.hostname),
                 password: None,
             });
-            c.save()
         });
         if let Err(e) = result {
             log::warn!("cannot update settings: {e}");
@@ -513,7 +512,7 @@ impl Daemon {
     }
 
     fn record_seen(&self, info: &CalibreInfo, cand: &Candidate) {
-        let result = Config::load(&self.opts.state_dir).and_then(|mut c| {
+        let result = config::update(&self.opts.state_dir, |c| {
             c.record_seen(
                 &info.library_uuid,
                 &info.library_name,
@@ -521,7 +520,6 @@ impl Daemon {
                 cand.addr.port(),
                 &cand.hostname,
             );
-            c.save()
         });
         if let Err(e) = result {
             log::warn!("cannot update settings: {e}");
@@ -595,31 +593,48 @@ pub fn probe(addr: SocketAddr) -> io::Result<CalibreInfo> {
     }
 }
 
+/// What "Find libraries" learned about one discovered server.
+pub enum FindResult {
+    /// Already an allowed library's server; not contacted.
+    Allowed,
+    Answered(CalibreInfo),
+    Failed(io::Error),
+}
+
 /// "Find libraries": probes each discovered server that is not already an
-/// allowed library's, and records what answers in `seen`.
+/// allowed library's, and records what answers in `seen` (ADR 0008).
 pub fn find_libraries(
     state_dir: &Path,
     found: &[CalibreServer],
-) -> io::Result<Vec<(CalibreServer, io::Result<CalibreInfo>)>> {
-    let mut config = Config::load(state_dir)?;
+) -> io::Result<Vec<(CalibreServer, FindResult)>> {
+    let config = Config::load(state_dir)?;
     let mut results = Vec::new();
     for s in found {
-        let addr = SocketAddr::new(s.addr, s.port);
-        let result = probe(addr);
-        if let Ok(info) = &result {
-            if config.allowed(&info.library_uuid).is_none() {
-                config.record_seen(
-                    &info.library_uuid,
-                    &info.library_name,
-                    &s.addr.to_string(),
-                    s.port,
-                    &s.hostname,
-                );
-            }
+        if config.matches_allowed(&s.hostname, &s.addr.to_string()) {
+            results.push((s.clone(), FindResult::Allowed));
+            continue;
         }
+        let result = match probe(SocketAddr::new(s.addr, s.port)) {
+            Ok(info) => FindResult::Answered(info),
+            Err(e) => FindResult::Failed(e),
+        };
         results.push((s.clone(), result));
     }
-    config.save()?;
+    config::update(state_dir, |c| {
+        for (s, r) in &results {
+            if let FindResult::Answered(info) = r {
+                if c.allowed(&info.library_uuid).is_none() {
+                    c.record_seen(
+                        &info.library_uuid,
+                        &info.library_name,
+                        &s.addr.to_string(),
+                        s.port,
+                        &s.hostname,
+                    );
+                }
+            }
+        }
+    })?;
     Ok(results)
 }
 
@@ -636,16 +651,16 @@ pub fn add_server(
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("cannot resolve {host}")))?;
     let info = probe(addr)?;
-    let mut config = Config::load(state_dir)?;
-    config.upsert_allowed(AllowedLibrary {
-        uuid: info.library_uuid.clone(),
-        name: info.library_name.clone(),
-        host: Some(host.to_owned()),
-        port: Some(port),
-        hostname: None,
-        password,
-    });
-    config.save()?;
+    config::update(state_dir, |c| {
+        c.upsert_allowed(AllowedLibrary {
+            uuid: info.library_uuid.clone(),
+            name: info.library_name.clone(),
+            host: Some(host.to_owned()),
+            port: Some(port),
+            hostname: None,
+            password,
+        })
+    })?;
     Ok(info)
 }
 
@@ -820,11 +835,16 @@ mod tests {
             port: addr.port(),
             content_server_port: None,
         };
-        let results = find_libraries(tmp.path(), &[server]).unwrap();
-        assert_eq!(results[0].1.as_ref().unwrap().library_uuid, "lib-new");
+        let results = find_libraries(tmp.path(), std::slice::from_ref(&server)).unwrap();
+        assert!(matches!(&results[0].1, FindResult::Answered(i) if i.library_uuid == "lib-new"));
         let config = Config::load(tmp.path()).unwrap();
         assert_eq!(config.seen[0].hostname, "pc");
         assert!(config.allowed.is_empty());
+
+        // Once allowed, find leaves that server alone.
+        config::update(tmp.path(), |c| c.allow_seen("lib-new")).unwrap();
+        let results = find_libraries(tmp.path(), &[server]).unwrap();
+        assert!(matches!(results[0].1, FindResult::Allowed));
     }
 
     #[test]

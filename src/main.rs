@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use kws::config::Config;
-use kws::daemon::{self, Daemon, Options};
+use kws::config::{self, Config};
+use kws::daemon::{self, Daemon, FindResult, Options};
 use kws::discovery;
 use kws::kindle::CoverConfig;
 use kws::library::Library;
@@ -175,15 +175,14 @@ fn find_cmd(mut args: lexopt::Parser) -> CmdResult {
         return Ok(ExitCode::FAILURE);
     }
     for (server, result) in daemon::find_libraries(&state, &found)? {
+        let at = format!("{} at {}:{}", server.hostname, server.addr, server.port);
         match result {
-            Ok(info) => println!(
-                "{} at {}:{}: library {:?} ({})",
-                server.hostname, server.addr, server.port, info.library_name, info.library_uuid
+            FindResult::Allowed => println!("{at}: an allowed library's server; not contacted"),
+            FindResult::Answered(info) => println!(
+                "{at}: library {:?} ({})",
+                info.library_name, info.library_uuid
             ),
-            Err(e) => println!(
-                "{} at {}:{}: {e}",
-                server.hostname, server.addr, server.port
-            ),
+            FindResult::Failed(e) => println!("{at}: {e}"),
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -231,11 +230,13 @@ fn allow_cmd(mut args: lexopt::Parser) -> CmdResult {
         }
     }
     let uuid = required(uuid, "LIBRARY_UUID")?;
-    let mut config = Config::load(&required(state, "--state")?)?;
-    if config.allowed(&uuid).is_some() {
+    let state = required(state, "--state")?;
+    let (already, allowed) = config::update(&state, |c| {
+        (c.allowed(&uuid).is_some(), c.allow_seen(&uuid))
+    })?;
+    if already {
         println!("already allowed");
-    } else if config.allow_seen(&uuid) {
-        config.save()?;
+    } else if allowed {
         println!("allowed");
     } else {
         println!("unknown library; run `find` first, or use `add-server`");

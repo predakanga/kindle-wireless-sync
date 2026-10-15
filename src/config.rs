@@ -5,11 +5,25 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
 pub const CONFIG_FILE: &str = "config.json";
+
+/// Serialises load-modify-save cycles: the API thread and the daemon thread
+/// both change the config (ADR 0011).
+static UPDATE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Loads the config, applies `f`, and saves it, under a process-wide lock.
+pub fn update<T>(state_dir: &Path, f: impl FnOnce(&mut Config) -> T) -> io::Result<T> {
+    let _guard = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut config = Config::load(state_dir)?;
+    let result = f(&mut config);
+    config.save()?;
+    Ok(result)
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AllowedLibrary {
@@ -180,6 +194,33 @@ impl Config {
         }
     }
 
+    /// Removes an allowed library. Returns false if it wasn't allowed.
+    pub fn forget(&mut self, uuid: &str) -> bool {
+        let before = self.allowed.len();
+        self.allowed.retain(|a| a.uuid != uuid);
+        self.allowed.len() != before
+    }
+
+    /// Sets or clears an allowed library's password. Returns false if the
+    /// library isn't allowed.
+    pub fn set_password(&mut self, uuid: &str, password: Option<String>) -> bool {
+        match self.allowed.iter_mut().find(|a| a.uuid == uuid) {
+            Some(a) => {
+                a.password = password;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether a discovered server is (as far as we know) an allowed
+    /// library's: same broadcast hostname or same address.
+    pub fn matches_allowed(&self, hostname: &str, host: &str) -> bool {
+        self.allowed
+            .iter()
+            .any(|a| a.hostname.as_deref() == Some(hostname) || a.host.as_deref() == Some(host))
+    }
+
     /// Records a library that answered but is not allowed.
     pub fn record_seen(&mut self, uuid: &str, name: &str, host: &str, port: u16, hostname: &str) {
         let entry = SeenLibrary {
@@ -238,6 +279,29 @@ mod tests {
         let b = c.allowed("lib-2").unwrap();
         assert_eq!(b.password.as_deref(), Some("pw"));
         assert_eq!(b.port, Some(9091));
+    }
+
+    #[test]
+    fn forget_password_and_update() {
+        let tmp = tempfile::tempdir().unwrap();
+        update(tmp.path(), |c| {
+            c.upsert_allowed(AllowedLibrary {
+                uuid: "lib-1".into(),
+                hostname: Some("pc".into()),
+                host: Some("10.0.0.2".into()),
+                ..Default::default()
+            })
+        })
+        .unwrap();
+        assert!(update(tmp.path(), |c| c.set_password("lib-1", Some("pw".into()))).unwrap());
+        let c = Config::load(tmp.path()).unwrap();
+        assert_eq!(c.allowed("lib-1").unwrap().password.as_deref(), Some("pw"));
+        assert!(c.matches_allowed("pc", "10.9.9.9"));
+        assert!(c.matches_allowed("other", "10.0.0.2"));
+        assert!(!c.matches_allowed("other", "10.9.9.9"));
+        assert!(update(tmp.path(), |c| c.forget("lib-1")).unwrap());
+        assert!(!update(tmp.path(), |c| c.forget("lib-1")).unwrap());
+        assert!(Config::load(tmp.path()).unwrap().allowed.is_empty());
     }
 
     #[test]
