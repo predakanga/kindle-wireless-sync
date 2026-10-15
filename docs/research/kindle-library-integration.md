@@ -269,6 +269,27 @@ by hand **had no effect** after a redraw. So covers can only be supplied for
 EXTH-bearing formats (AZW3/MOBI/AZW) and probably KFX. PDF and TXT keep
 generic tiles.
 
+#### End-to-end on the device (2026-10-15)
+
+The client ran on the Kindle (FW 5.20.1) against the developer's Calibre
+9.16.0 with covers enabled. Calibre sent an EPUB-only book (converted to
+AZW3) and a MOBI:
+
+- Both were indexed in `cc.db` and the asset DB as `EBOK` with
+  **`cdeKey` = the Calibre book UUID**. The MOBI went through the mobi (not
+  mobi8) extractor and behaved the same.
+- With the **Library already on screen**, both tiles appeared live with
+  their **real covers** and the "New" badge. The Library adds new tiles when
+  the catalog changes, and our covers were already in place.
+- **Re-sending** a book rewrote it in place: same `p_uuid`, and the `.sdr`
+  was kept.
+- **Deleting** from Calibre removed the file, `.sdr`, both catalog entries,
+  the thumbnail and our cover backup.
+- When the device went to the **screensaver, Wi-Fi went down** (`cmState NA`,
+  no default route) and a session started then failed with
+  "could not send any discovery probe". The daemon must wait for
+  Wi-Fi (ADR 0004).
+
 ### Verifying the UI from SSH
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to

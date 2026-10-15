@@ -133,6 +133,13 @@ sessions. The Kindle binary is 528 KB.
 **Exit criteria:** a book sent from Calibre opens in the built-in reader
 without a reboot.
 
+**Status (2026-10-15):** done: deploy recipes, covers (EXTH key, written
+before the book appears, backed up and restored), and an end-to-end run on
+the device (receive, live appearance with covers, in-place update, delete).
+Still to do: daemon mode (wait for Wi-Fi, reconnect policy, allowlist
+config), the upstart jobs from ADR 0004, and opening a received book in the
+reader.
+
 ### Phase 4: UI and packaging
 
 - On-device UI for discovered Calibre instances and the allowlist (with
