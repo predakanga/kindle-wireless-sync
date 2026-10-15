@@ -97,6 +97,24 @@ autostart-on:
 autostart-off:
     ssh kindle "rm -f {{kindle_dir}}/autostart"
 
+# Build the library-tile scriptlet with its icon embedded
+scriptlet:
+    mkdir -p target/package
+    sed "s|@ICON@|$(base64 < package/icon/icon.png | tr -d '\n')|" package/scriptlet.sh.in > target/package/WirelessSync.sh
+
+# Deploy the WAF app and scriptlet, register the app, restart the service
+deploy-ui: deploy deploy-scripts scriptlet
+    ssh kindle "mkdir -p {{kindle_dir}}/ui"
+    scp -q package/ui/* kindle:{{kindle_dir}}/ui/
+    scp -q package/register-app.sh kindle:{{kindle_dir}}/
+    scp -q target/package/WirelessSync.sh kindle:/mnt/us/documents/WirelessSync.sh
+    ssh kindle "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"
+    -ssh kindle "/sbin/initctl restart kindle-wireless-sync || /sbin/initctl start kindle-wireless-sync"
+
+# Open the settings app on the Kindle
+open-ui:
+    ssh kindle "lipc-set-prop com.lab126.appmgrd start app://com.kindlewirelesssync.app"
+
 # Deploy, then run one session on the Kindle in the foreground
 device-connect *args: deploy
     ssh -t kindle "RUST_LOG=${RUST_LOG:-debug} {{kindle_dir}}/kindle-wireless-sync connect --books {{kindle_books}} --state {{kindle_dir}}/state --thumbnails /mnt/us/system/thumbnails --catalog /var/local/cc.db {{args}}"

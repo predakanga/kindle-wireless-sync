@@ -1,0 +1,17 @@
+#!/bin/sh
+# Name: Wireless Sync
+# Author: Kindle Wireless Sync
+# Icon: data:image/png;base64,@ICON@
+#
+# Opens the Wireless Sync settings app (ADR 0004). Starts the service first if
+# it isn't running, and re-registers the app if a firmware update removed it.
+DIR=/var/local/kindle-wireless-sync
+APP_ID=com.kindlewirelesssync.app
+
+if ! sqlite3 /var/local/appreg.db "SELECT 1 FROM handlerIds WHERE handlerId = '$APP_ID';" | grep -q 1; then
+    sh "$DIR/register-app.sh" register
+fi
+if ! /sbin/initctl status kindle-wireless-sync 2>/dev/null | grep -q running; then
+    /sbin/initctl start kindle-wireless-sync
+fi
+lipc-set-prop com.lab126.appmgrd start "app://$APP_ID"

@@ -1,0 +1,93 @@
+/* E-ink: black on white, thick borders, large touch targets, no animation. */
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+    font-family: sans-serif;
+    font-size: 1rem;
+    -webkit-text-size-adjust: none;
+}
+
+body { padding: 0.8rem 1rem 3rem; }
+
+h1 { font-size: 1.6rem; margin: 0.2rem 0 0.8rem; }
+h2 { font-size: 1.2rem; margin: 0 0 0.6rem; }
+
+.card {
+    border: 2px solid #000;
+    border-radius: 0.4rem;
+    padding: 0.8rem;
+    margin-bottom: 0.9rem;
+}
+
+.status-state { font-size: 1.4rem; font-weight: bold; }
+.status-detail { margin: 0.4rem 0 0.8rem; line-height: 1.35; }
+
+.row { display: -webkit-box; display: flex; }
+.row .btn { -webkit-box-flex: 1; flex: 1; margin-right: 0.6rem; }
+.row .btn:last-child { margin-right: 0; }
+
+.btn {
+    font-size: 1.05rem;
+    min-height: 2.6rem;
+    padding: 0.4rem 0.8rem;
+    background: #fff;
+    color: #000;
+    border: 2px solid #000;
+    border-radius: 0.3rem;
+}
+.btn:active, .btn.pressed { background: #000; color: #fff; }
+.btn[disabled] { color: #888; border-color: #888; }
+.btn-wide { width: 100%; margin-top: 0.6rem; }
+.btn-small { font-size: 0.95rem; min-height: 2.2rem; padding: 0.2rem 0.6rem; margin-left: 0.4rem; }
+.btn-danger { font-weight: bold; }
+
+.toggle { display: -webkit-box; display: flex; -webkit-box-align: center; align-items: center; }
+.toggle input { width: 1.6rem; height: 1.6rem; margin: 0 0.7rem 0 0; }
+
+.list .item {
+    border-top: 1px solid #000;
+    padding: 0.6rem 0;
+}
+.list .item:first-child { border-top: none; }
+.item-head { display: -webkit-box; display: flex; -webkit-box-align: center; align-items: center; }
+.item-name { -webkit-box-flex: 1; flex: 1; font-weight: bold; }
+.item-sub { font-size: 0.9rem; margin-top: 0.2rem; }
+.item-form { margin-top: 0.5rem; }
+
+.subheading { font-weight: bold; margin: 0.8rem 0 0.2rem; }
+.empty { font-style: italic; padding: 0.3rem 0; }
+.hint { font-size: 0.9rem; margin-top: 0.6rem; line-height: 1.35; }
+.warning { margin-top: 0.6rem; padding: 0.5rem; border: 2px dashed #000; }
+
+.field { margin-top: 0.7rem; }
+.field label { display: block; font-size: 0.95rem; margin-bottom: 0.2rem; }
+input[type=text], input[type=number], input[type=password] {
+    width: 100%;
+    font-size: 1.1rem;
+    padding: 0.4rem;
+    border: 2px solid #000;
+    border-radius: 0.2rem;
+    background: #fff;
+    color: #000;
+}
+
+.message {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0.8rem 1rem;
+    background: #000;
+    color: #fff;
+    font-size: 1.05rem;
+    z-index: 10;
+}
+.message.visible { display: block; }
+
+.hidden { display: none; }

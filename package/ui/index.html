@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Wireless Sync</title>
+    <link rel="stylesheet" href="style.css" />
+    <!-- Scale everything from the root font size; the Kindle's CSS pixels vary by model. -->
+    <script>document.documentElement.style.fontSize = (window.innerWidth || 1072) / 40 + "px";</script>
+</head>
+<body>
+    <div id="message" class="message"></div>
+
+    <h1>Wireless Sync</h1>
+
+    <section class="card" id="statusCard">
+        <div class="status-state" id="statusState">Starting…</div>
+        <div class="status-detail" id="statusDetail"></div>
+        <div class="row">
+            <button id="btnConnect" class="btn">Connect now</button>
+            <button id="btnPause" class="btn">Pause</button>
+        </div>
+    </section>
+
+    <section class="card">
+        <label class="toggle">
+            <input type="checkbox" id="chkAutostart" />
+            <span>Start automatically when the Kindle starts</span>
+        </label>
+        <div id="guardWarning" class="warning hidden">
+            Autostart was turned off after the service failed to start properly
+            three times in a row. Turn it on again to retry.
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Calibre libraries</h2>
+        <div id="allowedList" class="list"></div>
+        <div id="seenHeading" class="subheading hidden">Found on the network</div>
+        <div id="seenList" class="list"></div>
+        <button id="btnFind" class="btn btn-wide">Find libraries</button>
+        <div class="hint">
+            In Calibre, choose <b>Connect/share → Start wireless device connection</b> first.
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Add a server by address</h2>
+        <div class="hint">
+            For when Find libraries can't see your computer, for example on a
+            different network. In Calibre's wireless settings, tick
+            <b>Use fixed network port</b> so the port doesn't change.
+        </div>
+        <div class="field">
+            <label for="inHost">Computer name or address</label>
+            <input type="text" id="inHost" autocomplete="off" autocapitalize="off" />
+        </div>
+        <div class="field">
+            <label for="inPort">Port</label>
+            <input type="number" id="inPort" value="9090" />
+        </div>
+        <div class="field">
+            <label for="inPassword">Password (if Calibre has one)</label>
+            <input type="password" id="inPassword" />
+        </div>
+        <button id="btnAdd" class="btn btn-wide">Add server</button>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>
