@@ -32,15 +32,21 @@ Research notes, including on-device probe results for FW 5.20.1, are in
 ```bash
 just test                 # all tests (cargo test)
 just test-one <filter>    # tests matching a name, e.g. `just test-one lpath`
-just check                # cargo fmt --check + clippy -D warnings
-just discover             # list Calibre servers on the LAN
+just check                # fmt --check + clippy -D warnings, with and without dev-tools
+just discover             # dev: list Calibre servers on the LAN
 just connect --allow <library-uuid> [--transcript transcripts/x.jsonl]
-                          # act as a device; books land in ./dev-device/
-just size-kindle          # build the armv7 musl binary and print its size
+                          # dev: act as a device on the host; books land in ./dev-device/
+just deploy               # build (with dev-tools) and copy to the Kindle
+just device-connect --allow <uuid>   # dev: one foreground session on the Kindle
+just install-service      # install the upstart jobs (briefly remounts / read-write)
+just start | stop | status | logs | autostart-on | autostart-off
+just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 ```
 
-In Calibre, run *Connect/share → Start wireless device connection* first.
-`just connect` without `--allow` prints the library UUID to allow.
+`discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
+0009). The packaged binary has `daemon`, `find`, `add-server`, `allow`
+and `status`. In Calibre, run *Connect/share → Start wireless device
+connection* first.
 
 ## Code layout
 

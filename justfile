@@ -11,10 +11,14 @@ default:
 
 # Build for the host
 build:
-    cargo build
+    cargo build --features dev-tools
 
-# Build the static Kindle binary
+# Build the static Kindle binary for development (includes dev tools)
 build-kindle:
+    cargo build --release --target {{kindle_target}} --features dev-tools
+
+# Build the static Kindle binary as packaged (no dev tools)
+build-kindle-package:
     cargo build --release --target {{kindle_target}}
 
 # Run all tests
@@ -29,21 +33,22 @@ test-one filter:
 check:
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --features dev-tools -- -D warnings
 
 fmt:
     cargo fmt
 
 # List Calibre servers answering wireless-device discovery
 discover *args:
-    RUST_LOG=info cargo run -- discover {{args}}
+    RUST_LOG=info cargo run --features dev-tools -- discover {{args}}
 
 # Connect to Calibre on the host, storing books in ./dev-device
 connect *args:
     mkdir -p dev-device/books dev-device/state
-    RUST_LOG=debug cargo run -- connect --books dev-device/books --state dev-device/state {{args}}
+    RUST_LOG=debug cargo run --features dev-tools -- connect --books dev-device/books --state dev-device/state {{args}}
 
-# Show the Kindle binary size
-size-kindle: build-kindle
+# Show the packaged Kindle binary size
+size-kindle: build-kindle-package
     @ls -l target/{{kindle_target}}/release/kindle-wireless-sync | awk '{print $5 " bytes"}'
 
 # Copy the Kindle binary to the device
