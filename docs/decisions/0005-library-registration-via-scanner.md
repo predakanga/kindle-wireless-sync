@@ -1,6 +1,6 @@
 # 0005: Register books in the library through the system scanner
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 
 ## Context
