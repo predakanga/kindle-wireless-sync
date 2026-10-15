@@ -142,6 +142,8 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   before editing, and avoid line-range slicing.
 - `just deploy` (with dev-tools) and `just package` (without) build to the
   same target path. The last one built wins.
+- KPM reports network failures only as a number: `(4)` is `KPM_CURL_ERROR`,
+  which usually means Wi-Fi is down (screensaver).
 - **Calibre serves one device at a time.** While the Kindle is connected,
   probes from elsewhere get "busy". Calibre also refuses an IP after 5
   incomplete handshakes until one succeeds.

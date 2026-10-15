@@ -113,3 +113,19 @@ upgrades work.
   added on the reference device. Our page does the same. The search-bar form
   (`;kpm add-repo <url>`) is the one that KPM issue #5 reports as silently
   returning to the home screen.
+
+## First release (2026-10-15)
+`v0.1.0` was published by the workflow: both jobs passed, the release has
+the `.kpkg`, and Pages serves `repo.json` and the install page. On the
+reference device, `kpm add-repo <pages-url>/repo.json`, `kpm update` and
+`kpm install kindle-wireless-sync` replaced the file-based install through
+the upgrade path. The installed binary matched the release's, the
+settings and book list were kept, and the root filesystem wasn't touched.
+KPM now records the package as coming from repository
+`kindle-wireless-sync`.
+
+A first attempt failed with `Could not add repository … (4)`, which is
+`KPM_CURL_ERROR`, because Wi-Fi was down (the screensaver had come on). KPM
+gives no clearer message, so the install page should say Wi-Fi must be on.
+Still to test: an upgrade to a second release through `kpm update` and
+`kpm install`.

@@ -173,10 +173,9 @@ repository, uninstalled it cleanly (twice) and installed it fresh.
 libraries, Allow and a book sent from Calibre (MOBI) showed up in
 the library, with only stock Calibre. Distribution: GitHub Releases plus a KPM
 index on GitHub Pages, published by a release workflow (ADR 0014). The
-workflow, packaging script, index generator and install page are written.
-Still to do: the first release, then an end-to-end check on the device
-(`kpm add-repo` of the Pages URL, install, and an upgrade to a second
-release).
+first release, `v0.1.0`, is published, and installing it on the device from
+the Pages repository worked (ADR 0014, first release). Still to test: an
+upgrade to a second release.
 
 **Adopting USB-sent books (ADR 0013, 2026-10-15):** done and tested on the
 device. Books Calibre sent over USB are added to our book list at the start
