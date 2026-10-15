@@ -326,3 +326,123 @@ be read from `lipc-get-prop com.lab126.wifid cmState`.
   per-book rating for sideloaded books, so **rating sync is probably not
   possible** unless something writes a rating after the end-of-book flow.
   Not tested.
+
+## Native series on FW 5.20.1 (2026-10-16)
+
+Phase 5 research: showing Calibre series as the Kindle's own series grouping
+(one tile per series, in order). In short: **we can write correct series
+data through a supported interface, but this device doesn't display series
+grouping at all**, because the feature is gated per marketplace (see the end
+of this section).
+
+### The catalog's ChangeRequest endpoint
+
+- `POST http://127.0.0.1:9101/change`, with the header
+  `AuthToken: <contents of /tmp/session_token>` (44 bytes, rotated at
+  least on every reboot). Without the token the reply is
+  `401 {"Error": "Unauthorized request."}`. This requirement dates from
+  about FW 5.12 (MobileRead LibrarianSync thread), and LibrarianSync was
+  reported working with it on 5.16.2.1.
+- The body is `{"type":"ChangeRequest","id":N,"commands":[...]}`, and the reply is
+  `{"ok":true,"type":"ChangeResponse","seriesProcessed":0,"id":N,"changes":K}`.
+- The handler is plain Lua on the device: `/usr/lib/ccat/change.lua`,
+  `series.lua` and `sql_functions.lua`. It's Amazon's code, so read it on
+  the device and don't copy it into the repo.
+- Command shapes, read from that code and confirmed on the device:
+  - `{"update": {"uuid": <p_uuid>, <field>: <value>, ...}}` updates fields of
+    an `Entries` row. Unknown field names are rejected. The accepted fields
+    include `seriesState`, `isProcessed`, `titles`, `credits`, `cdeGroup`,
+    `homeMemberCount` and `virtualCollectionCount` (but not `memberCount`).
+  - `{"insertOr": {"onConflict": "REPLACE", "entry": {...}}}` inserts an
+    `Entries` row. For `Entry:Item:Series` it matches an existing row by
+    `cdeGroup`. Inserts force `seriesState = 1`, and for series containers
+    `isProcessed = 0`.
+  - `{"insertOr": {"table": "SERIES", "onConflict": "REPLACE", "entry":
+    {"seriesId", "itemCdeKey", "itemType", "itemPosition",
+    "itemPositionLabel", "seriesOrderType"}}}` writes a `Series` row.
+  - `{"delete": {"table": "SERIES", "seriesId": ..., "itemCdeKey": ...}}`
+    deletes one, and `{"delete": {"uuid": ...}}` deletes an `Entries` row.
+  - Collections (deferred, see the plan's Later list): the Library app's
+    own code sends `addCollectionMember` / `removeCollectionMember` with
+    `collectionUuid`, `memberCdeKey` and `memberCdeType`.
+- Changes reach the second store, `ksdk.asset.db`, through the catalog's
+  triggers. Series containers become `Tags` rows (`<key>!!series`,
+  `TAG_TYPE = SERIES`), and memberships become `ContentTag` rows. Series
+  aren't `Nodes`.
+
+### What a series needs
+
+Following kindle-series-manager's working rows (github.com/mlapaglia/
+kindle-series-manager, `kindle_series.py`, which writes them with SQL; a
+user reports it working on 5.19.2), but sent through ChangeRequest:
+
+1. A `Series` row for each book, with `seriesId =
+   urn:collection:1:asin-<KEY>`, the book's `cdeKey`, its position (0-based)
+   and label, `itemType = Entry:Item` and `seriesOrderType = ordered`.
+2. An `Entry:Item:Series` container: `cdeKey = <KEY>`, `cdeType = series`,
+   `cdeGroup = <seriesId>`, titles, credits, `mimeType =
+   application/x-kindle-series`, `isArchived = 1`, `originType = -1`, and
+   `homeMemberCount`.
+3. `update` the container to `isProcessed = 1`, and each member book to
+   `seriesState = 0`.
+
+**`<KEY>` must be exactly 10 characters**, like an ASIN. The trigger that
+copies a `Series` row to the asset store uses the last 10 characters of
+`seriesId` as the series id (`get_series_relation_external_id`). With an
+8-character key, the container reached the asset store but the members
+didn't. With `KWSTEST001`, both did.
+
+**The firmware's own post-processing** (`postProcessSeries`) hides a
+series's books only when the series has at least 2 *cloud* copies
+(`p_isArchived = 1`). Otherwise it sets them back to visible. Sideloaded
+books have no cloud copy, so it would undo step 3 whenever it runs for that
+series. That happens on device-side inserts and deletes of a member book,
+and when it processes containers with `isProcessed` not 1. A sync would
+have to re-apply step 3 after any change.
+
+The new Library app works out grouping itself in the asset store:
+`Nodes.VISIBILITY_WITH_GROUPING = 1` means "member of a series with 2 or
+more books". After the steps above, both test books had it set to 1, as a
+real 4-book Amazon series does.
+
+### Why nothing showed: grouping is gated
+
+On the reference device even Amazon series (for example a 4-book one) are
+**not grouped**, and there's no switch for it. From `KPPMainApp`'s strings:
+
+- The switch is a **Quick Settings** tile (`group_series_library`,
+  `QuickSettings::GroupSeriesWidgetController`), and it isn't offered on this
+  device.
+- Availability depends on remote config (`series.grouping.supported`,
+  `series.grouping.supported.marketplaces`) and a weblab,
+  `BOOKS_EINK_SAGA_LSG_431259` (`isSeriesGroupingWeblabEnabled`). This
+  device is on the **AU** marketplace.
+- The user's choice was moved from dynamic config (`series.grouping.enabled`,
+  `IGNITE_SERIES_GROUPING_ENABLED_KEY`) into "UserDefaults" (marker file
+  `/var/local/SERIES_GROUPING_MIGRATION_DONE`, 2026-10-13). On this device
+  `/var/local/user_defaults.db` (table `user_defaults`, columns
+  `ID|Key|Value`) has no series-grouping key.
+- Weblab state is in `/var/local/weblab/` (`allocations/*.alloc`, a large
+  read-only key/value DB, plus `overrides/` and `local_overrides/` folders,
+  and `/var/local/weblab_overrides`). Their formats haven't been looked at.
+
+Enabling grouping on one's own device is a separate, personal investigation
+(started 2026-10-16), not part of the package: the app mustn't change
+Amazon's settings or experiment flags.
+
+### Test data left on the device for that investigation
+
+- Files `kws-series-1.mobi` (cdeKey `e1dddd39-…`, `Entries` uuid
+  `4f6374f3-962a-4f6d-9260-4146b47460af`) and `kws-series-2.mobi` (cdeKey
+  `1cc30fc7-…`, uuid `fb8f3784-6416-4819-83d2-da82f836aec3`) in
+  `/mnt/us/documents`, with their `.sdr` folders.
+- The series `urn:collection:1:asin-KWSTEST001` ("kws-test series"):
+  container `Entries` uuid `40757f9c-53ee-4a9c-8167-9aa1c3827a27`
+  (`p_cdeKey = KWSTEST001`), both books at positions 0 and 1, with
+  `seriesState = 0`.
+- **To clean up**, through ChangeRequest: delete both `Series` rows (`table:
+  SERIES`), delete the container by uuid, set both books' `seriesState` back
+  to 1 (or just delete the files, after which the scanner removes the
+  entries), then remove the files and `.sdr` folders. Until the series rows
+  are gone, the two books are hidden only if grouping is on, so they stay
+  visible on this device.

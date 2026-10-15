@@ -197,6 +197,16 @@ sync works end to end with only stock Calibre.
 - Series from Calibre as the Kindle's **native series grouping** (one tile per
   series, in series order), through the catalog's ChangeRequest endpoint.
   Decided 2026-10-16. Collections in general are on the "Later" list.
+  **Status (2026-10-16):** research done
+  (`research/kindle-library-integration.md`, "Native series on FW 5.20.1").
+  Series data can be written correctly through ChangeRequest. But the
+  reference device (AU marketplace) doesn't show series grouping at all, not
+  even for Amazon series, because the feature is gated by remote config and
+  a weblab. Paused while the developer looks into enabling it on their own
+  Kindle, which is personal, not part of the package. Next: decide whether
+  to ship series data anyway (useful wherever grouping is on), or bring
+  collections forward. A test series is still on the device (see the
+  research note).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
