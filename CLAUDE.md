@@ -41,6 +41,17 @@ single-test and deploy-to-device commands here.**
   finding written up, a decision recorded, a feature working). Don't batch a
   whole phase into one commit.
 
+## Device access
+
+- The reference Kindle is reachable as SSH host `kindle`, over USB networking
+  (`usb0`, 192.168.15.244). Toggling Wi-Fi on the device does not drop the
+  session.
+- Never write to `/var/local/cc.db` or `/var/local/ksdk.asset.db`. The two
+  stores are kept in sync by triggers, and hand edits can desync the library
+  (ADR 0005). Reads must tolerate `database is locked`.
+- Name test files `kws-*`. When cleaning up, also remove the `.sdr/` folder
+  the indexer creates for each file, because it is not removed automatically.
+
 ## Key references
 
 - Calibre smart device driver (the server side of the wireless protocol):
