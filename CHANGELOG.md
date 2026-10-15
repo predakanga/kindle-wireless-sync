@@ -10,6 +10,10 @@ one.
 
 ## [0.1.1] - 2026-10-16
 
+### Fixed
+- The **Wireless Sync** tile in the Library has its icon again. The 0.1.0
+  package was built without it.
+
 ### Changed
 - Calibre now shows the Kindle's own name (*Settings → Device Options →
   Device Name*) instead of "Kindle". A rename on the Kindle shows from the

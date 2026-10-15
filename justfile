@@ -99,8 +99,13 @@ autostart-off:
 
 # Build the library-tile scriptlet with its icon embedded
 scriptlet:
+    #!/bin/sh
+    set -eu
     mkdir -p target/package
-    sed "s|@ICON@|$(base64 < package/icon/icon.png | tr -d '\n')|" package/scriptlet.sh.in > target/package/WirelessSync.sh
+    # Fail rather than embed an empty icon (as v0.1.0 shipped).
+    icon=$(base64 < package/icon/icon.png | tr -d '\n')
+    [ -n "$icon" ] || { echo "package/icon/icon.png is missing or empty" >&2; exit 1; }
+    sed "s|@ICON@|$icon|" package/scriptlet.sh.in > target/package/WirelessSync.sh
 
 # Deploy the WAF app and scriptlet, register the app, restart the service
 deploy-ui: deploy deploy-scripts scriptlet

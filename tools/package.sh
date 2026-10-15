@@ -18,6 +18,10 @@ version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1 | tr . ,)
 [ -n "$version" ] || { echo "no version in Cargo.toml" >&2; exit 1; }
 sed "s|@VERSION@|$version|" package/manifest.json.in > "$stage/manifest.json"
 
+# The Library tile is blank without its icon (v0.1.0 shipped like that).
+grep -q '^# Icon: data:image/png;base64,[A-Za-z0-9+/]' "$scriptlet" ||
+    { echo "$scriptlet has no icon" >&2; exit 1; }
+
 cp "$bin" "$stage/kindle-wireless-sync"
 cp "$scriptlet" "$stage/WirelessSync.sh"
 cp package/install.sh package/uninstall.sh package/launch.sh \

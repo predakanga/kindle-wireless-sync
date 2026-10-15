@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400">
+  <!-- The Library draws a tick and a menu over the bottom ~20% of the tile,
+       so everything sits in the upper part. -->
+  <rect width="300" height="400" fill="#fff"/>
+  <g fill="none" stroke="#000" stroke-width="14" stroke-linecap="round">
+    <path d="M 70 95 A 110 110 0 0 1 230 95"/>
+    <path d="M 100 125 A 70 70 0 0 1 200 125"/>
+    <path d="M 128 153 A 30 30 0 0 1 172 153"/>
+  </g>
+  <g stroke="#000" stroke-width="10" fill="#fff" stroke-linejoin="round">
+    <path d="M 150 185 C 120 170 85 170 60 180 L 60 265 C 85 255 120 255 150 270 Z"/>
+    <path d="M 150 185 C 180 170 215 170 240 180 L 240 265 C 215 255 180 255 150 270 Z"/>
+  </g>
+  <text x="150" y="315" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="38" font-weight="bold" fill="#000">Wireless Sync</text>
+</svg>
