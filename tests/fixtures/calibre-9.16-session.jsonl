@@ -1,0 +1,109 @@
+{"dir": "session-start", "source": "02-session.jsonl"}
+{"dir": "recv", "op": "GetInitializationInfo", "payload": {"calibre_version": [9, 16, 0], "canSupportLpathChanges": true, "canSupportUpdateBooks": true, "currentLibraryName": "Test Library", "currentLibraryUUID": "00000000-0000-4000-8000-000000000001", "lastModifiedFormat": "dd MMM yyyy", "passwordChallenge": "", "pubdateFormat": "MMM yyyy", "serverProtocolVersion": 1, "timestampFormat": "dd MMM yyyy", "validExtensions": ["lrf", "rar", "zip", "rtf", "lit", "txt", "txtz", "text", "htm", "xhtm", "html", "htmlz", "xhtml", "pdf", "pdb", "updb", "pdr", "prc", "mobi", "azw", "doc", "epub", "fb2", "fbz", "djv", "djvu", "lrx", "cbr", "cb7", "cbz", "cbc", "oebzip", "rb", "imp", "odt", "chm", "tpz", "azw1", "pml", "pmlz", "mbp", "tan", "snb", "xps", "oxps", "azw4", "book", "zbf", "pobi", "docx", "docm", "md", "textile", "markdown", "ibook", "ibooks", "iba", "azw3", "ps", "kepub", "kfx", "kpf"]}}
+{"dir": "send", "op": "Ok", "payload": {"acceptedExtensions": ["azw3", "mobi", "azw", "kfx", "pdf", "txt"], "appName": "Kindle Wireless Sync", "cacheUsesLpaths": true, "canAcceptLibraryInfo": true, "canDeleteMultipleBooks": true, "canReceiveBookBinary": true, "canSendOkToSendbook": true, "canStreamBooks": true, "canStreamMetadata": true, "canUseCachedMetadata": true, "ccVersionNumber": "0.1.0", "coverHeight": 500, "deviceKind": "Kindle", "deviceName": "Kindle (kws dev)", "extensionPathLengths": {"azw": 3, "azw3": 4, "kfx": 3, "mobi": 4, "pdf": 3, "txt": 3}, "maxBookContentPacketLen": 65536, "passwordHash": "", "useUuidFileNames": false, "versionOK": true}}
+{"dir": "recv", "op": "GetDeviceInformation", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"device_info": {"device_name": "Kindle (kws dev)"}, "device_version": "0.1.0", "version": "0.1.0"}}
+{"dir": "recv", "op": "SetCalibreDeviceInfo", "payload": {"calibre_version": "9.16.0", "date_last_connected": "2026-10-15T05:34:50.803233+00:00", "device_name": "Kindle (kws dev)", "device_store_uuid": "00000000-0000-4000-8000-000000000002", "last_library_uuid": "00000000-0000-4000-8000-000000000001", "location_code": "main", "prefix": ""}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15742455808}}
+{"dir": "recv", "op": "SetLibraryInfo", "payload": {"fieldMetadata": {}, "libraryName": "Test Library", "libraryUuid": "00000000-0000-4000-8000-000000000001", "otherInfo": {}}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "GetBookCount", "payload": {"canScan": true, "canStream": true, "canSupportBookFormatSync": true, "supportsSync": false, "willUseCachedMetadata": true}}
+{"dir": "send", "op": "Ok", "payload": {"count": 0, "willScan": true, "willStream": true}}
+{"dir": "recv", "op": "Noop", "payload": {"count": 0}}
+{"dir": "recv", "op": "SendBooklists", "payload": {"collections": {}, "count": 0, "supportsSync": false, "willStreamMetadata": true}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15742373888}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15737618432}}
+{"dir": "recv", "op": "SendBook", "payload": {"canSupportLpathChanges": true, "length": 32, "lpath": "Book 1 - Author 1 (1).mobi", "metadata": {"_series_sort_": "", "application_id": 1, "author_sort": "1, Author", "author_sort_map": {"Author 1": "1, Author"}, "authors": ["Author 1"], "book_producer": null, "comments": null, "cover": null, "db_id": null, "identifiers": {}, "languages": ["eng"], "last_modified": "2026-10-14T02:15:17+00:00", "link_maps": {}, "lpath": "Book 1 - Author 1 (1).mobi", "mime": "application/x-mobipocket-ebook", "pages": null, "pubdate": "2000-01-01T00:00:00+00:00", "publication_type": null, "publisher": "Publisher", "rating": null, "rights": null, "series": null, "series_index": null, "size": 33, "tags": [], "thumbnail": [320, 500, "AAAA"], "timestamp": "2026-09-01T13:10:48+00:00", "title": "Book 1", "title_sort": "Book 1", "user_categories": {}, "user_metadata": {}, "uuid": "00000000-0000-4000-8000-000000000003"}, "thisBook": 0, "totalBooks": 2, "wantsSendOkToSendbook": true, "willStreamBinary": true, "willStreamBooks": true}}
+{"dir": "send", "op": "Ok", "payload": {"lpath": "Book 1 - Author 1 (1).mobi"}}
+{"dir": "recv-raw", "len": 32}
+{"dir": "recv", "op": "SendBook", "payload": {"canSupportLpathChanges": true, "length": 34, "lpath": "Book 2 - Author 2 (2).mobi", "metadata": {"_series_sort_": "Series 1", "application_id": 2, "author_sort": "2, Author", "author_sort_map": {"Author 2": "2, Author"}, "authors": ["Author 2"], "book_producer": null, "comments": null, "cover": null, "db_id": null, "identifiers": {}, "languages": ["eng"], "last_modified": "2026-08-13T02:40:38+00:00", "link_maps": {}, "lpath": "Book 2 - Author 2 (2).mobi", "mime": "application/x-mobipocket-ebook", "pages": null, "pubdate": "2000-01-01T00:00:00+00:00", "publication_type": null, "publisher": "Publisher", "rating": null, "rights": null, "series": "Series 1", "series_index": 1.0, "size": 35, "tags": [], "thumbnail": [331, 500, "AAAA"], "timestamp": "2026-08-12T12:16:32+00:00", "title": "Book 2", "title_sort": "Book 2", "user_categories": {}, "user_metadata": {}, "uuid": "00000000-0000-4000-8000-000000000004"}, "thisBook": 1, "totalBooks": 2, "wantsSendOkToSendbook": true, "willStreamBinary": true, "willStreamBooks": true}}
+{"dir": "send", "op": "Ok", "payload": {"lpath": "Book 2 - Author 2 (2).mobi"}}
+{"dir": "recv-raw", "len": 34}
+{"dir": "recv", "op": "SendBooklists", "payload": {"collections": {}, "count": 0, "supportsSync": false, "willStreamMetadata": true}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15738015744}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15728979968}}
+{"dir": "recv", "op": "SendBook", "payload": {"canSupportLpathChanges": true, "length": 36, "lpath": "Book 3 - Author 3 (3).azw3", "metadata": {"_series_sort_": "Series 2", "application_id": 3, "author_sort": "3, Author", "author_sort_map": {"Author 3": "3, Author"}, "authors": ["Author 3"], "book_producer": null, "comments": null, "cover": null, "db_id": null, "identifiers": {}, "languages": ["eng"], "last_modified": "2026-10-15T05:35:43.519324+00:00", "link_maps": {}, "lpath": "Book 3 - Author 3 (3).azw3", "mime": "application/x-mobi8-ebook", "pages": null, "pubdate": "2000-01-01T00:00:00+00:00", "publication_type": null, "publisher": "Publisher", "rating": null, "rights": null, "series": "Series 2", "series_index": 1.0, "size": 37, "tags": [], "thumbnail": [325, 500, "AAAA"], "timestamp": "2026-10-14T02:02:25+00:00", "title": "Book 3", "title_sort": "Book 3", "user_categories": {}, "user_metadata": {}, "uuid": "00000000-0000-4000-8000-000000000005"}, "thisBook": 0, "totalBooks": 1, "wantsSendOkToSendbook": true, "willStreamBinary": true, "willStreamBooks": true}}
+{"dir": "send", "op": "Ok", "payload": {"lpath": "Book 3 - Author 3 (3).azw3"}}
+{"dir": "recv-raw", "len": 36}
+{"dir": "recv", "op": "SendBooklists", "payload": {"collections": {}, "count": 0, "supportsSync": false, "willStreamMetadata": true}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15730266112}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "DeleteBook", "payload": {"lpaths": ["Book 2 - Author 2 (2).mobi"]}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"uuid": "00000000-0000-4000-8000-000000000004"}}
+{"dir": "recv", "op": "SendBooklists", "payload": {"collections": {}, "count": 0, "supportsSync": false, "willStreamMetadata": true}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15728312320}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {"ejecting": true}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "session-start", "source": "03-reconnect.jsonl"}
+{"dir": "recv", "op": "GetInitializationInfo", "payload": {"calibre_version": [9, 16, 0], "canSupportLpathChanges": true, "canSupportUpdateBooks": true, "currentLibraryName": "Test Library", "currentLibraryUUID": "00000000-0000-4000-8000-000000000001", "lastModifiedFormat": "dd MMM yyyy", "passwordChallenge": "", "pubdateFormat": "MMM yyyy", "serverProtocolVersion": 1, "timestampFormat": "dd MMM yyyy", "validExtensions": ["lrf", "rar", "zip", "rtf", "lit", "txt", "txtz", "text", "htm", "xhtm", "html", "htmlz", "xhtml", "pdf", "pdb", "updb", "pdr", "prc", "mobi", "azw", "doc", "epub", "fb2", "fbz", "djv", "djvu", "lrx", "cbr", "cb7", "cbz", "cbc", "oebzip", "rb", "imp", "odt", "chm", "tpz", "azw1", "pml", "pmlz", "mbp", "tan", "snb", "xps", "oxps", "azw4", "book", "zbf", "pobi", "docx", "docm", "md", "textile", "markdown", "ibook", "ibooks", "iba", "azw3", "ps", "kepub", "kfx", "kpf"]}}
+{"dir": "send", "op": "Ok", "payload": {"acceptedExtensions": ["azw3", "mobi", "azw", "kfx", "pdf", "txt"], "appName": "Kindle Wireless Sync", "cacheUsesLpaths": true, "canAcceptLibraryInfo": true, "canDeleteMultipleBooks": true, "canReceiveBookBinary": true, "canSendOkToSendbook": true, "canStreamBooks": true, "canStreamMetadata": true, "canUseCachedMetadata": true, "ccVersionNumber": "0.1.0", "coverHeight": 500, "deviceKind": "Kindle", "deviceName": "Kindle (kws dev)", "extensionPathLengths": {"azw": 3, "azw3": 4, "kfx": 3, "mobi": 4, "pdf": 3, "txt": 3}, "maxBookContentPacketLen": 65536, "passwordHash": "", "useUuidFileNames": false, "versionOK": true}}
+{"dir": "recv", "op": "GetDeviceInformation", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"device_info": {"calibre_version": "9.16.0", "date_last_connected": "2026-10-15T05:34:50.803233+00:00", "device_name": "Kindle (kws dev)", "device_store_uuid": "00000000-0000-4000-8000-000000000002", "last_library_uuid": "00000000-0000-4000-8000-000000000001", "location_code": "main", "prefix": ""}, "device_version": "0.1.0", "version": "0.1.0"}}
+{"dir": "recv", "op": "SetCalibreDeviceInfo", "payload": {"calibre_version": "9.16.0", "date_last_connected": "2026-10-15T05:36:37.725984+00:00", "device_name": "Kindle (kws dev)", "device_store_uuid": "00000000-0000-4000-8000-000000000002", "last_library_uuid": "00000000-0000-4000-8000-000000000001", "location_code": "main", "prefix": ""}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15728279552}}
+{"dir": "recv", "op": "SetLibraryInfo", "payload": {"fieldMetadata": {}, "libraryName": "Test Library", "libraryUuid": "00000000-0000-4000-8000-000000000001", "otherInfo": {}}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "GetBookCount", "payload": {"canScan": true, "canStream": true, "canSupportBookFormatSync": true, "supportsSync": false, "willUseCachedMetadata": true}}
+{"dir": "send", "op": "Ok", "payload": {"count": 2, "willScan": true, "willStream": true}}
+{"dir": "send", "op": "Ok", "payload": {"extension": "mobi", "last_modified": "2026-10-14T02:15:17+00:00", "lpath": "Book 1 - Author 1 (1).mobi", "priKey": 0, "uuid": "00000000-0000-4000-8000-000000000003"}}
+{"dir": "send", "op": "Ok", "payload": {"extension": "azw3", "last_modified": "2026-10-15T05:35:43.519324+00:00", "lpath": "Book 3 - Author 3 (3).azw3", "priKey": 1, "uuid": "00000000-0000-4000-8000-000000000005"}}
+{"dir": "recv", "op": "Noop", "payload": {"count": 0}}
+{"dir": "recv", "op": "SendBooklists", "payload": {"collections": {}, "count": 0, "supportsSync": false, "willStreamMetadata": true}}
+{"dir": "recv", "op": "FreeSpace", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {"free_space_on_device": 15728197632}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}
+{"dir": "recv", "op": "Noop", "payload": {}}
+{"dir": "send", "op": "Ok", "payload": {}}

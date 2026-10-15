@@ -22,11 +22,50 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 
 ## Current status
 
-Phase 1 (research) of `docs/PLAN.md`. The desk research is in
-`docs/research/` (protocol, platform, library integration). Read it before
-making design changes. Phase 1 still needs on-device probes. There is no code
-yet. **Once a Cargo workspace or justfile exists, add the build, test,
-single-test and deploy-to-device commands here.**
+Phase 2 of `docs/PLAN.md`: the Calibre protocol client runs on the host and
+works against real Calibre. Kindle integration (Phase 3) hasn't started.
+Research notes, including on-device probe results for FW 5.20.1, are in
+`docs/research/`. Read them before making design changes.
+
+## Commands
+
+```bash
+just test                 # all tests (cargo test)
+just test-one <filter>    # tests matching a name, e.g. `just test-one lpath`
+just check                # cargo fmt --check + clippy -D warnings
+just discover             # list Calibre servers on the LAN
+just connect --allow <library-uuid> [--transcript transcripts/x.jsonl]
+                          # act as a device; books land in ./dev-device/
+just size-kindle          # build the armv7 musl binary and print its size
+```
+
+In Calibre, run *Connect/share → Start wireless device connection* first.
+`just connect` without `--allow` prints the library UUID to allow.
+
+## Code layout
+
+One crate (`kws` library and binary, ADR 0006). It uses blocking std I/O and
+`serde_json::Value` without serde derives, to keep the binary small. Measure
+the size cost of any new dependency.
+
+- `protocol`: opcodes and the length-prefixed JSON framing. A `Connection`
+  wraps a reader and writer and can record a JSONL transcript.
+- `session::run`: the device side of a Calibre conversation. Calibre sends
+  every request and we only reply. The reply shapes must match Calibre's
+  `smart_device_app/driver.py` exactly. `research/calibre-wireless-protocol.md`
+  has the walkthrough.
+- `library`: the books directory plus our state (`books.json`,
+  `driveinfo.json`). All book writes follow ADR 0005: a dot-prefixed temp
+  file then rename for new books, an in-place rewrite for replacements, and
+  deleting the `.sdr` folder along with a book.
+- `lpath`: validation of server-supplied paths. Calibre is untrusted (ADR 0003).
+- `discovery`: UDP broadcast to Calibre's fixed ports.
+
+`tests/replay.rs` replays anonymized recordings of real Calibre sessions from
+`tests/fixtures/`. To add one, record with `just connect ... --transcript
+transcripts/NAME.jsonl` (the folder is gitignored), then run
+`tools/anonymize_transcript.py tests/fixtures/OUT.jsonl transcripts/A.jsonl
+[...]`. Never commit raw transcripts: they hold the user's library metadata.
 
 ## Working process
 

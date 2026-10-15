@@ -113,6 +113,11 @@ storage simulated in a local directory.
 **Exit criteria:** Calibre treats the host CLI as a connected device and can
 send books to it and delete books from it.
 
+**Status (2026-10-15):** exit criteria met against Calibre 9.16.0: discover,
+connect, receive (with auto-conversion), list from cache on reconnect,
+delete and eject. 32 tests, including a replay of two anonymized real
+sessions. The Kindle binary is 528 KB.
+
 ### Phase 3: Running on the Kindle
 
 - Cross-compile and set up the build and deploy workflow (a justfile modelled
@@ -157,6 +162,9 @@ Track these here until they become decisions.
 - Should Series map to Kindle *collections*, the native *series grouping*
   (5.13.4+), or both?
 - Should we share Calibre's `metadata.calibre`/`driveinfo.calibre` files with
-  the USB driver, or keep our own state?
+  the USB driver, or keep our own state? (Phase 2 keeps its own state in
+  `books.json`/`driveinfo.json`.)
+- Should we drop `mobi` from `acceptedExtensions`, so Calibre always converts
+  to AZW3 instead of sending an existing MOBI?
 - What does a running service cost in battery, and does it stop the device
   from sleeping?

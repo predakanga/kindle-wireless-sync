@@ -199,3 +199,39 @@ collections only flow Calibre → device.
   `driveinfo.calibre` JSON files in the inbox directory, which is the same
   layout Calibre uses for USB devices. Whether to share those files with the
   USB driver is an open question.
+
+## Observed against Calibre 9.16.0 (2026-10-15)
+
+From live sessions between `kws connect` on the dev Mac and the user's
+Calibre (anonymized in `tests/fixtures/calibre-9.16-session.jsonl`):
+
+- **Discovery:** a broadcast to `255.255.255.255` reached Calibre on the same
+  machine. Calibre had bound UDP 54982, the first broadcast port, and TCP
+  9090.
+- **Connect sequence:** `GET_INITIALIZATION_INFO` → `GET_DEVICE_INFORMATION` →
+  `SET_CALIBRE_DEVICE_INFO` (Calibre assigns `device_store_uuid` on first
+  contact) → `FREE_SPACE` → `SET_LIBRARY_INFO` → `GET_BOOK_COUNT` →
+  `NOOP{count}` → `SEND_BOOKLISTS`. `TOTAL_SPACE` was never requested.
+- **Reconnect with cached metadata:** we report `{priKey, uuid, lpath,
+  last_modified, extension}` for each book. Calibre answered
+  `NOOP{count: 0}`, meaning every book was a cache hit and no full metadata
+  was requested.
+- **Idle:** Calibre sends `NOOP {}` about every 3 s while connected.
+- **Sending:** each batch is preceded by `FREE_SPACE` and followed by
+  `SEND_BOOKLISTS` with `count: 0`. Calibre already knows the metadata it just
+  sent.
+- **Format choice:** Calibre sends the **first format in our
+  `acceptedExtensions` that the book already has**, and converts only when
+  it has none. Books that had MOBI and EPUB arrived as **MOBI** even though
+  `azw3` is first in our list. A book without any of our formats was
+  converted to AZW3. Whether to drop `mobi` from the list (which forces
+  conversion to AZW3, the better format) is an open question in the plan.
+- **lpaths:** the default template `{title} - {authors} ({id})` produces flat
+  names, e.g. `Example Book - Jane Author (42).mobi`. No subfolders.
+- **Metadata fields we receive:** `title`, `authors`, `author_sort`,
+  `series`, `series_index`, `_series_sort_`, `uuid`, `lpath`, `size`,
+  `last_modified`, `timestamp`, `pubdate`, `rating`, `pages`, `identifiers`,
+  `comments`, `publisher`, `tags`, `languages`, `mime`, `user_metadata`
+  (custom columns), `thumbnail` `[w, h, base64-jpeg]` at our requested
+  `coverHeight` (500 → 320×500), and a `cover` path that is a temp file on the
+  PC and useless to us.
