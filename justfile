@@ -111,6 +111,37 @@ deploy-ui: deploy deploy-scripts scriptlet
     ssh kindle "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"
     -ssh kindle "/sbin/initctl restart kindle-wireless-sync || /sbin/initctl start kindle-wireless-sync"
 
+# Build the KPM package: target/package/kindle-wireless-sync.kpkg (ADR 0012)
+package: build-kindle-package scriptlet
+    #!/bin/sh
+    set -eu
+    stage=target/package/kpkg
+    rm -rf "$stage" && mkdir -p "$stage/upstart" "$stage/ui"
+    version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1 | tr . ,)
+    sed "s|@VERSION@|$version|" package/manifest.json.in > "$stage/manifest.json"
+    cp target/{{kindle_target}}/release/kindle-wireless-sync target/package/WirelessSync.sh \
+       package/install.sh package/uninstall.sh package/launch.sh \
+       package/service.sh package/autostart.sh package/register-app.sh "$stage/"
+    cp package/upstart/*.conf "$stage/upstart/"
+    cp package/ui/* "$stage/ui/"
+    chmod 755 "$stage"/*.sh "$stage/kindle-wireless-sync"
+    # KPM needs manifest.json at the archive root (no "./"). No macOS
+    # metadata (._* files, xattrs), and root-owned entries.
+    COPYFILE_DISABLE=1 tar --no-xattrs --no-acls --no-mac-metadata --uid 0 --gid 0 \
+        -czf target/package/kindle-wireless-sync.kpkg -C "$stage" \
+        manifest.json install.sh uninstall.sh launch.sh kindle-wireless-sync \
+        service.sh autostart.sh register-app.sh WirelessSync.sh upstart ui
+    ls -l target/package/kindle-wireless-sync.kpkg
+
+# Install the package with the device's own KPM, as a user would
+kpm-install: package
+    scp -q target/package/kindle-wireless-sync.kpkg kindle:/tmp/kindle-wireless-sync.kpkg
+    ssh kindle "/var/local/kmc/bin/kpm -y install file:///tmp/kindle-wireless-sync.kpkg; rc=\$?; rm -f /tmp/kindle-wireless-sync.kpkg; exit \$rc"
+
+# Uninstall the package with the device's own KPM
+kpm-uninstall:
+    ssh kindle "/var/local/kmc/bin/kpm -y uninstall kindle-wireless-sync"
+
 # Open the settings app on the Kindle
 open-ui:
     ssh kindle "lipc-set-prop com.lab126.appmgrd start app://com.kindlewirelesssync.app"

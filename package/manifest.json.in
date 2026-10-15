@@ -1,0 +1,10 @@
+{
+  "manifest_version": 2,
+  "id": "kindle-wireless-sync",
+  "name": "Kindle Wireless Sync",
+  "author": "predakanga",
+  "description": "Receive books from Calibre's wireless device connection straight into the Kindle's built-in library.",
+  "version": [@VERSION@],
+  "dependencies": [],
+  "supported_platforms": ["kindlehf"]
+}
