@@ -22,11 +22,11 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 
 ## Current status
 
-Phases 1–3 are done. Phase 4 (UI and KPM package) is in progress. **Start
-with `docs/HANDOFF.md`**, which has the next steps, gotchas and device state,
-then `docs/PLAN.md`. Research notes, including on-device probe
-results for FW 5.20.1, are in `docs/research/`. Read them before making
-design changes.
+Phases 1–4 are done. **Start with `docs/PLAN.md`**: it has the phases, what
+comes next, the "Later" list of deferred items and the open questions.
+Decisions are in `docs/decisions/`. Research notes, including on-device
+probe results for FW 5.20.1, are in `docs/research/`. Read them before
+making design changes.
 
 ## Commands
 
@@ -42,6 +42,9 @@ just device-connect --allow <uuid>   # dev: one foreground session on the Kindle
 just install-service      # install the upstart jobs (briefly remounts / read-write)
 just start | stop | status | logs | autostart-on | autostart-off
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
+just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
+just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
+just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 ```
 
 `discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
@@ -100,6 +103,39 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   `/mnt/us/kindle-button-mapper/scripts/tap.sh 76 96` taps the Library tab.
 - Name test files `kws-*`. When cleaning up, also remove the `.sdr/` folder
   the indexer creates for each file, because it is not removed automatically.
+- Ask the developer before writes to the root filesystem (`mntroot`),
+  reboots, or anything else hard to undo.
+- When you ask the developer to check something on the device, wait for
+  their answer before the next step, and don't undo what they're checking.
+- Wi-Fi goes down with the screensaver. For long device tests, run
+  `lipc-set-prop -i com.lab126.powerd preventScreenSaver 1`, and set it back
+  to 0 afterwards (a reboot also resets it).
+- The device has no `python3`. KPM is `/var/local/kmc/bin/kpm` (0.2.2).
+  Its source is github.com/KindleModding/KPM (0.2.2 is `07495e0` to
+  `94608b3^`). github.com/gingrspacecadet/kpm is a different tool with the
+  same name. ADR 0012 records how KPM runs our hooks. A local `.kpkg` can
+  only be installed fresh: to test an upgrade, serve it from a temporary
+  `file://` `repo.json` (`kpm add-repo`, `kpm update`, `kpm install`), and
+  remove the repo afterwards.
+
+## Gotchas
+
+- **zsh:** an argument starting with `=` (for example `echo =====`) aborts
+  the whole command line. `$var:x` is a zsh modifier, so write `${var}:x`.
+- **`pkill -f PATTERN` over SSH matches its own `sh -c` command line** and
+  kills the session. Use a self-excluding pattern:
+  `pgrep -f "[k]indle-wireless-sync daemon"`, then `kill`.
+- **Don't hide deploy output** (`| tail -1 >/dev/null`). It once hid that a
+  stale binary was deployed.
+- `cargo fmt` reformats code that search-and-replace edits rely on. Re-read
+  before editing, and avoid line-range slicing.
+- `just deploy` (with dev-tools) and `just package` (without) build to the
+  same target path. The last one built wins.
+- **Calibre serves one device at a time.** While the Kindle is connected,
+  probes from elsewhere get "busy". Calibre also refuses an IP after 5
+  incomplete handshakes until one succeeds.
+- Calibre CLI tools are in `/Applications/calibre.app/Contents/MacOS/` (not
+  on PATH). Test books are in `~/Calibre Library/`.
 
 ## Key references
 
