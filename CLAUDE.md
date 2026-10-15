@@ -22,9 +22,11 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 
 ## Current status
 
-Phase 1 (research) of `docs/PLAN.md`. There is no code yet. **Once a Cargo
-workspace or justfile exists, add the build, test, single-test and
-deploy-to-device commands here.**
+Phase 1 (research) of `docs/PLAN.md`. The desk research is in
+`docs/research/` (protocol, platform, library integration). Read it before
+making design changes. Phase 1 still needs on-device probes. There is no code
+yet. **Once a Cargo workspace or justfile exists, add the build, test,
+single-test and deploy-to-device commands here.**
 
 ## Working process
 
