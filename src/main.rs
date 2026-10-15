@@ -9,7 +9,7 @@ use kws::api::{self, Api};
 use kws::config::{self, Config};
 use kws::daemon::{self, Daemon, FindResult, Options};
 use kws::discovery;
-use kws::kindle::CoverConfig;
+use kws::kindle::{self, CoverConfig};
 use kws::library::Library;
 use kws::network;
 use kws::session::DeviceConfig;
@@ -116,14 +116,15 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
     let (mut books, mut state, mut thumbnails, mut catalog) = (None, None, None, None);
     let mut api_port = api::DEFAULT_PORT;
-    let mut device = DeviceConfig::default();
+    let device = DeviceConfig::default();
+    let mut name: Option<String> = None;
     while let Some(arg) = args.next()? {
         match arg {
             Long("books") => books = Some(args.value()?.into()),
             Long("state") => state = Some(args.value()?.into()),
             Long("thumbnails") => thumbnails = Some(args.value()?.into()),
             Long("catalog") => catalog = Some(args.value()?.into()),
-            Long("name") => device.device_name = args.value()?.string()?,
+            Long("name") => name = Some(args.value()?.string()?),
             Long("api-port") => api_port = args.value()?.parse()?,
             _ => return Err(arg.unexpected().into()),
         }
@@ -152,6 +153,12 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
                     Vec::new()
                 },
             )
+        }),
+        // --name wins; otherwise the name set on the Kindle (ADR 0015).
+        device_name: Box::new(move || {
+            name.clone()
+                .or_else(kindle::device_name)
+                .unwrap_or_else(|| DeviceConfig::default().device_name)
         }),
     };
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));

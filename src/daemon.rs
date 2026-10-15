@@ -174,6 +174,9 @@ pub struct Options {
     pub read_timeout: Duration,
     /// Finds Calibre servers by broadcast.
     pub discover: Box<dyn FnMut() -> Vec<CalibreServer> + Send>,
+    /// The device name to give Calibre, read before each session so a
+    /// rename on the Kindle shows at the next connect (ADR 0015).
+    pub device_name: Box<dyn FnMut() -> String + Send>,
 }
 
 impl Options {
@@ -534,6 +537,7 @@ impl Daemon {
         bad_password: &HashSet<String>,
     ) -> io::Result<(io::Result<SessionEnd>, Option<CalibreInfo>)> {
         let stream = TcpStream::connect_timeout(&cand.addr, CONNECT_TIMEOUT)?;
+        self.opts.device.device_name = (self.opts.device_name)();
         stream.set_read_timeout(Some(self.opts.read_timeout))?;
         stream.set_nodelay(true)?;
         *self.shared.active.lock().unwrap() = Some(stream.try_clone()?);
@@ -761,10 +765,22 @@ mod tests {
     /// Like [`fake_calibre`], but with `eject: false` it keeps an admitted
     /// device connected (sending keepalives) until the device hangs up.
     fn fake_calibre_with(uuid: &'static str, eject: bool) -> (SocketAddr, Arc<AtomicUsize>) {
+        let (addr, count, _) = fake_calibre_recording(uuid, eject);
+        (addr, count)
+    }
+
+    /// Like [`fake_calibre_with`], also recording the `deviceName` of each
+    /// handshake reply.
+    #[allow(clippy::type_complexity)]
+    fn fake_calibre_recording(
+        uuid: &'static str,
+        eject: bool,
+    ) -> (SocketAddr, Arc<AtomicUsize>, Arc<Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let count = Arc::new(AtomicUsize::new(0));
-        let c = count.clone();
+        let names = Arc::new(Mutex::new(Vec::new()));
+        let (c, n) = (count.clone(), names.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
@@ -776,8 +792,11 @@ mod tests {
                     continue;
                 }
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
-                if !matches!(read_message(&mut reader), Ok(Some(_))) {
+                let Ok(Some(reply)) = read_message(&mut reader) else {
                     continue; // device refused or probed
+                };
+                if let Some(name) = reply.payload["deviceName"].as_str() {
+                    n.lock().unwrap().push(name.to_owned());
                 }
                 if eject {
                     let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
@@ -791,20 +810,34 @@ mod tests {
                 }
             }
         });
-        (addr, count)
+        (addr, count, names)
     }
 
     fn start(
         state: &Path,
         allowed: Option<(&str, SocketAddr)>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
-        start_with_backoff(state, allowed, Duration::from_millis(50))
+        start_with(
+            state,
+            allowed,
+            Duration::from_millis(50),
+            Box::new(|| "Test Kindle".into()),
+        )
     }
 
     fn start_with_backoff(
         state: &Path,
         allowed: Option<(&str, SocketAddr)>,
         backoff: Duration,
+    ) -> (Handle, std::thread::JoinHandle<()>) {
+        start_with(state, allowed, backoff, Box::new(|| "Test Kindle".into()))
+    }
+
+    fn start_with(
+        state: &Path,
+        allowed: Option<(&str, SocketAddr)>,
+        backoff: Duration,
+        device_name: Box<dyn FnMut() -> String + Send>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
         let mut config = Config::load(state).unwrap();
         if let Some((uuid, addr)) = allowed {
@@ -824,6 +857,7 @@ mod tests {
             backoff: vec![backoff],
             read_timeout: Duration::from_secs(5),
             discover: Box::new(Vec::new),
+            device_name,
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         (handle, std::thread::spawn(move || daemon.run()))
@@ -894,6 +928,29 @@ mod tests {
         });
         h.reconnect();
         wait_until("reconnect", || count.load(Ordering::SeqCst) == 3);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn device_name_is_read_for_each_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count, names) = fake_calibre_recording("lib-1", true);
+        let mut n = 0;
+        let (h, thread) = start_with(
+            tmp.path(),
+            Some(("lib-1", addr)),
+            Duration::from_millis(50),
+            Box::new(move || {
+                n += 1;
+                format!("Kindle {n}")
+            }),
+        );
+        wait_until("first eject", || h.status().state == State::Ejected);
+        h.connect_now();
+        wait_until("second session", || count.load(Ordering::SeqCst) == 2);
+        wait_until("second eject", || names.lock().unwrap().len() == 2);
+        assert_eq!(*names.lock().unwrap(), ["Kindle 1", "Kindle 2"]);
         h.shutdown();
         thread.join().unwrap();
     }

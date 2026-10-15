@@ -42,3 +42,4 @@ What this commits us to, and any follow-up work or risks.
 - [0012: KPM package install, upgrade and uninstall](0012-kpm-package-lifecycle.md)
 - [0013: Adopt books that Calibre sent over USB](0013-adopt-usb-transferred-books.md)
 - [0014: Releases on GitHub, KPM index on GitHub Pages](0014-release-and-distribution.md)
+- [0015: Report the Kindle's own name to Calibre](0015-device-name.md)

@@ -206,6 +206,38 @@ pub fn lookup_indexed_key(catalog_db: &Path, location: &str) -> Option<BookKey> 
     })
 }
 
+/// Longest device name we report to Calibre, in characters.
+const MAX_DEVICE_NAME: usize = 64;
+
+/// The name the user gave the Kindle (*Settings → Device Options → Device
+/// Name*), cleaned up for Calibre (ADR 0015). Read-only. `None` off a
+/// Kindle, or if the name is empty.
+pub fn device_name() -> Option<String> {
+    let out = Command::new("lipc-get-prop")
+        .args(["com.lab126.amazonRegistrationService", "GetDeviceName"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    clean_device_name(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Trims, drops control characters and caps the length. `None` if nothing
+/// is left.
+pub fn clean_device_name(raw: &str) -> Option<String> {
+    let name: String = raw
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(MAX_DEVICE_NAME)
+        .collect();
+    let name = name.trim_end().to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Where covers go on the device, and where we keep our backups.
 #[derive(Debug, Clone)]
 pub struct CoverConfig {
@@ -324,6 +356,24 @@ pub(crate) mod tests {
         assert_eq!(read_exth_key(&f), None);
         f[exth + 8..exth + 12].copy_from_slice(&u32::MAX.to_be_bytes());
         assert_eq!(read_exth_key(&f), None);
+    }
+
+    #[test]
+    fn cleans_device_names() {
+        assert_eq!(
+            clean_device_name("Jane's Kindle\n").as_deref(),
+            Some("Jane's Kindle")
+        );
+        assert_eq!(
+            clean_device_name("  Tab\there\u{7}  ").as_deref(),
+            Some("Tabhere")
+        );
+        assert_eq!(clean_device_name(" \n\t "), None);
+        let long = "é".repeat(100);
+        assert_eq!(clean_device_name(&long).unwrap().chars().count(), 64);
+        // A cut that lands after a space doesn't leave it dangling.
+        let spaced = format!("{} b", "a".repeat(63));
+        assert_eq!(clean_device_name(&spaced).unwrap(), "a".repeat(63));
     }
 
     #[test]

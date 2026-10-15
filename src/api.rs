@@ -419,6 +419,7 @@ mod tests {
             backoff: Options::default_backoff(),
             read_timeout: Duration::from_secs(5),
             discover: Box::new(Vec::new),
+            device_name: Box::new(|| "Kindle".into()),
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
