@@ -197,8 +197,8 @@ sync works end to end with only stock Calibre.
 - Collections from Series.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
-- Kindle device name as the Calibre device name (low priority). Questions to
-  answer first:
+- ✅ Kindle device name as the Calibre device name (ADR 0015, for
+  0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
     lipc property or event for changes?
   - What happens when the name changes while connected or between
