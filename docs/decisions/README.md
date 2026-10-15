@@ -33,4 +33,5 @@ What this commits us to, and any follow-up work or risks.
 - [0003: Calibre trust model and allowlist](0003-calibre-trust-model.md)
 - [0004: UI, daemon and service layout](0004-ui-architecture.md)
 - [0005: Register books through the system scanner](0005-library-registration-via-scanner.md)
-- [0006: Crate structure and I/O model](0006-crate-structure-and-io-model.md) (Proposed)
+- [0006: Crate structure and I/O model](0006-crate-structure-and-io-model.md)
+- [0007: Accept every format the built-in reader opens](0007-accepted-formats.md)

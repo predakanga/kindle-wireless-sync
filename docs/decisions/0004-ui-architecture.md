@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended: 2026-10-15. Service and directory names changed from `kws` to
+  `kindle-wireless-sync` (naming decision in ADR 0006).
 
 ## Context
 We need an on-device UI for the allowlist, service start/stop, autostart and
@@ -35,19 +37,19 @@ over USB.
   `documents/` scriptlet and registered in `appreg.db` at install time.
 
 **Service layout: two job files, installed once**
-- `/etc/upstart/kws.conf` is the daemon. It has **no `start on`**, so it runs
+- `/etc/upstart/kindle-wireless-sync.conf` is the daemon. It has **no `start on`**, so it runs
   only when started explicitly. It has `stop on stopping filesystems`,
   `respawn` with a limit, and the boot-loop guard. `pre-start` exits cleanly
   if the binary is missing.
-- `/etc/upstart/kws-autostart.conf` is a `task` with `start on
+- `/etc/upstart/kindle-wireless-sync-autostart.conf` is a `task` with `start on
   framework_ready`. If the autostart sentinel and the binary exist, it runs
-  `start -n kws`. Otherwise it does nothing, and it never blocks boot.
+  `start -n kindle-wireless-sync`. Otherwise it does nothing, and it never blocks boot.
 - Both files stay minimal and stable. They only `exec` the binary or a script
   stored on writable storage, so all logic can be upgraded without touching
   `/etc`.
 
 **Controls (no rootfs writes)**
-- Start/stop from the UI runs `initctl start|stop kws`. The sentinel never
+- Start/stop from the UI runs `initctl start|stop kindle-wireless-sync`. The sentinel never
   gets in the way of a manual start.
 - The autostart toggle creates or deletes the sentinel.
 - The boot-loop guard turns autostart off by deleting the sentinel.
@@ -59,7 +61,7 @@ over USB.
   boot, connect when the network comes up.
 
 **Locations**
-- Binary, sentinel, config/allowlist and state go in **`/var/local/kws/`**:
+- Binary, sentinel, config/allowlist and state go in **`/var/local/kindle-wireless-sync/`**:
   persistent, writable, and not exposed over USB.
 - `install.sh` copies the binary there from the KPM package directory.
 - WAF app files live wherever the `appreg.db` `command` points.
@@ -87,8 +89,8 @@ them). Each is a `mntroot rw` → change → `mntroot ro` sequence with a trap.
   our reference platform (the developer reported this on 2026-10-15).
 
 ## Consequences
-- The UI can only reach the API while `kws` is running. When it isn't, the
-  scriptlet that opens the UI runs `start -n kws` first. The UI's "stop"
+- The UI can only reach the API while `kindle-wireless-sync` is running. When it isn't, the
+  scriptlet that opens the UI runs `start -n kindle-wireless-sync` first. The UI's "stop"
   pauses syncing inside the daemon rather than killing the API it depends on.
   The exact split between the "process running" and "sync enabled" states is
   settled when the UI is built.

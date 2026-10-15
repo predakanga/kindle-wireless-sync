@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn recorded `kws connect --transcript` sessions into shareable fixtures.
+"""Turn recorded `kindle-wireless-sync connect --transcript` sessions into shareable fixtures.
 
 Usage: anonymize_transcript.py OUT.jsonl IN.jsonl [IN.jsonl ...]
 

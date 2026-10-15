@@ -125,7 +125,7 @@ sessions. The Kindle binary is 528 KB.
 - Run the client on the device, write to the correct documents location, and
   trigger library registration so books show up immediately.
 - Service layout per [0004](decisions/0004-ui-architecture.md): a daemon job
-  plus an autostart task gated by a sentinel, files in `/var/local/kws/`. The
+  plus an autostart task gated by a sentinel, files in `/var/local/kindle-wireless-sync/`. The
   daemon waits for Wi-Fi CONNECTED before it connects.
 
 **Exit criteria:** a book sent from Calibre opens in the built-in reader
@@ -164,7 +164,5 @@ Track these here until they become decisions.
 - Should we share Calibre's `metadata.calibre`/`driveinfo.calibre` files with
   the USB driver, or keep our own state? (Phase 2 keeps its own state in
   `books.json`/`driveinfo.json`.)
-- Should we drop `mobi` from `acceptedExtensions`, so Calibre always converts
-  to AZW3 instead of sending an existing MOBI?
 - What does a running service cost in battery, and does it stop the device
   from sleeping?

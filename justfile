@@ -40,4 +40,4 @@ connect *args:
 
 # Show the Kindle binary size
 size-kindle: build-kindle
-    @ls -l target/{{kindle_target}}/release/kws | awk '{print $5 " bytes"}'
+    @ls -l target/{{kindle_target}}/release/kindle-wireless-sync | awk '{print $5 " bytes"}'

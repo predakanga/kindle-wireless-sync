@@ -1,6 +1,6 @@
 # 0006: Crate structure and I/O model
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 
 ## Context
@@ -11,8 +11,16 @@ bytes inline. The final binary has to be small and static for armv7 musl
 (ADR 0004).
 
 ## Decision
-- **One Cargo package** with a library (`kws`) and a binary (`kws`). We'll
-  split into a workspace only if a second binary or a Calibre plugin needs it.
+- **One Cargo package**, `kindle-wireless-sync`, with a library and a binary.
+  We'll split into a workspace only if a second binary or a Calibre plugin
+  needs it.
+- **Naming:** everything a user or the system sees uses the full name
+  `kindle-wireless-sync`: the package, the binary, the KPM id, the upstart
+  jobs, the install directory `/var/local/kindle-wireless-sync/` and the log
+  files. Calibre shows our `appName` "Kindle Wireless Sync". The developer
+  found the initialism hard to parse. Code-internal names stay short: the
+  library crate is `kws` (`use kws::session`) and our temp files are
+  `.kws-*.part`.
 - **Blocking `std` I/O, no async runtime.** There's one Calibre session at a
   time. Discovery and the localhost API can use their own threads.
 - Layering inside the library:

@@ -44,7 +44,7 @@ In Calibre, run *Connect/share → Start wireless device connection* first.
 
 ## Code layout
 
-One crate (`kws` library and binary, ADR 0006). It uses blocking std I/O and
+One package, `kindle-wireless-sync` (ADR 0006): the binary has that name and the library crate is `kws`. It uses blocking std I/O and
 `serde_json::Value` without serde derives, to keep the binary small. Measure
 the size cost of any new dependency.
 

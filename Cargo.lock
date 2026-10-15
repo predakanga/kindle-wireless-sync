@@ -152,7 +152,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kws"
+name = "kindle-wireless-sync"
 version = "0.1.0"
 dependencies = [
  "env_logger",

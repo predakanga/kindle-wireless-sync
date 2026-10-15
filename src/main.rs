@@ -1,4 +1,4 @@
-//! `kws`: command-line front end, used for host testing in Phase 2.
+//! `kindle-wireless-sync`: command-line front end, used for host testing in Phase 2.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -15,8 +15,8 @@ use lexopt::ValueExt;
 
 const USAGE: &str = "\
 usage:
-  kws discover [--timeout SECS] [--probe ADDR]...
-  kws connect --books DIR --state DIR [--host HOST] [--port PORT]
+  kindle-wireless-sync discover [--timeout SECS] [--probe ADDR]...
+  kindle-wireless-sync connect --books DIR --state DIR [--host HOST] [--port PORT]
               [--password PW] [--allow LIBRARY_UUID]... [--allow-any]
               [--name NAME] [--transcript FILE]
 

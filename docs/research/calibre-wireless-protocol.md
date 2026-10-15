@@ -224,8 +224,7 @@ Calibre (anonymized in `tests/fixtures/calibre-9.16-session.jsonl`):
   `acceptedExtensions` that the book already has**, and converts only when
   it has none. Books that had MOBI and EPUB arrived as **MOBI** even though
   `azw3` is first in our list. A book without any of our formats was
-  converted to AZW3. Whether to drop `mobi` from the list (which forces
-  conversion to AZW3, the better format) is an open question in the plan.
+  converted to AZW3. We keep `mobi` in the list (ADR 0007).
 - **lpaths:** the default template `{title} - {authors} ({id})` produces flat
   names, e.g. `Example Book - Jane Author (42).mobi`. No subfolders.
 - **Metadata fields we receive:** `title`, `authors`, `author_sort`,
@@ -235,3 +234,7 @@ Calibre (anonymized in `tests/fixtures/calibre-9.16-session.jsonl`):
   (custom columns), `thumbnail` `[w, h, base64-jpeg]` at our requested
   `coverHeight` (500 → 320×500), and a `cover` path that is a temp file on the
   PC and useless to us.
+- **Device view:** Calibre's device view showed the right titles and covers
+  for the books we hold (checked by the developer). So the cached-metadata
+  path works and keeps Calibre's own cover cache intact, even though we
+  store our records without thumbnails.
