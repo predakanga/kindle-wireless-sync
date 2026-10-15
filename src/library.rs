@@ -14,6 +14,7 @@
 //! thumbnails directory before the book appears, and backed up so it can be
 //! restored if the firmware replaces it (see [`crate::kindle`]).
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -21,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::adopt;
 use crate::kindle::{self, BookKey, CoverConfig, KeySource};
 use crate::lpath;
 
@@ -43,6 +45,7 @@ pub struct Library {
     driveinfo: Value,
     temp_counter: u32,
     covers: Option<CoverConfig>,
+    adopt_memo: adopt::Memo,
 }
 
 /// A book being received. Dropping it without committing removes the
@@ -88,6 +91,7 @@ impl Library {
             driveinfo: load_json(&state_dir.join(DRIVEINFO_FILE))?.unwrap_or_else(|| json!({})),
             temp_counter: 0,
             covers: None,
+            adopt_memo: adopt::Memo::default(),
         };
         remove_stale_temps(&lib.books_dir, 4);
         let before = lib.books.len();
@@ -389,6 +393,75 @@ impl Library {
                 .unwrap_or_default()
                 .to_owned(),
         ))
+    }
+
+    /// Records book files that Calibre's USB driver sent, so Calibre's
+    /// wireless connection sees them (ADR 0013). Only files with a Calibre
+    /// UUID are adopted; nothing on disk changes. Returns how many were
+    /// adopted.
+    pub fn adopt_existing(&mut self, accepted: &[String]) -> io::Result<usize> {
+        let known: HashSet<String> = self
+            .books
+            .iter()
+            .filter_map(record_lpath)
+            .map(str::to_owned)
+            .collect();
+        let candidates = adopt::find_unknown(&self.books_dir, &known, accepted, &self.adopt_memo);
+        if candidates.is_empty() {
+            return Ok(0);
+        }
+        // metadata.calibre sits at the storage root, next to the books
+        // directory, and names books relative to that root.
+        let usb = match (self.books_dir.parent(), self.books_dir.file_name()) {
+            (Some(root), Some(name)) => adopt::read_usb_metadata(
+                &root.join(adopt::USB_METADATA_FILE),
+                &format!("{}/", name.to_string_lossy()),
+            ),
+            _ => Default::default(),
+        };
+        let mut adopted = 0;
+        for c in candidates {
+            let head = if adopt::is_mobi_family(&c) {
+                read_head(&c.path).ok()
+            } else {
+                None
+            };
+            let Some((mut record, source)) = adopt::record_for(&c, &usb, head.as_deref()) else {
+                self.adopt_memo.reject(&c);
+                continue;
+            };
+            let key = head.as_deref().and_then(kindle::read_exth_key).or_else(|| {
+                let db = self.covers.as_ref()?.catalog_db.as_ref()?;
+                kindle::lookup_indexed_key(db, c.path.to_str()?)
+            });
+            if let Some(k) = key {
+                self.back_up_cover(&k);
+                record[PRIVATE_KEY] = json!({"cde_key": k.cde_key, "cde_type": k.cde_type});
+            }
+            log::info!("adopted {} ({source:?})", c.lpath);
+            self.books.push(record);
+            adopted += 1;
+        }
+        if adopted > 0 {
+            self.save()?;
+        }
+        Ok(adopted)
+    }
+
+    /// Keeps a copy of a cover someone else wrote (the USB driver does), so
+    /// [`Library::restore_covers`] can put it back like ours.
+    fn back_up_cover(&self, key: &BookKey) {
+        let Some(covers) = &self.covers else { return };
+        let name = key.thumbnail_name();
+        let backup = self.state_dir.join(COVERS_DIR).join(&name);
+        if backup.exists() {
+            return;
+        }
+        if let Ok(jpeg) = fs::read(covers.thumbnails_dir.join(&name)) {
+            if let Err(e) = write_file_atomic(&backup, &jpeg) {
+                log::warn!("failed to back up cover {name}: {e}");
+            }
+        }
     }
 
     /// Opens a book we hold for sending back to Calibre.
@@ -702,6 +775,73 @@ mod tests {
     // "/9j/4AAQ" is the start of a JPEG: ff d8 ff e0 00 10.
     const JPEG_B64: &str = "/9j/4AAQ";
     const JPEG: [u8; 6] = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10];
+
+    #[test]
+    fn adopts_calibre_books_it_did_not_receive() {
+        const UUID: &str = "cb5d2673-dbcf-4a0c-b9a6-90de29a24177";
+        let (tmp, mut lib) = setup();
+        let thumbs = enable_covers(&tmp, &mut lib);
+        let exts: Vec<String> = ["azw3", "azw", "pdf"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // A USB-sent AZW3 with the cover the USB driver wrote, an Amazon
+        // book, an EPUB, and a PDF listed in the USB driver's metadata.
+        let book = crate::kindle::tests::fake_mobi(&[
+            (112, format!("calibre:{UUID}").as_bytes()),
+            (113, UUID.as_bytes()),
+            (501, b"EBOK"),
+            (503, b"Example Book"),
+            (100, b"Jane Author"),
+        ]);
+        fs::write(
+            lib.books_dir().join("Example Book - Jane Author.azw3"),
+            &book,
+        )
+        .unwrap();
+        let cover = format!("thumbnail_{UUID}_EBOK_portrait.jpg");
+        fs::write(thumbs.join(&cover), JPEG).unwrap();
+        fs::write(
+            lib.books_dir().join("Store.azw"),
+            mobi_with_key("B0053VMNYW"),
+        )
+        .unwrap();
+        fs::write(lib.books_dir().join("Other.epub"), b"epub").unwrap();
+        fs::write(lib.books_dir().join("Report.pdf"), b"%PDF-").unwrap();
+        fs::write(
+            tmp.path().join("metadata.calibre"),
+            json!([{"lpath": "books/report.pdf", "uuid": UUID, "title": "Report", "size": 5}])
+                .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(lib.adopt_existing(&exts).unwrap(), 2);
+        let b = lib.book("Example Book - Jane Author.azw3").unwrap();
+        assert_eq!(b["uuid"], UUID);
+        assert_eq!(b["title"], "Example Book");
+        assert_eq!(b["_kws"]["cde_key"], UUID);
+        assert_eq!(lib.book("Report.pdf").unwrap()["title"], "Report");
+        assert!(lib.book("Store.azw").is_none());
+        assert_eq!(
+            fs::read(tmp.path().join("state/covers").join(&cover)).unwrap(),
+            JPEG
+        );
+        // Nothing on disk changed, and a second scan finds nothing new.
+        assert_eq!(
+            fs::read(lib.books_dir().join("Example Book - Jane Author.azw3")).unwrap(),
+            book
+        );
+        assert_eq!(lib.adopt_existing(&exts).unwrap(), 0);
+
+        // Adopted books are saved, and deleting one works like any other.
+        let mut lib2 = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
+        assert_eq!(lib2.books().len(), 2);
+        assert_eq!(
+            lib2.delete_book("Report.pdf").unwrap().as_deref(),
+            Some(UUID)
+        );
+        assert!(!lib2.books_dir().join("Report.pdf").exists());
+    }
 
     #[test]
     fn cover_and_backup_are_written_and_key_kept_private() {

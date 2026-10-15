@@ -93,6 +93,7 @@ pub fn run<R: BufRead, W: Write>(
     cfg: &DeviceConfig,
     admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
 ) -> io::Result<SessionEnd> {
+    let mut adopted = false;
     loop {
         let Some(msg) = conn.recv()? else {
             return Ok(SessionEnd::Closed);
@@ -170,7 +171,19 @@ pub fn run<R: BufRead, W: Write>(
                 )?;
             }
             Opcode::SetLibraryInfo => conn.send(Opcode::Ok, json!({}))?,
-            Opcode::GetBookCount => send_book_list(conn, lib, p)?,
+            Opcode::GetBookCount => {
+                // Once per session, before Calibre first sees the list:
+                // books sent over USB since the last session (ADR 0013).
+                if !adopted {
+                    adopted = true;
+                    match lib.adopt_existing(&cfg.accepted_extensions) {
+                        Ok(0) => {}
+                        Ok(n) => log::info!("adopted {n} books already on the device"),
+                        Err(e) => log::warn!("adopting books failed: {e}"),
+                    }
+                }
+                send_book_list(conn, lib, p)?
+            }
             Opcode::Noop => {
                 if p.get("ejecting").and_then(Value::as_bool) == Some(true) {
                     conn.send(Opcode::Ok, json!({}))?;
@@ -680,6 +693,29 @@ mod tests {
         assert_eq!(o.replies[3], (Opcode::Ok, json!({"uuid": "book-1"})));
         assert_eq!(o.replies[4], (Opcode::Ok, json!({"uuid": ""})));
         assert!(!lib.books_dir().join("a.azw3").exists());
+    }
+
+    #[test]
+    fn reports_books_sent_over_usb_once_per_session() {
+        let (_tmp, mut lib) = setup();
+        let uuid = "cb5d2673-dbcf-4a0c-b9a6-90de29a24177";
+        let book = crate::kindle::tests::fake_mobi(&[
+            (112, format!("calibre:{uuid}").as_bytes()),
+            (503, b"Example Book"),
+        ]);
+        std::fs::write(lib.books_dir().join("Example.azw3"), book).unwrap();
+        let count = json!({"willUseCachedMetadata": true});
+        let script = Script::new()
+            .handshake()
+            .msg(Opcode::GetBookCount, count.clone())
+            .msg(Opcode::Noop, json!({"priKey": 0}));
+        let o = run_script(&mut lib, &DeviceConfig::default(), script);
+        assert_eq!(o.replies[1].1["count"], 1);
+        assert_eq!(o.replies[2].1["uuid"], uuid);
+        assert_eq!(o.replies[2].1["lpath"], "Example.azw3");
+        // On a cache miss Calibre gets the record we built from the file.
+        assert_eq!(o.replies[3].1["title"], "Example Book");
+        assert_eq!(o.replies[3].1["authors"], json!(["Unknown"]));
     }
 
     #[test]

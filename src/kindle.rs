@@ -53,8 +53,11 @@ pub fn key_source(ext: &str, head: &[u8]) -> KeySource {
 /// Bytes of a MOBI file to read to be sure of having its EXTH header.
 pub const HEAD_LEN: usize = 256 * 1024;
 
+const EXTH_AUTHOR: u32 = 100;
+const EXTH_SOURCE: u32 = 112;
 const EXTH_ASIN: u32 = 113;
 const EXTH_CDETYPE: u32 = 501;
+const EXTH_TITLE: u32 = 503;
 
 fn be_u32(data: &[u8], at: usize) -> Option<u32> {
     let b = data.get(at..at.checked_add(4)?)?;
@@ -66,10 +69,9 @@ fn be_u16(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes([b[0], b[1]]))
 }
 
-/// Reads EXTH records 113 (ASIN; Calibre writes the book UUID) and 501
-/// (cdetype) from a MOBI/AZW3 PalmDB file. Mirrors Calibre's
-/// `devices/kindle/driver.py:thumbnail_filename`: both must be present.
-pub fn read_exth_key(data: &[u8]) -> Option<BookKey> {
+/// The EXTH records of a MOBI/AZW3 PalmDB file, in file order, as
+/// `(type, value)`. `None` if the file has no readable EXTH header.
+fn exth_records(data: &[u8]) -> Option<Vec<(u32, &[u8])>> {
     // PalmDB header: type/creator "BOOKMOBI" at 60, record count at 76,
     // record list (8 bytes each) from 78.
     if data.get(60..68)? != b"BOOKMOBI" || be_u16(data, 76)? == 0 {
@@ -91,7 +93,7 @@ pub fn read_exth_key(data: &[u8]) -> Option<BookKey> {
         return None;
     }
     let count = be_u32(data, exth + 8)?;
-    let (mut asin, mut cdetype) = (None, None);
+    let mut records = Vec::new();
     let mut at = exth + 12;
     for _ in 0..count {
         let kind = be_u32(data, at)?;
@@ -99,13 +101,27 @@ pub fn read_exth_key(data: &[u8]) -> Option<BookKey> {
         if len < 8 {
             return None;
         }
-        let value = data.get(at + 8..at.checked_add(len)?)?;
+        records.push((kind, data.get(at + 8..at.checked_add(len)?)?));
+        at += len;
+    }
+    Some(records)
+}
+
+fn exth_text(value: &[u8]) -> Option<&str> {
+    std::str::from_utf8(value).ok().map(str::trim)
+}
+
+/// Reads EXTH records 113 (ASIN; Calibre writes the book UUID) and 501
+/// (cdetype) from a MOBI/AZW3 PalmDB file. Mirrors Calibre's
+/// `devices/kindle/driver.py:thumbnail_filename`: both must be present.
+pub fn read_exth_key(data: &[u8]) -> Option<BookKey> {
+    let (mut asin, mut cdetype) = (None, None);
+    for (kind, value) in exth_records(data)? {
         match kind {
-            EXTH_ASIN => asin = std::str::from_utf8(value).ok().map(|s| s.trim().to_owned()),
-            EXTH_CDETYPE => cdetype = std::str::from_utf8(value).ok().map(|s| s.trim().to_owned()),
+            EXTH_ASIN => asin = exth_text(value).map(str::to_owned),
+            EXTH_CDETYPE => cdetype = exth_text(value).map(str::to_owned),
             _ => {}
         }
-        at += len;
     }
     match (asin, cdetype) {
         (Some(k), Some(t)) if valid_key_part(&k) && valid_key_part(&t) => Some(BookKey {
@@ -114,6 +130,51 @@ pub fn read_exth_key(data: &[u8]) -> Option<BookKey> {
         }),
         _ => None,
     }
+}
+
+/// What Calibre wrote into a MOBI/AZW3 file it made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibreIdentity {
+    pub uuid: String,
+    pub title: Option<String>,
+    pub authors: Vec<String>,
+}
+
+/// Reads a book's Calibre UUID (EXTH 112 `calibre:<uuid>`, else a
+/// UUID-shaped EXTH 113), title (503) and authors (100, one record each).
+/// `None` without a Calibre UUID, as for Amazon books, whose 113 is an ASIN
+/// (ADR 0013).
+pub fn read_calibre_identity(data: &[u8]) -> Option<CalibreIdentity> {
+    let (mut source, mut asin, mut title, mut authors) = (None, None, None, Vec::new());
+    for (kind, value) in exth_records(data)? {
+        let Some(text) = exth_text(value).filter(|t| !t.is_empty()) else {
+            continue;
+        };
+        match kind {
+            EXTH_SOURCE => source = text.strip_prefix("calibre:").map(str::to_owned),
+            EXTH_ASIN => asin = Some(text.to_owned()),
+            EXTH_TITLE => title = Some(text.to_owned()),
+            EXTH_AUTHOR => authors.push(text.to_owned()),
+            _ => {}
+        }
+    }
+    let uuid = source
+        .filter(|u| is_uuid(u))
+        .or(asin.filter(|u| is_uuid(u)))?;
+    Some(CalibreIdentity {
+        uuid,
+        title,
+        authors,
+    })
+}
+
+/// A UUID in its usual text form, as Calibre gives every book.
+pub fn is_uuid(s: &str) -> bool {
+    s.len() == 36
+        && s.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
 }
 
 /// Keys become part of a file name; keep them to a safe character set.
