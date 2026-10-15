@@ -30,9 +30,8 @@ tests. Device-side files, including the KPM hooks, are in `package/`.
 
 ## Next steps (in order)
 
-1. **The developer to review ADR 0012 (KPM package) and ADR 0013 (adopting
-   USB-sent books).** Both are Proposed.
-2. **Build ADR 0013** once it's accepted. Then check the two "To verify"
+1. **Build ADR 0013 (adopting USB-sent books), which is accepted.** Then
+   check the two "To verify"
    items on the device:
    - whether Calibre takes a USB connection while our wireless session is
      open
@@ -41,14 +40,15 @@ tests. Device-side files, including the KPM hooks, are in `package/`.
    USB-sent books for testing are already on the device: an AZW3
    (listed in `/mnt/us/metadata.calibre`), and EPUBs that
    must be skipped. Measure the binary size before and after.
-3. **Distribution** (open question in `docs/PLAN.md`). KPM 0.2.2 can't
+2. **Distribution** (open question in `docs/PLAN.md`). KPM 0.2.2 can't
    install a local `.kpkg` over an installed package (ADR 0012, findings),
    so upgrades need a KPM repository (`repo.json`). Ask the developer where
-   to host it, and whether to report the bug upstream (KindleModding/KPM).
-   Don't post anything without asking.
-4. Possible polish: status messages vanish after 6 s, which is easy to miss
-   on e-ink.
-5. Phase 5 stretch goals (`docs/PLAN.md`).
+   to host it. Reporting the bug upstream is on the "Later" list. Don't
+   post anything without asking.
+3. Phase 5 stretch goals (`docs/PLAN.md`).
+4. Afterwards, the **"Later" list** in `docs/PLAN.md`: the KPM bug, a UI and
+   wording review (maybe a translation file), and our own tap-debugging
+   helper. Add new deferred items there.
 
 ## Decisions (all in `docs/decisions/`)
 
@@ -61,12 +61,12 @@ derives, measure dependency size · 0007 accept azw3/mobi/azw/kfx/pdf/txt ·
 0008 daemon behaviour; find libraries on request; synchronous add-server ·
 0009 `dev-tools` feature gates `discover`/`connect` · 0010 autostart
 sentinel and crash-loop guard · 0011 localhost API, Origin check,
-flock-guarded config, hand-written HTTP.
-
-**Proposed:** 0012 KPM package lifecycle (install is safe to re-run; upgrade
+flock-guarded config, hand-written HTTP · 0012 KPM package lifecycle (install is safe to re-run; upgrade
 keeps state; uninstall keeps books, removes everything else) · 0013 adopt
 USB-sent books (Calibre uuid only, `metadata.calibre` then EXTH, scan at
 session start, EPUBs skipped).
+
+None are Proposed.
 
 ## KPM facts (from its source)
 

@@ -206,6 +206,26 @@ sync works end to end with only stock Calibre.
   firmware and models other than the reference device. Record what differs.
   See [0001](decisions/0001-target-device-and-firmware.md).
 
+## Later: to revisit once the goals above are met
+
+Not part of any phase. Pick these up after the base and stretch goals
+(Phases 5–6) are done.
+
+1. **KPM bug: a local `.kpkg` can't replace an installed package.** KPM 0.2.2
+   compares installed ids with the `file://` URL (ADR 0012, findings).
+   Report it upstream (KindleModding/KPM, with a minimal reproduction), and
+   decide how we ship upgrades until it's fixed (see the distribution open
+   question).
+2. **Review the UI.** Usability on e-ink, and the actual wording of every
+   label, hint and message. Consider moving the text into a translation
+   file. Known item: status messages disappear after 6 s, which is easy to
+   miss.
+3. **A tap-debugging helper in this repo.** UI checks over SSH currently
+   rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
+   installed on the reference device. Add our own (or a vendored, credited
+   copy, after checking its licence), plus a recipe that taps, screenshots
+   and fetches the PNG.
+
 ## Open questions
 
 Track these here until they become decisions.

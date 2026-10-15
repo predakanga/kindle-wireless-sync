@@ -1,6 +1,6 @@
 # 0012: KPM package install, upgrade and uninstall
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 
 ## Context

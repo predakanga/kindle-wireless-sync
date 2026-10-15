@@ -1,6 +1,6 @@
 # 0013: Adopt books that Calibre sent over USB
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-15
 
 ## Context
