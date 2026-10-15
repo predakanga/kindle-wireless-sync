@@ -55,7 +55,7 @@ deploy: build-kindle
 
 # Deploy, then run one session on the Kindle in the foreground
 device-connect *args: deploy
-    ssh -t kindle "RUST_LOG=${RUST_LOG:-debug} {{kindle_dir}}/kindle-wireless-sync connect --books {{kindle_books}} --state {{kindle_dir}}/state {{args}}"
+    ssh -t kindle "RUST_LOG=${RUST_LOG:-debug} {{kindle_dir}}/kindle-wireless-sync connect --books {{kindle_books}} --state {{kindle_dir}}/state --thumbnails /mnt/us/system/thumbnails --catalog /var/local/cc.db {{args}}"
 
 # Run discovery from the Kindle
 device-discover: deploy

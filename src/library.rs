@@ -7,14 +7,21 @@
 //!
 //! Our state (`books.json`, `driveinfo.json`) lives in a separate state
 //! directory and holds Calibre's metadata for each book we received, keyed by
-//! `lpath`.
+//! `lpath`. Each record also carries our private `_kws` object (the book's
+//! Kindle content key), which is stripped before metadata goes to Calibre.
+//!
+//! With covers enabled, Calibre's thumbnail is written to the firmware's
+//! thumbnails directory before the book appears, and backed up so it can be
+//! restored if the firmware replaces it (see [`crate::kindle`]).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::kindle::{self, BookKey, CoverConfig, KeySource};
 use crate::lpath;
 
 const BOOKS_FILE: &str = "books.json";
@@ -23,6 +30,11 @@ const TEMP_PREFIX: &str = ".kws-";
 const TEMP_SUFFIX: &str = ".part";
 /// Space to leave free on top of an incoming book.
 const FREE_SPACE_MARGIN: u64 = 1024 * 1024;
+/// Our private key in each book record.
+const PRIVATE_KEY: &str = "_kws";
+const COVERS_DIR: &str = "covers";
+/// How long to wait for the scanner when a key is only known after indexing.
+const INDEX_WAIT: Duration = Duration::from_secs(10);
 
 pub struct Library {
     books_dir: PathBuf,
@@ -30,6 +42,7 @@ pub struct Library {
     books: Vec<Value>,
     driveinfo: Value,
     temp_counter: u32,
+    covers: Option<CoverConfig>,
 }
 
 /// A book being received. Dropping it without committing removes the
@@ -74,6 +87,7 @@ impl Library {
                 .unwrap_or_default(),
             driveinfo: load_json(&state_dir.join(DRIVEINFO_FILE))?.unwrap_or_else(|| json!({})),
             temp_counter: 0,
+            covers: None,
         };
         remove_stale_temps(&lib.books_dir, 4);
         let before = lib.books.len();
@@ -93,6 +107,17 @@ impl Library {
         Ok(lib)
     }
 
+    /// Turns on cover handling and restores any covers the firmware lost.
+    pub fn enable_covers(&mut self, covers: CoverConfig) -> io::Result<()> {
+        fs::create_dir_all(self.state_dir.join(COVERS_DIR))?;
+        self.covers = Some(covers);
+        let restored = self.restore_covers();
+        if restored > 0 {
+            log::info!("restored {restored} cover thumbnails");
+        }
+        Ok(())
+    }
+
     pub fn books_dir(&self) -> &Path {
         &self.books_dir
     }
@@ -103,6 +128,15 @@ impl Library {
 
     pub fn book(&self, lpath: &str) -> Option<&Value> {
         self.books.iter().find(|b| record_lpath(b) == Some(lpath))
+    }
+
+    /// A book's metadata as Calibre should see it (without our private data).
+    pub fn calibre_metadata(&self, index: usize) -> Option<Value> {
+        let mut record = self.books.get(index)?.clone();
+        if let Some(obj) = record.as_object_mut() {
+            obj.remove(PRIVATE_KEY);
+        }
+        Some(record)
     }
 
     pub fn driveinfo(&self) -> &Value {
@@ -126,7 +160,11 @@ impl Library {
             .find(|b| record_lpath(b) == Some(l.as_str()))
         {
             Some(slot) => {
+                let private = slot.get(PRIVATE_KEY).cloned();
                 *slot = slim(metadata, &l);
+                if let Some(private) = private {
+                    slot[PRIVATE_KEY] = private;
+                }
                 true
             }
             None => false,
@@ -197,6 +235,27 @@ impl Library {
         file.sync_all()?;
         drop(file);
 
+        // The cover must exist before the scanner first sees the book: the
+        // Library shows whatever thumbnail is there at first draw, and the
+        // scanner never replaces an existing one.
+        let ext = incoming
+            .rel
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut key = None;
+        let mut key_after_index = false;
+        if self.covers.is_some() {
+            match kindle::key_source(&ext, &read_head(&incoming.temp_path)?) {
+                KeySource::Known(k) => {
+                    self.write_cover(&k, &metadata);
+                    key = Some(k);
+                }
+                KeySource::AfterIndex => key_after_index = true,
+                KeySource::NoCover => {}
+            }
+        }
+
         let result = if incoming.final_path.exists() {
             // Rewrite in place so the scanner updates the existing entry and
             // the reading position is kept (ADR 0005).
@@ -208,8 +267,22 @@ impl Library {
         let _ = fs::remove_file(&incoming.temp_path);
         result?;
 
+        if key_after_index {
+            key = self.wait_for_indexed_key(&incoming.final_path);
+            match &key {
+                Some(k) => self.write_cover(k, &metadata),
+                None => log::warn!(
+                    "no content key for {}; cover not set",
+                    incoming.rel.display()
+                ),
+            }
+        }
+
         let l = rel_to_lpath(&incoming.rel);
-        let record = slim(metadata, &l);
+        let mut record = slim(metadata, &l);
+        if let Some(k) = key {
+            record[PRIVATE_KEY] = json!({"cde_key": k.cde_key, "cde_type": k.cde_type});
+        }
         match self
             .books
             .iter_mut()
@@ -219,6 +292,63 @@ impl Library {
             None => self.books.push(record),
         }
         self.save()
+    }
+
+    fn wait_for_indexed_key(&self, path: &Path) -> Option<BookKey> {
+        let db = self.covers.as_ref()?.catalog_db.as_ref()?;
+        let location = path.to_str()?;
+        let deadline = Instant::now() + INDEX_WAIT;
+        loop {
+            if let Some(k) = kindle::lookup_indexed_key(db, location) {
+                return Some(k);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    }
+
+    /// Writes Calibre's thumbnail for `key` and its backup. Failures are
+    /// logged: a missing cover is not worth failing the transfer for.
+    fn write_cover(&self, key: &BookKey, metadata: &Value) {
+        let Some(covers) = &self.covers else { return };
+        let Some(jpeg) = metadata["thumbnail"][2]
+            .as_str()
+            .and_then(kindle::decode_base64)
+        else {
+            log::info!("no usable cover thumbnail from calibre for {}", key.cde_key);
+            return;
+        };
+        let name = key.thumbnail_name();
+        let result = write_file_atomic(&self.state_dir.join(COVERS_DIR).join(&name), &jpeg)
+            .and_then(|_| write_file_atomic(&covers.thumbnails_dir.join(&name), &jpeg));
+        if let Err(e) = result {
+            log::warn!("failed to write cover {name}: {e}");
+        }
+    }
+
+    /// Puts back covers the firmware deleted or replaced. Returns how many
+    /// were restored.
+    pub fn restore_covers(&self) -> usize {
+        let Some(covers) = &self.covers else { return 0 };
+        let mut restored = 0;
+        for key in self.books.iter().filter_map(record_key) {
+            let name = key.thumbnail_name();
+            let backup = self.state_dir.join(COVERS_DIR).join(&name);
+            let target = covers.thumbnails_dir.join(&name);
+            let (Ok(b), current) = (fs::metadata(&backup), fs::metadata(&target)) else {
+                continue;
+            };
+            if current.map(|c| c.len()).ok() == Some(b.len()) {
+                continue;
+            }
+            match fs::read(&backup).and_then(|data| write_file_atomic(&target, &data)) {
+                Ok(()) => restored += 1,
+                Err(e) => log::warn!("failed to restore cover {name}: {e}"),
+            }
+        }
+        restored
     }
 
     /// Deletes a book we hold, with its firmware sidecar directory. Returns
@@ -246,6 +376,11 @@ impl Library {
         }
 
         let record = self.books.remove(pos);
+        if let (Some(covers), Some(key)) = (&self.covers, record_key(&record)) {
+            let name = key.thumbnail_name();
+            remove_if_exists(fs::remove_file(covers.thumbnails_dir.join(&name)))?;
+            remove_if_exists(fs::remove_file(self.state_dir.join(COVERS_DIR).join(&name)))?;
+        }
         self.save()?;
         Ok(Some(
             record
@@ -273,6 +408,35 @@ impl Library {
 
 fn record_lpath(record: &Value) -> Option<&str> {
     record.get("lpath").and_then(Value::as_str)
+}
+
+fn record_key(record: &Value) -> Option<BookKey> {
+    let private = record.get(PRIVATE_KEY)?;
+    Some(BookKey {
+        cde_key: private.get("cde_key")?.as_str()?.to_owned(),
+        cde_type: private.get("cde_type")?.as_str()?.to_owned(),
+    })
+}
+
+/// The start of a book file, enough for [`kindle::key_source`].
+fn read_head(path: &Path) -> io::Result<Vec<u8>> {
+    let mut head = Vec::new();
+    File::open(path)?
+        .take(kindle::HEAD_LEN as u64)
+        .read_to_end(&mut head)?;
+    Ok(head)
+}
+
+/// Writes via a dot-prefixed temporary file and rename.
+fn write_file_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
+    let name = path.file_name().ok_or_else(|| other("no file name"))?;
+    let tmp = path.with_file_name(format!("{TEMP_PREFIX}{}.tmp", name.to_string_lossy()));
+    {
+        let mut f = File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)
 }
 
 fn rel_to_lpath(rel: &Path) -> String {
@@ -518,6 +682,105 @@ mod tests {
         let rel = lpath::validate("huge.pdf", None).unwrap();
         let err = lib.begin_incoming(&rel, u64::MAX / 2).err().unwrap();
         assert!(err.to_string().contains("not enough free space"), "{err}");
+    }
+
+    fn enable_covers(tmp: &tempfile::TempDir, lib: &mut Library) -> PathBuf {
+        let thumbs = tmp.path().join("thumbnails");
+        fs::create_dir_all(&thumbs).unwrap();
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir: thumbs.clone(),
+            catalog_db: None,
+        })
+        .unwrap();
+        thumbs
+    }
+
+    fn mobi_with_key(key: &str) -> Vec<u8> {
+        crate::kindle::tests::fake_mobi(&[(113, key.as_bytes()), (501, b"EBOK")])
+    }
+
+    // "/9j/4AAQ" is the start of a JPEG: ff d8 ff e0 00 10.
+    const JPEG_B64: &str = "/9j/4AAQ";
+    const JPEG: [u8; 6] = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10];
+
+    #[test]
+    fn cover_and_backup_are_written_and_key_kept_private() {
+        let (tmp, mut lib) = setup();
+        let thumbs = enable_covers(&tmp, &mut lib);
+        let meta = json!({"uuid": "u1", "thumbnail": [1, 1, JPEG_B64]});
+        receive(&mut lib, "Book.azw3", &mobi_with_key("k1"), meta);
+
+        let name = "thumbnail_k1_EBOK_portrait.jpg";
+        assert_eq!(fs::read(thumbs.join(name)).unwrap(), JPEG);
+        assert_eq!(
+            fs::read(tmp.path().join("state/covers").join(name)).unwrap(),
+            JPEG
+        );
+        assert_eq!(lib.book("Book.azw3").unwrap()["_kws"]["cde_key"], "k1");
+        assert!(lib.calibre_metadata(0).unwrap().get("_kws").is_none());
+        // Calibre's metadata updates keep our private key.
+        assert!(lib.update_metadata(json!({"lpath": "Book.azw3", "title": "T"})));
+        assert_eq!(lib.book("Book.azw3").unwrap()["_kws"]["cde_type"], "EBOK");
+        // No temporary files left in the thumbnails directory.
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn lost_or_replaced_covers_are_restored() {
+        let (tmp, mut lib) = setup();
+        let thumbs = enable_covers(&tmp, &mut lib);
+        let meta = json!({"thumbnail": [1, 1, JPEG_B64]});
+        receive(&mut lib, "Book.azw3", &mobi_with_key("k1"), meta);
+        let thumb = thumbs.join("thumbnail_k1_EBOK_portrait.jpg");
+
+        assert_eq!(lib.restore_covers(), 0, "nothing to do while intact");
+        fs::write(&thumb, b"placeholder from the firmware").unwrap();
+        assert_eq!(lib.restore_covers(), 1);
+        assert_eq!(fs::read(&thumb).unwrap(), JPEG);
+        fs::remove_file(&thumb).unwrap();
+        // Restoring also happens when covers are enabled at startup.
+        let mut lib2 = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
+        enable_covers(&tmp, &mut lib2);
+        assert_eq!(fs::read(&thumb).unwrap(), JPEG);
+    }
+
+    #[test]
+    fn delete_removes_cover_and_backup() {
+        let (tmp, mut lib) = setup();
+        let thumbs = enable_covers(&tmp, &mut lib);
+        receive(
+            &mut lib,
+            "Book.azw3",
+            &mobi_with_key("k1"),
+            json!({"thumbnail": [1, 1, JPEG_B64]}),
+        );
+        lib.delete_book("Book.azw3").unwrap();
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(tmp.path().join("state/covers"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn formats_without_covers_get_none() {
+        let (tmp, mut lib) = setup();
+        let thumbs = enable_covers(&tmp, &mut lib);
+        let meta = json!({"thumbnail": [1, 1, JPEG_B64]});
+        receive(&mut lib, "a.pdf", b"%PDF-1.4", meta.clone());
+        // KFX needs the catalog, which is disabled here.
+        receive(&mut lib, "b.kfx", b"CONT", meta.clone());
+        // A MOBI without EXTH 113/501 also needs the catalog.
+        receive(
+            &mut lib,
+            "c.mobi",
+            &crate::kindle::tests::fake_mobi(&[]),
+            meta,
+        );
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
+        assert!(lib.books().iter().all(|b| b.get("_kws").is_none()));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use kws::discovery::{self, CalibreServer};
+use kws::kindle::CoverConfig;
 use kws::library::Library;
 use kws::protocol::Connection;
 use kws::session::{self, DeviceConfig, SessionEnd};
@@ -19,6 +20,7 @@ usage:
   kindle-wireless-sync connect --books DIR --state DIR [--host HOST] [--port PORT]
               [--password PW] [--allow LIBRARY_UUID]... [--allow-any]
               [--name NAME] [--transcript FILE]
+              [--thumbnails DIR [--catalog DB]]
 
 Set RUST_LOG=debug to log every protocol message.";
 
@@ -86,6 +88,8 @@ fn connect_cmd(mut args: lexopt::Parser) -> Result<ExitCode, Box<dyn std::error:
     let mut host: Option<String> = None;
     let mut port: Option<u16> = None;
     let mut transcript: Option<PathBuf> = None;
+    let mut thumbnails: Option<PathBuf> = None;
+    let mut catalog: Option<PathBuf> = None;
     let mut allowed: Vec<String> = Vec::new();
     let mut allow_any = false;
     let mut cfg = DeviceConfig::default();
@@ -100,6 +104,8 @@ fn connect_cmd(mut args: lexopt::Parser) -> Result<ExitCode, Box<dyn std::error:
             Long("allow-any") => allow_any = true,
             Long("name") => cfg.device_name = args.value()?.string()?,
             Long("transcript") => transcript = Some(args.value()?.into()),
+            Long("thumbnails") => thumbnails = Some(args.value()?.into()),
+            Long("catalog") => catalog = Some(args.value()?.into()),
             _ => return Err(arg.unexpected().into()),
         }
     }
@@ -119,6 +125,12 @@ fn connect_cmd(mut args: lexopt::Parser) -> Result<ExitCode, Box<dyn std::error:
     }
 
     let mut lib = Library::open(&books, &state)?;
+    if let Some(thumbnails_dir) = thumbnails {
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir,
+            catalog_db: catalog,
+        })?;
+    }
     let end = session::run(&mut conn, &mut lib, &cfg, &mut |info| {
         allow_any || allowed.contains(&info.library_uuid)
     })?;

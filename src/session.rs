@@ -158,9 +158,7 @@ pub fn run<R: BufRead, W: Write>(
                 } else if let Some(index) = p.get("priKey").and_then(Value::as_u64) {
                     // Calibre's cache missed this book; send full metadata.
                     let book = lib
-                        .books()
-                        .get(index as usize)
-                        .cloned()
+                        .calibre_metadata(index as usize)
                         .unwrap_or_else(|| json!({}));
                     conn.send(Opcode::Ok, book)?;
                 } else if p.get("count").is_some() {
@@ -306,7 +304,7 @@ fn send_book_list<R: BufRead, W: Write>(
                 }),
             )?;
         } else {
-            conn.send(Opcode::Ok, book.clone())?;
+            conn.send(Opcode::Ok, lib.calibre_metadata(index).unwrap_or_default())?;
         }
     }
     Ok(())
