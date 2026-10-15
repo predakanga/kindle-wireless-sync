@@ -13,6 +13,8 @@ case "$n" in ''|*[!0-9]*) n=0 ;; esac
 if [ "$n" -ge 3 ]; then
     echo "$(date) autostart disabled after $n boots without a stable run" >> "$DIR/state/boot.log"
     rm -f "$DIR/autostart" "$DIR/boot_attempts"
+    # Tells the UI why autostart is off (ADR 0011); cleared when re-enabled.
+    touch "$DIR/autostart_disabled"
     exit 0
 fi
 echo $((n + 1)) > "$DIR/boot_attempts"

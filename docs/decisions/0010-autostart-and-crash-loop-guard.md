@@ -31,6 +31,7 @@ exposed over USB):
 | `autostart` | Sentinel. If present, start the service at boot. The UI toggle creates or deletes it. |
 | `boot_attempts` | Number of boots since the service last ran stably. |
 | `state/boot.log` | Note written when the guard turns autostart off. |
+| `autostart_disabled` | Marker the guard creates when it turns autostart off. The UI shows it, and turning autostart on removes it (ADR 0011). |
 
 Flow:
 1. `kindle-wireless-sync-autostart.conf` (`start on framework_ready`,
@@ -63,6 +64,5 @@ sentinel never blocks them.
   the daemon connected to Calibre within seconds, and `boot_attempts` was
   removed once it had run for 2 minutes.
 - Not yet exercised: the guard actually tripping (3 bad boots).
-- The UI should show "autostart was turned off after repeated failures"
-  when `boot.log` has an entry newer than the last time the user turned
-  autostart on.
+- The UI shows "autostart was turned off after repeated failures" while the
+  `autostart_disabled` marker exists.

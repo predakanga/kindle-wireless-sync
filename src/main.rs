@@ -1,10 +1,11 @@
 //! `kindle-wireless-sync`: the daemon and its command-line tools.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use kws::api::{self, Api};
 use kws::config::{self, Config};
 use kws::daemon::{self, Daemon, FindResult, Options};
 use kws::discovery;
@@ -17,6 +18,7 @@ use lexopt::ValueExt;
 const USAGE: &str = "\
 usage:
   kindle-wireless-sync daemon --books DIR --state DIR [--thumbnails DIR [--catalog DB]] [--name NAME]
+              [--api-port PORT]
   kindle-wireless-sync find --state DIR [--probe ADDR]...
   kindle-wireless-sync add-server --state DIR HOST PORT [--password PW]
   kindle-wireless-sync allow --state DIR LIBRARY_UUID
@@ -113,6 +115,7 @@ fn open_library(
 fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
     let (mut books, mut state, mut thumbnails, mut catalog) = (None, None, None, None);
+    let mut api_port = api::DEFAULT_PORT;
     let mut device = DeviceConfig::default();
     while let Some(arg) = args.next()? {
         match arg {
@@ -121,17 +124,25 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
             Long("thumbnails") => thumbnails = Some(args.value()?.into()),
             Long("catalog") => catalog = Some(args.value()?.into()),
             Long("name") => device.device_name = args.value()?.string()?,
+            Long("api-port") => api_port = args.value()?.parse()?,
             _ => return Err(arg.unexpected().into()),
         }
     }
     let state: PathBuf = required(state, "--state")?;
+    // The autostart sentinel and guard files sit next to the state
+    // directory (ADR 0010).
+    let home = state
+        .canonicalize()
+        .ok()
+        .and_then(|s| s.parent().map(Path::to_path_buf))
+        .ok_or("--state must be an existing directory with a parent")?;
     let lib = open_library(required(books, "--books")?, &state, thumbnails, catalog)?;
 
     // On a Kindle, follow Wi-Fi over lipc; elsewhere assume the network is up.
     let wifi = network::wifi_connected();
     let opts = Options {
         device,
-        state_dir: state,
+        state_dir: state.clone(),
         backoff: Options::default_backoff(),
         read_timeout: READ_TIMEOUT,
         discover: Box::new(|| {
@@ -149,6 +160,23 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         network::watch_wifi(move |up| h.network_changed(up));
     } else {
         log::info!("lipc not available; assuming the network is always up");
+    }
+    // The UI's API (ADR 0011). Without it the daemon still syncs.
+    match TcpListener::bind(("127.0.0.1", api_port)) {
+        Ok(listener) => {
+            let api = Api {
+                handle: handle.clone(),
+                state_dir: state.clone(),
+                home_dir: home,
+                discover: Box::new(|| {
+                    discovery::discover(DISCOVERY_TIMEOUT, &discovery::default_targets())
+                        .unwrap_or_default()
+                }),
+            };
+            std::thread::spawn(move || api::serve(listener, api));
+            log::info!("api listening on 127.0.0.1:{api_port}");
+        }
+        Err(e) => log::error!("cannot listen on 127.0.0.1:{api_port}: {e}; the UI won't work"),
     }
     daemon.run();
     Ok(ExitCode::SUCCESS)

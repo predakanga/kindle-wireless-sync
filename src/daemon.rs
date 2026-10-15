@@ -298,6 +298,7 @@ impl Daemon {
                     }
                     Wake::ConnectNow => {
                         ejected = false;
+                        bad_password.clear();
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -329,6 +330,7 @@ impl Daemon {
                     Wake::Network(false) => self.net_up = false,
                     Wake::ConnectNow => {
                         ejected = false;
+                        bad_password.clear();
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -445,7 +447,10 @@ impl Daemon {
                         self.net_up = false;
                     }
                     Control::Network(true) => self.net_up = true,
-                    Control::ConnectNow => attempt = 0,
+                    Control::ConnectNow => {
+                        bad_password.clear();
+                        attempt = 0;
+                    }
                     Control::Pause => self.paused = true,
                     Control::Resume => {
                         self.paused = false;
@@ -502,7 +507,10 @@ impl Daemon {
             attempt += 1;
             match self.wait(Some(delay)) {
                 Wake::Network(false) => self.net_up = false,
-                Wake::ConnectNow => attempt = 0,
+                Wake::ConnectNow => {
+                    bad_password.clear();
+                    attempt = 0;
+                }
                 Wake::Shutdown => break,
                 Wake::Network(true) | Wake::Timeout | Wake::Pause => {}
             }
