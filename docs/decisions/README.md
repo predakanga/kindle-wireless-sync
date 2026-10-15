@@ -28,4 +28,5 @@ What this commits us to, and any follow-up work or risks.
 
 ## Index
 
-_None yet._
+- [0001: Target device and firmware](0001-target-device-and-firmware.md)
+- [0002: Run lifecycle](0002-run-lifecycle.md)

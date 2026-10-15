@@ -30,6 +30,8 @@ Stretch (a Calibre plugin is allowed for these):
   (shows a Rust Kindle GUI app, KPM packaging and a justfile debug workflow)
 - KOReader Calibre plugin: https://github.com/koreader/koreader/tree/master/plugins/calibre.koplugin
   (an existing client implementation of the wireless protocol)
+- Kindle HID Passthrough: https://github.com/zampierilucas/kindle-hid-passthrough
+  (shows a user-controlled service with start at boot or network-up)
 
 ## Phases
 
@@ -74,8 +76,10 @@ decide what to do before building anything.
 6. **Kindle platform.** From Kindle Button Mapper, learn the KPM package format
    and install hooks, the cross-compile target(s) (check armel vs armhf across
    firmware versions), GUI toolkit options and how an app is launched from the
-   Kindle UI. Also learn how to run a background service or on-demand
-   listener, and how Wi-Fi and sleep behaviour affect a long-lived connection.
+   Kindle UI. From Kindle HID Passthrough, learn how a user-controlled service
+   is registered and started at boot or network-up (see
+   [0002](decisions/0002-run-lifecycle.md)). Also find out how Wi-Fi and sleep
+   behaviour affect a long-lived connection.
 
 **Exit criteria:** a written answer to each item, a feasibility verdict for
 every base requirement, and a first set of architecture decisions.
@@ -100,8 +104,8 @@ send books to it and delete books from it.
   on Kindle Button Mapper).
 - Run the client on the device, write to the correct documents location, and
   trigger library registration so books show up immediately.
-- Decide on the lifecycle: always-on service, start from the UI, or start when
-  Wi-Fi comes up.
+- Service lifecycle per [0002](decisions/0002-run-lifecycle.md): start and stop
+  from the UI, with optional autostart at boot or network-up.
 
 **Exit criteria:** a book sent from Calibre opens in the built-in reader
 without a reboot.
@@ -109,7 +113,8 @@ without a reboot.
 ### Phase 4: UI and packaging
 
 - On-device UI for discovered Calibre instances and the allowlist (with
-  password if one is needed), plus connection status and sync status.
+  password if one is needed), service start/stop and autostart settings, and
+  connection and sync status.
 - KPM package with install, upgrade and uninstall that leaves the device
   clean.
 
@@ -122,13 +127,19 @@ sync works end to end with only stock Calibre.
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 
+### Phase 6: Other firmware (stretch stretch goal)
+
+- Check whether the on-device integration points we rely on (catalog
+  registration, collections, progress storage, service hooks, UI) exist on
+  firmware and models other than the reference device. Record what differs.
+  See [0001](decisions/0001-target-device-and-firmware.md).
+
 ## Open questions
 
 Track these here until they become decisions.
 
-- Which firmware versions and Kindle models do we support?
 - What does "allowlist" mean in protocol terms? (It depends on who initiates
   the connection and what identifies a Calibre instance, such as library UUID,
   hostname or IP.)
-- When does the client run (always-on vs on-demand), and what does that cost
-  in battery?
+- What does a running service cost in battery, and does it stop the device
+  from sleeping?

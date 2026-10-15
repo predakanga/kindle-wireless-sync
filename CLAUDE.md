@@ -14,7 +14,10 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 - The user's PC runs stock Calibre and nothing else. A Calibre plugin is
   allowed only for the stretch goals (Series→collections, progress/rating
   sync back to Calibre).
-- An on-device UI lets the user allowlist Calibre connections.
+- An on-device UI lets the user allowlist Calibre connections and start/stop
+  the sync service, with optional autostart at boot or network-up (ADR 0002).
+- The reference device is a Kindle Paperwhite 12th Gen on FW 5.20.1. Other
+  devices and firmware are best-effort (ADR 0001).
 - Books appear in the Kindle library as soon as a sync finishes.
 
 ## Current status
@@ -45,3 +48,6 @@ deploy-to-device commands here.**
 - Kindle Button Mapper, the model for the Rust Kindle GUI app, KPM packaging
   and the justfile debug/deploy workflow:
   https://github.com/zampierilucas/kindle-button-mapper-rs
+- Kindle HID Passthrough, the model for a user-controlled service that can
+  start at boot or network-up:
+  https://github.com/zampierilucas/kindle-hid-passthrough
