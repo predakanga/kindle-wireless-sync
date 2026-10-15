@@ -26,6 +26,9 @@ process over a **localhost HTTP JSON API**. See `docs/research/kindle-platform.m
 - A separate helper process that runs only while the UI is open (button
   mapper's approach): rejected. The daemon already has to run for sync, so
   embedding the API is simpler.
+- A KUAL extension (a menu entry in the KUAL launcher, with no `appreg.db`
+  registration): rejected. KUAL doesn't currently work on `kindlehf`, which is
+  our reference platform (the developer reported this on 2026-10-15).
 
 ## Consequences
 - The UI can only reach the daemon while the daemon process is running. If
@@ -34,4 +37,10 @@ process over a **localhost HTTP JSON API**. See `docs/research/kindle-platform.m
 - We need a small HTTP server in the binary. Pick a minimal crate to keep the
   binary small.
 - Installing and uninstalling must manage `appreg.db` rows and the mesquite
-  cache.
+  cache. `appreg.db` (`/var/local/appreg.db`) is the system's handler
+  registry. It maps file globs and MIME types to extractors and apps, and it
+  holds each handler's properties. `appmgrd` looks it up to resolve
+  `app://<id>`. We add one `handlerIds` row, one `associations` row
+  (`application`, `GL:<id>`) and the `command`/`lipcId`/`supportedOrientation`
+  properties under our own handler ID, and remove exactly those on uninstall.
+  The reference projects already do this on the reference device.
