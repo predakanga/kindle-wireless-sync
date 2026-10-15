@@ -239,6 +239,25 @@ and `cdeType = EBOK`. Its thumbnail is at
 USB driver), with a backup in `/mnt/us/amazon-cover-bug/`. The asset DB's
 `Nodes.THUMBNAIL` points at the same path.
 
+#### Cover written before the book appears (2026-10-15)
+
+A third converted AZW3 (`cdeKey` `cb5d2673…`, freshly random so nothing could
+be cached) had its 54,665-byte cover written to
+`system/thumbnails/thumbnail_<cdeKey>_EBOK_portrait.jpg` **before** the book
+was renamed into `documents/`. The extractor indexed the book in ~2 s and
+**left the existing thumbnail alone**. The file was unchanged after 15 s,
+`p_thumbnail` pointed at it, and the Library showed the real cover the first
+time it drew the book. Not covered: a Library already on screen during the
+sync, which we know only redraws on refresh.
+
+#### `cdeKey` for files without their own key
+
+For the `.txt` probe and every `.sh` scriptlet on the device,
+`p_cdeKey = "*" + sha1_hex(absolute path)`. For example,
+`sha1("/mnt/us/documents/BTManager.sh")` is `74be0406…`, giving
+`*74be0406…`. The `cdeType` was `PDOC`. Books with EXTH 113 use that value
+instead (see above).
+
 ### Verifying the UI from SSH
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to
