@@ -136,8 +136,11 @@ without a reboot.
 **Status (2026-10-15):** done: deploy recipes, covers (EXTH key, written
 before the book appears, backed up and restored), and an end-to-end run on
 the device (receive, live appearance with covers, in-place update, delete).
-Still to do: daemon mode (wait for Wi-Fi, reconnect policy, allowlist
-config) and the upstart jobs from ADR 0004. **Exit criterion met:** the
+Daemon mode (ADR 0008) works on the device against Calibre 9.16.0:
+`find` and `allow` from the Kindle, automatic connection, Wi-Fi drop
+detected at once (the socket is cut), reconnect about 5 s after Wi-Fi
+returns, and staying disconnected after an eject until Wi-Fi cycles. Still
+to do: the upstart jobs from ADR 0004. **Exit criterion met:** the
 received test book (AZW3) opened in the built-in reader without a reboot
 (screenshot, 2026-10-15).
 
