@@ -47,8 +47,11 @@ just package              # build target/package/kindle-wireless-sync.kpkg (ADR 
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 ```
 
-**Releases (ADR 0014):** bump `version` in `Cargo.toml`, commit, then push a
-matching `vX.Y.Z` tag. `.github/workflows/release.yml` checks, tests and
+**Releases (ADR 0014):** bump `version` in `Cargo.toml`, move the
+`Unreleased` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - date`
+heading, commit, then (after asking) push a matching `vX.Y.Z` tag. The
+workflow fails if the changelog has no section for the version, and uses
+that section as the release notes. `.github/workflows/release.yml` checks, tests and
 packages the release, publishes it on GitHub, and rebuilds the KPM index on
 GitHub Pages (`https://predakanga.github.io/kindle-wireless-sync/repo.json`).
 Run the workflow by hand to rebuild only the Pages site.
@@ -97,6 +100,8 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   in its README). Write one whenever a choice affects architecture, the
   protocol, the on-device integration or the packaging. Cite evidence such as
   Calibre source paths or device observations.
+- **Keep `CHANGELOG.md` current:** add user-facing changes under
+  `## [Unreleased]` as you make them.
 - **Commit as you go**, in small commits at each meaningful step (a research
   finding written up, a decision recorded, a feature working). Don't batch a
   whole phase into one commit.

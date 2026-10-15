@@ -36,6 +36,11 @@ jobs:
             exit 1
           fi
 
+      - name: Take the release notes from CHANGELOG.md
+        run: |
+          tools/changelog-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
+          cat notes.md
+
       - name: Install the Rust target and tools
         run: |
           rustup target add armv7-unknown-linux-musleabihf
@@ -66,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" target/package/kindle-wireless-sync.kpkg \
-            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+            --verify-tag --notes-file notes.md --title "$GITHUB_REF_NAME"
 
   pages:
     needs: release
