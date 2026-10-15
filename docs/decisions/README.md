@@ -38,3 +38,4 @@ What this commits us to, and any follow-up work or risks.
 - [0008: Daemon connection behaviour and status](0008-daemon-behaviour.md)
 - [0009: Development commands behind a `dev-tools` feature](0009-dev-tools-feature.md)
 - [0010: Autostart sentinel and crash-loop guard](0010-autostart-and-crash-loop-guard.md)
+- [0011: Localhost API for the on-device UI](0011-localhost-api.md)
