@@ -100,6 +100,9 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
 - **Commit as you go**, in small commits at each meaningful step (a research
   finding written up, a decision recorded, a feature working). Don't batch a
   whole phase into one commit.
+- **Don't push or tag without asking.** Commits stay local until the
+  developer says to push. A `vX.Y.Z` tag publishes a release (ADR 0014), so
+  only propose one for a real, user-facing change.
 
 ## Device access
 
