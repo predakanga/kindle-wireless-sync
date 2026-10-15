@@ -14,8 +14,10 @@ where collections, series and progress live. Sources:
 - LibrarianSync (github.com/barsanuphe/librariansync, 2018): `cc_update.py`.
 - Calibre `devices/kindle/driver.py` (USB Kindle driver).
 
-Unless a source says otherwise, none of this has been confirmed on **FW 5.20.1**.
-The on-device probes at the end are needed to close Phase 1.
+The desk research came first. The on-device results for **FW 5.20.1**
+(Paperwhite 12, probed 2026-10-15) are in the
+[last section](#probe-results-fw-5201-2026-10-15). Where they disagree with
+the desk research, **the probe results win**.
 
 ## Components
 
@@ -136,3 +138,108 @@ Each can be run over SSH. Results go back into this doc.
    toggling airplane mode, to find the network-up event.
 8. Check whether a `.sdr` sidecar holds any rating, and which `cc.db` fields
    change after reading a few pages, finishing a book and marking it read.
+
+## Probe results (FW 5.20.1, 2026-10-15)
+
+Probed over SSH (usbnet) on the reference device. Test files were named
+`kws-*` and removed afterwards, together with the `.sdr` folders the indexer
+created for them.
+
+### Platform
+
+- `Kindle 5.20.1`, kernel `5.15.41-lab126`, `armv7l`, hard-float loader
+  (`/lib/ld-linux-armhf.so.3`). **KPM platform `kindlehf`**: KPM keeps
+  `/var/local/kmc/kindlehf`, and installed packages such as kterm list only
+  `kindlehf`.
+- There is **no `com.lab126.ccat` upstart job** (matching the 5.18.1 report).
+  The jobs that are present include `scanner`, `kppmainapp`, `framework`,
+  `cmd`, `wifid` and `appmgrd`. kindle-series-manager's
+  `stop/start com.lab126.ccat` **would not work** on this firmware.
+- **`127.0.0.1:9101` is listening**, owned by the Java framework process. So
+  the ChangeRequest endpoint likely still exists. We haven't sent it anything
+  yet, because the base requirements don't need it.
+
+### Two library stores
+
+5.20.x has a **second catalog**, `/var/local/ksdk.asset.db`, which
+kindlewiki doesn't document. It has the tables `Nodes` (assets), `Tags`
+(`SERIES`, `USER_DEFINED_TAG` = collections, `SYSTEM_TAG` = Favorites) and
+`ContentTag` (membership). Its key is `ASSET_ID = <cdeKey>!!<cdeType>`.
+`KPPMainApp`, the new library UI, is the presumed reader of it.
+
+`cc.db` is still kept up to date and feeds the asset DB. Triggers on
+`Entries`, `Collections` and `Series` write to `CatalogChanges` and then
+`AuditLog` (`changeType` LIBRARY_ITEM / COLLECTION / COLLECTION_RELATION /
+SERIES / SERIES_RELATION; `requestType` DOUBLE_WRITE / BACKFILL /
+MERGE_CHANGE), and `MigrationConfig.migrationVersion = 4`. Only the shell
+scriptlets (`text/x-shellscript`) show `FAILED` in `AuditLog`. Books relay
+fine.
+
+Consequence: anything that edits the library by hand has to keep **both**
+stores consistent. We should only go through the system's own paths (the
+scanner, or possibly the ChangeRequest API) and never edit either database
+directly.
+
+### Indexing
+
+| Test | Result |
+|---|---|
+| Write a new `.txt` into `documents/` | In **both** `cc.db` and the asset DB within **~2 s**, with no trigger. `PDOC`, `cdeKey = "*" + sha1`, `displayTags ["NEW"]` |
+| Write slowly (two chunks 6 s apart) | Not indexed until the file was **closed**; the entry showed the final size |
+| Write a dot-prefixed temp name (`.x.part`) | Not indexed |
+| `mv` the temp file to a new `.txt` name | Indexed within ~2 s |
+| `mv -f` a new file **over** an existing indexed file | **Entry not updated** (size stayed stale) |
+| Rewrite an existing file in place | Entry updated; `p_uuid` kept |
+| Delete the file | Removed from both stores within ~2 s |
+| `lipc-set-prop com.lab126.scanner reScanFile <path>` | **Fails**: `lipcErrInternal` (0x2) |
+| Concurrent read of `cc.db` | Occasionally `database is locked` |
+| Existing EPUBs in `documents/` | **Not in the catalog at all.** The built-in reader ignores sideloaded EPUB |
+
+The indexer also creates `<name>.sdr/` with a small `.mbp1` for every book
+and **leaves it behind** when the book is deleted. Sidecar files are named
+`<basename><32-hex>.<ext>`. The hex suffix was the same for every book
+(`d3efa7f7…`), so it's a per-device or per-account constant, not a hash of
+the path.
+
+**So requirement 4 is met by the scanner alone:** a book written into
+`documents/` appears in the library within seconds. Not yet tested: an
+**AZW3** (mobi8 extractor) from Calibre with a UUID new to the device,
+including its timing and whether the extractor creates a thumbnail itself.
+That needs a fresh Calibre-converted AZW3.
+
+### Covers
+
+The existing Calibre-sent AZW3 (via USB) has `cdeKey` = Calibre's book UUID
+and `cdeType = EBOK`. Its thumbnail is at
+`system/thumbnails/thumbnail_<uuid>_EBOK_portrait.jpg` (written by Calibre's
+USB driver), with a backup in `/mnt/us/amazon-cover-bug/`. The asset DB's
+`Nodes.THUMBNAIL` points at the same path.
+
+### Network-up events
+
+Captured while toggling `lipc-set-prop com.lab126.cmd wirelessEnable 0/1`
+(Wi-Fi was back to CONNECTED within 3 s):
+
+- `com.lab126.wifid`: `cmStateChange "NA" | "READY" | "PENDING" | "CONNECTED"`,
+  `cmConnected`, `cmDisconnected`.
+- `com.lab126.cmd`: `connectionAvailable "wifi" "internet"` (fired 4 times),
+  `InternetConnected 1`, `connectionNotAvailable`, `wirelessEnableChanged 0|1`.
+
+Use `wifid cmStateChange "CONNECTED"` as the network-up trigger, since it
+doesn't depend on internet access, and debounce it. Use
+`cmStateChange "NA"` / `cmDisconnected` for network-down. Current state can
+be read from `lipc-get-prop com.lab126.wifid cmState`.
+
+### Progress and rating
+
+- `cc.db`: `p_percentFinished` (e.g. 2.4585876), `p_lastAccess` /
+  `p_lastOpenTime` (epoch s). `p_lastAccessedPosition` was empty. The asset
+  DB mirrors the percentage as `Nodes.PERCENT_READ` (generated from
+  `ADDITIONAL_DATA.percent_read`) and has `READ_STATE`.
+- Sidecars (KRDS-decoded): `.azw3f` holds `lpr`/`fpr` positions,
+  `timer.model` and `book.info.store`. `.azw3r` holds `font.prefs`,
+  `StartActions`, `sync_lpr`, `next.in.series.info.data` and `apnx.key`.
+  **There's no rating anywhere.** The built-in reader doesn't seem to store a
+  per-book rating for sideloaded books, so **rating sync is probably not
+  possible** unless something writes a rating after the end-of-book flow.
+  Not tested.

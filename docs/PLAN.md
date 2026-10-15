@@ -84,20 +84,21 @@ decide what to do before building anything.
 **Exit criteria:** a written answer to each item, a feasibility verdict for
 every base requirement, and a first set of architecture decisions.
 
-**Status:** desk research is done (see [research/](research/)). What remains
-is the on-device probes listed in
-[kindle-library-integration.md](research/kindle-library-integration.md#on-device-probes-needed-fw-5201).
+**Status:** the desk research and on-device probes are done (see
+[research/](research/), probed on 5.20.1 on 2026-10-15). **One probe is
+left:** index a fresh Calibre-converted AZW3, to check the mobi8 extractor's
+timing and its thumbnail.
 
 | Requirement | Verdict so far |
 |---|---|
 | Rust | Feasible: static `armv7-unknown-linux-musleabihf`, as in the references |
 | KPM package | Feasible: `.kpkg` tarball with `manifest.json` at its root |
 | Allowlist UI | Feasible: WAF app plus localhost API ([0004](decisions/0004-ui-architecture.md)), trust model in [0003](decisions/0003-calibre-trust-model.md) |
-| Immediate library availability | **Likely** via the scanner (`reScanFile`), but unconfirmed on 5.20.1 |
-| Built-in reader | Feasible: declare only AZW3/MOBI/KFX/PDF/TXT, and Calibre converts |
+| Immediate library availability | **Confirmed** (TXT): the scanner indexes new, changed and deleted files in ~2 s ([0005](decisions/0005-library-registration-via-scanner.md)). AZW3 still to check |
+| Built-in reader | Feasible: declare only AZW3/MOBI/KFX/PDF/TXT, and Calibre converts. Confirmed that sideloaded EPUBs are ignored |
 | Stock Calibre only | Feasible: no plugin needed for any base requirement |
-| Stretch: Series → collections | Feasible with stock Calibre (collections map in `SEND_BOOKLISTS`). Native series grouping is also possible. The write mechanism depends on the probes |
-| Stretch: progress/rating | Read status and date work with stock Calibre. Percent read needs a plugin. Rating is unknown |
+| Stretch: Series → collections | Feasible with stock Calibre (collections map in `SEND_BOOKLISTS`). Native series grouping is also possible. The write path must keep `cc.db` and `ksdk.asset.db` consistent: ChangeRequest API on :9101 (still to test) rather than direct SQL |
+| Stretch: progress/rating | Read status and date work with stock Calibre. Percent read (`p_percentFinished`) needs a plugin. **No rating is stored on the device**, so rating sync is likely infeasible |
 
 ### Phase 2: Protocol client on the host
 

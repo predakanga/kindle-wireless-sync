@@ -15,9 +15,9 @@ Research for Phase 1, item 6. Sources:
   (`.cargo/config.toml`). No cross toolchain or glibc needed.
 - Release profile: `lto = true`, `strip = true`, `opt-level = "z"`,
   `panic = "abort"`, `codegen-units = 1`.
-- KPM platforms both projects declare: `kindlehf` and `kindlepw2`. **Still to
-  check:** which one our Paperwhite 12 on 5.20.1 reports. A hard-float binary
-  is expected to cover it.
+- KPM platforms both projects declare: `kindlehf` and `kindlepw2`. **The
+  reference device is `kindlehf`** (confirmed by probing, see
+  `kindle-library-integration.md`).
 
 ## KPM package
 
@@ -26,7 +26,10 @@ Research for Phase 1, item 6. Sources:
 - `manifest.json` (manifest_version 2): `id`, `name`, `author`,
   `description`, `version` (int array), `dependencies`,
   `supported_platforms`.
-- KPM runs `install.sh` from the package. It runs `uninstall.sh` on removal
+- KPM extracts each package to `/mnt/us/kmc/kpm/packages/<id>/` and runs
+  `install.sh` from there. Its state is in `/mnt/us/kmc/kpm/kpm.db`.
+  Packages may also ship `launch.sh` and `scriptlets/`; the kterm package
+  copies a scriptlet into `documents/`. It runs `uninstall.sh` on removal
   and also on upgrade with argument `upgrade`. Both projects exit 0 straight
   away on `upgrade`, so user state survives.
 - Distribution uses a `repo.json` (manifest_version 1) listing packages and
@@ -58,9 +61,9 @@ Research for Phase 1, item 6. Sources:
   upstart `.conf` file exists. The UI turns it on or off by installing or
   removing that file. Start/stop of the *feature* is separate: a flag inside
   the running daemon.
-- **Network-up trigger:** neither project does this. Find the relevant lipc
-  events on the device (`com.lab126.wifid` / `com.lab126.cmd` connection
-  state) as a Phase 3 task.
+- **Network-up trigger:** neither project does this. On 5.20.1 the event is
+  `com.lab126.wifid` `cmStateChange "CONNECTED"` (see
+  `kindle-library-integration.md`, network-up events).
 
 ## Power
 
