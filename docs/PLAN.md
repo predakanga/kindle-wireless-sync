@@ -270,7 +270,8 @@ Not part of any phase. Pick these up after the base and stretch goals
    file. Known item: status messages disappear after 6 s, which is easy to
    miss. Also: let the user pick the read-sync columns from a list of the
    library's columns (Calibre sends them in `SET_LIBRARY_INFO`), instead of
-   the fixed names in ADR 0017.
+   the fixed names in ADR 0017, and a toggle for each library's read-only
+   or read-write mode (command line only until then).
 3. **Kindle collections from Calibre fields** (series, tags, custom
    columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
    `insert` a `Collection`, then `addCollectionMember`. That's the command

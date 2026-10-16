@@ -62,9 +62,10 @@ the library's allowlist entry in `config.json` (ADR 0003), as
   be a deliberate choice, made per library: a user may allow a household
   library to send books without letting this Kindle change it. Existing
   entries without the field are read-only.
-- **Setting it:** a toggle on the library's entry in the app ("Let this
-  Kindle update the library"), and `--read-write` on the `allow` command.
-  The app change is small, and comes ahead of the wider UI redesign.
+- **Setting it:** for now, only with the command line: `--read-write` on
+  the `allow` command, plus a way to change it for an already allowed
+  library (developer, 2026-10-16). A toggle on the library's entry in the
+  app comes with the UI redesign (Later list).
 
 **Opt in by creating the columns.** This applies only to read-write
 libraries. Calibre reports every bad sync column to the device as a
@@ -131,9 +132,9 @@ something else.
   own columns) with exact lookup names, and marks the library read-write on
   the Kindle. The README documents both steps. The column headings can be
   anything.
-- New config field per allowed library (`access`), a toggle in the app's
-  library entry, and an `allow --read-write` option. The API (ADR 0011)
-  gains a way to set it.
+- New config field per allowed library (`access`), and command-line options
+  to set it. The app toggle, and the API call it needs (ADR 0011), wait for
+  the UI redesign.
 - New state in `books.json` per book: the last values from each side.
 - Sync happens only while a session is open, at its start. That's when
   Calibre asks for the book list. A change on the Kindle reaches Calibre on
