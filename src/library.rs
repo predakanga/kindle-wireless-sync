@@ -6,8 +6,8 @@
 //! is renamed into place; replacements are copied over the existing file in
 //! place, because the scanner ignores a rename over an indexed file.
 //!
-//! Our state (`books.json`, `driveinfo.json`) lives in a separate state
-//! directory and holds Calibre's metadata for each book we received, keyed by
+//! Our state (`books.json`, `driveinfo.json`, `columns.json`) lives in a
+//! separate state directory and holds Calibre's metadata for each book we received, keyed by
 //! `lpath`. Each record also carries our private `_kws` object (the book's
 //! Kindle content key), which is stripped before metadata goes to Calibre.
 //!
@@ -21,16 +21,19 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::adopt;
 use crate::catalog::Catalog;
 use crate::kindle::{self, BookKey, CoverConfig, KeySource};
 use crate::lpath;
+use crate::readsync::{self, Columns};
 use crate::series;
 
 const BOOKS_FILE: &str = "books.json";
 const DRIVEINFO_FILE: &str = "driveinfo.json";
+/// Each Calibre library's custom columns, by library UUID (ADR 0017).
+const COLUMNS_FILE: &str = "columns.json";
 const TEMP_PREFIX: &str = ".kws-";
 const TEMP_SUFFIX: &str = ".part";
 /// Space to leave free on top of an incoming book.
@@ -50,6 +53,9 @@ pub struct Library {
     covers: Option<CoverConfig>,
     adopt_memo: adopt::Memo,
     series: Option<SeriesSync>,
+    /// The Kindle's catalog, for reading read states (ADR 0017).
+    catalog: Option<Catalog>,
+    columns: Value,
 }
 
 /// How long to wait after the last book change before updating series
@@ -114,6 +120,10 @@ impl Library {
             covers: None,
             adopt_memo: adopt::Memo::default(),
             series: None,
+            catalog: None,
+            columns: load_json(&state_dir.join(COLUMNS_FILE))?
+                .filter(Value::is_object)
+                .unwrap_or_else(|| json!({})),
         };
         remove_stale_temps(&lib.books_dir, 4);
         let before = lib.books.len();
@@ -172,6 +182,68 @@ impl Library {
     pub fn set_driveinfo(&mut self, driveinfo: Value) -> io::Result<()> {
         self.driveinfo = driveinfo;
         write_json_atomic(&self.state_dir.join(DRIVEINFO_FILE), &self.driveinfo)
+    }
+
+    /// Lets read-status sync read the Kindle's catalog (ADR 0017). Without
+    /// it, we report Calibre's own values back.
+    pub fn set_catalog(&mut self, catalog: Catalog) {
+        self.catalog = Some(catalog);
+    }
+
+    /// A library's custom columns as we last saw them (lookup name to
+    /// datatype), or an empty map.
+    pub fn known_columns(&self, library_uuid: &str) -> Map<String, Value> {
+        self.columns[library_uuid]
+            .as_object()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Records a library's custom columns, from `SET_LIBRARY_INFO`.
+    pub fn record_columns(
+        &mut self,
+        library_uuid: &str,
+        columns: Map<String, Value>,
+    ) -> io::Result<()> {
+        if self.known_columns(library_uuid) == columns {
+            return Ok(());
+        }
+        self.columns[library_uuid] = Value::Object(columns);
+        write_json_atomic(&self.state_dir.join(COLUMNS_FILE), &self.columns)
+    }
+
+    /// The read-status fields to add to each book in the book list, in the
+    /// order of [`Library::books`], for the columns named this session.
+    /// Saves what we reported.
+    pub fn read_sync_fields(&mut self, named: &Columns) -> io::Result<Vec<Map<String, Value>>> {
+        if named.is_empty() {
+            return Ok(vec![Map::new(); self.books.len()]);
+        }
+        let states = match &self.catalog {
+            Some(c) => match readsync::kindle_states(c, &self.books_dir) {
+                Ok(s) => s,
+                Err(e) => {
+                    // Calibre still gets its own values back, so nothing is
+                    // lost; Kindle changes wait for the next connection.
+                    log::warn!("cannot read the Kindle's read states: {e}");
+                    Default::default()
+                }
+            },
+            None => Default::default(),
+        };
+        let books_dir = self.books_dir.clone();
+        let fields = self
+            .books
+            .iter_mut()
+            .map(|record| {
+                let location =
+                    record_lpath(record).map(|l| books_dir.join(l).to_string_lossy().into_owned());
+                let kindle = location.and_then(|l| states.get(&l));
+                readsync::report(record, named, kindle)
+            })
+            .collect();
+        self.save()?;
+        Ok(fields)
     }
 
     /// Replaces the stored metadata of a book we hold. Returns false if the
@@ -867,6 +939,57 @@ mod tests {
         moved["series_index"] = json!(3);
         assert!(lib.update_metadata(moved));
         assert_eq!(lib.series_due_in(), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn read_sync_reads_the_kindle_by_path_and_remembers_reports() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (books, state) = (tmp.path().join("books"), tmp.path().join("state"));
+        fs::create_dir_all(&books).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        let books = books.canonicalize().unwrap();
+        let records: Vec<Value> = ["a", "b"]
+            .iter()
+            .map(|k| {
+                fs::write(books.join(format!("{k}.azw3")), b"x").unwrap();
+                json!({"lpath": format!("{k}.azw3"), "title": k,
+                       "user_metadata": {"#kindle_read": {"#value#": false}}})
+            })
+            .collect();
+        fs::write(state.join(BOOKS_FILE), Value::Array(records).to_string()).unwrap();
+        let db = tmp.path().join("cc.db");
+        let rows = format!(
+            "CREATE TABLE Entries (p_type, p_location, p_readState, p_lastOpenTime); \
+             INSERT INTO Entries VALUES ('Entry:Item', '{b}/a.azw3', 2, 86400), \
+             ('Entry:Item', '{b}/b.azw3', 0, NULL);",
+            b = books.display()
+        );
+        assert!(std::process::Command::new("sqlite3")
+            .arg(&db)
+            .arg(rows)
+            .status()
+            .unwrap()
+            .success());
+        let named = Columns {
+            read: Some("#kindle_read".into()),
+            last_read: None,
+        };
+
+        let mut lib = Library::open(&books, &state).unwrap();
+        lib.set_catalog(Catalog::new(db.clone()));
+        let fields = lib.read_sync_fields(&named).unwrap();
+        assert_eq!(fields[0]["_is_read_"], true, "finished on the Kindle");
+        assert_eq!(fields[1]["_is_read_"], false, "no Kindle value: Calibre's");
+        assert!(fields.iter().all(|f| f.get("_sync_type_").is_none()));
+
+        // Reported once: after a restart, book a echoes Calibre's value.
+        let mut lib = Library::open(&books, &state).unwrap();
+        lib.set_catalog(Catalog::new(db));
+        let fields = lib.read_sync_fields(&named).unwrap();
+        assert_eq!(fields[0]["_is_read_"], false);
+        // And nothing at all when no columns are named.
+        let none = lib.read_sync_fields(&Columns::default()).unwrap();
+        assert!(none.iter().all(Map::is_empty));
     }
 
     #[test]

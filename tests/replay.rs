@@ -99,7 +99,10 @@ fn replays_calibre_9_16_sessions() {
             let uuid = s.library_uuid.clone();
             session::run(&mut conn, &mut lib, &cfg, &mut |info| {
                 if info.library_uuid == uuid {
-                    Admission::Accept { password: None }
+                    Admission::Accept {
+                        password: None,
+                        columns: None,
+                    }
                 } else {
                     Admission::Reject
                 }

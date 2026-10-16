@@ -216,6 +216,8 @@ enum Outcome {
     Ejected,
     PasswordRejected(String),
     Lost(String),
+    /// The library's sync columns changed: reconnect at once (ADR 0017).
+    Reconnect,
 }
 
 impl Daemon {
@@ -438,6 +440,10 @@ impl Daemon {
                                 break;
                             }
                             Ok(SessionEnd::Busy) => outcome = Outcome::Busy,
+                            Ok(SessionEnd::ColumnsChanged) => {
+                                outcome = Outcome::Reconnect;
+                                break;
+                            }
                             Ok(SessionEnd::Closed | SessionEnd::ProtocolMismatch) | Err(_) => {
                                 if let Err(e) = &end {
                                     log::warn!("session with {} failed: {e}", cand.addr);
@@ -500,6 +506,10 @@ impl Daemon {
                 // Forget, a new password or Connect now cut the session:
                 // go round again at once, without a "lost" status.
                 Outcome::Lost(_) | Outcome::NotFound | Outcome::Busy if connect_now => continue,
+                Outcome::Reconnect => {
+                    attempt = 0;
+                    continue;
+                }
                 Outcome::Ejected => {
                     ejected = true;
                     attempt = 0;
@@ -570,6 +580,7 @@ impl Daemon {
                     );
                     Admission::Accept {
                         password: a.password.clone(),
+                        columns: a.sync_columns(),
                     }
                 }
                 _ => Admission::Reject,
@@ -601,6 +612,7 @@ impl Daemon {
                     .then(|| cand.hostname.clone())
                     .or(previous.hostname),
                 password: None,
+                ..Default::default()
             });
         });
         if let Err(e) = result {
@@ -756,6 +768,7 @@ pub fn add_server(
             port: Some(port),
             hostname: None,
             password,
+            ..Default::default()
         })
     })?;
     Ok(info)

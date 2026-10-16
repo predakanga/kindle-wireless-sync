@@ -97,6 +97,13 @@ track individual bytes.
   `/tmp/session_token`) and reads `cc.db` read-only. `series` plans the
   commands that differ. `Library` runs a pass 15 s after book changes, on
   Calibre's keep-alive NOOPs or in the daemon's idle waits.
+- `readsync`: read status and last-read date to Calibre (ADR 0017). The
+  session names the sync columns in its handshake once `SET_LIBRARY_INFO`
+  has shown they exist (recorded in `columns.json`), and ends with
+  `SessionEnd::ColumnsChanged` so the daemon reconnects when they change.
+  `Library::read_sync_fields` reads `cc.db` and adds `_is_read_` and
+  `_last_read_date_` to the book list. Only for libraries with
+  `writable: true` in `config.json`.
 - `adopt`: finds book files Calibre sent over USB and builds records for them
   from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
   it once per session.

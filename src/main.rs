@@ -14,6 +14,7 @@ use kws::discovery;
 use kws::kindle::{self, CoverConfig};
 use kws::library::Library;
 use kws::network;
+use kws::readsync::{Columns, DEFAULT_LAST_READ_COLUMN, DEFAULT_READ_COLUMN};
 use kws::session::DeviceConfig;
 use lexopt::ValueExt;
 
@@ -23,7 +24,7 @@ usage:
               [--api-port PORT]
   kindle-wireless-sync find --state DIR [--probe ADDR]...
   kindle-wireless-sync add-server --state DIR HOST PORT [--password PW]
-  kindle-wireless-sync allow --state DIR LIBRARY_UUID
+  kindle-wireless-sync allow --state DIR LIBRARY_UUID [--writable | --read-only]
   kindle-wireless-sync status --state DIR
   kindle-wireless-sync series --books DIR --catalog DB --remove-all
 
@@ -31,7 +32,9 @@ daemon      the service: connects to allowed libraries (ADR 0008)
 find        \"Find libraries\": broadcast, then connect once to each server to
             read its library, and list new ones as seen
 add-server  connect to HOST:PORT now and allow its library if it answers
-allow       allow a library listed by find
+allow       allow a library listed by find. --writable lets this Kindle send
+            read status and last-read date to the library (ADR 0017),
+            --read-only stops it; both also work on an allowed library
 status      show the daemon status and the allowed and seen libraries
 series      --remove-all: dissolve the series this app created (uninstall)
 
@@ -152,6 +155,8 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
     // Passes wait until the catalog is ready, which at boot can be after we
     // start.
     if let Some(db) = catalog.filter(|db| db.is_file()) {
+        // Read-status sync (ADR 0017) only reads it.
+        lib.set_catalog(Catalog::new(db.clone()));
         let debounce = kws::library::SERIES_DEBOUNCE;
         if Config::load(&state).map(|c| c.series).unwrap_or(true) {
             lib.enable_series(Catalog::new(db), debounce);
@@ -278,9 +283,12 @@ fn add_server_cmd(mut args: lexopt::Parser) -> CmdResult {
 fn allow_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
     let (mut state, mut uuid): (Option<PathBuf>, Option<String>) = (None, None);
+    let mut writable: Option<bool> = None;
     while let Some(arg) = args.next()? {
         match arg {
             Long("state") => state = Some(args.value()?.into()),
+            Long("writable") if writable.is_none() => writable = Some(true),
+            Long("read-only") if writable.is_none() => writable = Some(false),
             Value(v) if uuid.is_none() => uuid = Some(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
@@ -288,15 +296,34 @@ fn allow_cmd(mut args: lexopt::Parser) -> CmdResult {
     let uuid = required(uuid, "LIBRARY_UUID")?;
     let state = required(state, "--state")?;
     let (already, allowed) = config::update(&state, |c| {
-        (c.allowed(&uuid).is_some(), c.allow_seen(&uuid))
+        let already = c.allowed(&uuid).is_some();
+        let allowed = already || c.allow_seen(&uuid);
+        if let (true, Some(w)) = (allowed, writable) {
+            // The app will let users pick the columns; for now every caller
+            // stores the fixed names (ADR 0017).
+            c.set_writable(&uuid, w.then(Columns::defaults));
+        }
+        (already, allowed)
     })?;
-    if already {
-        println!("already allowed");
-    } else if allowed {
-        println!("allowed");
-    } else {
+    if !allowed {
         println!("unknown library; run `find` first, or use `add-server`");
         return Ok(ExitCode::FAILURE);
+    }
+    println!(
+        "{}",
+        if already {
+            "already allowed"
+        } else {
+            "allowed"
+        }
+    );
+    match writable {
+        Some(true) => println!(
+            "writable: read status and last-read date go to the library's \
+             {DEFAULT_READ_COLUMN} and {DEFAULT_LAST_READ_COLUMN} columns, once you create them"
+        ),
+        Some(false) => println!("read-only: this Kindle won't change the library"),
+        None => {}
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -340,8 +367,12 @@ fn status_cmd(mut args: lexopt::Parser) -> CmdResult {
     let config = Config::load(&state)?;
     for a in &config.allowed {
         println!(
-            "allowed: {:?} ({}) last at {:?}:{:?}",
-            a.name, a.uuid, a.host, a.port
+            "allowed: {:?} ({}) last at {:?}:{:?}, {}",
+            a.name,
+            a.uuid,
+            a.host,
+            a.port,
+            if a.writable { "writable" } else { "read-only" }
         );
     }
     for s in &config.seen {
@@ -438,6 +469,7 @@ mod dev {
             if allow_any || allowed.contains(&info.library_uuid) {
                 Admission::Accept {
                     password: password.clone(),
+                    columns: None,
                 }
             } else {
                 Admission::Reject

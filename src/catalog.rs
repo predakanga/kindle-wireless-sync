@@ -22,6 +22,7 @@ pub const TOKEN_FILE: &str = "/tmp/session_token";
 const BATCH: usize = 100;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+#[derive(Debug, Clone)]
 pub struct Catalog {
     pub db: PathBuf,
     pub endpoint: String,

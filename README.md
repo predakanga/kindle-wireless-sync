@@ -84,6 +84,32 @@ To stop the app managing series, set `"series": false` in
 `/var/local/kindle-wireless-sync/state/config.json` and restart the Kindle.
 The series it created are dissolved.
 
+### Read status in Calibre
+
+The Kindle can send each book's read status, and when you last read it, to
+your Calibre library. It's off until you turn it on for a library:
+
+1. In Calibre, open *Preferences → Add your own columns* and add two
+   columns. The lookup names must be exactly these; the headings can be
+   anything:
+   - `kindle_read`, of type *Yes/No*
+   - `kindle_last_read`, of type *Date*
+
+   Restart Calibre when it asks.
+2. On the Kindle, in kterm or over SSH, let the Kindle change that library.
+   `status` lists your allowed libraries with their IDs:
+
+   ```sh
+   cd /var/local/kindle-wireless-sync
+   ./kindle-wireless-sync status --state state
+   ./kindle-wireless-sync allow --state state LIBRARY_ID --writable
+   ```
+
+From the next connection, books you mark read or unread on the Kindle, or
+finish there, update `#kindle_read`, and opening a book updates
+`#kindle_last_read`. Changes you make in Calibre stay in Calibre: they don't
+change the Kindle. `--read-only` turns it off again.
+
 ## Development
 
 The code is Rust, built for `armv7-unknown-linux-musleabihf` as one static

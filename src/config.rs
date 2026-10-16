@@ -11,6 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
+use crate::readsync::Columns;
+
 pub const CONFIG_FILE: &str = "config.json";
 const LOCK_FILE: &str = "config.lock";
 
@@ -59,6 +61,22 @@ pub struct AllowedLibrary {
     /// Hostname from its discovery reply, used to match broadcast replies.
     pub hostname: Option<String>,
     pub password: Option<String>,
+    /// Whether the Kindle may change this library: read status and
+    /// last-read date (ADR 0017). Off unless set.
+    pub writable: bool,
+    /// Lookup names of the sync columns, used while `writable` is on.
+    pub read_column: Option<String>,
+    pub last_read_column: Option<String>,
+}
+
+impl AllowedLibrary {
+    /// The sync columns to use with this library, if it's writable.
+    pub fn sync_columns(&self) -> Option<Columns> {
+        self.writable.then(|| Columns {
+            read: self.read_column.clone(),
+            last_read: self.last_read_column.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -137,6 +155,9 @@ impl Config {
                     port: port(a),
                     hostname: opt_s(a, "hostname"),
                     password: opt_s(a, "password"),
+                    writable: a.get("writable").and_then(Value::as_bool).unwrap_or(false),
+                    read_column: opt_s(a, "read_column"),
+                    last_read_column: opt_s(a, "last_read_column"),
                 })
                 .filter(|a| !a.uuid.is_empty())
                 .collect(),
@@ -162,6 +183,8 @@ impl Config {
             "allowed": self.allowed.iter().map(|a| json!({
                 "uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
                 "hostname": a.hostname, "password": a.password,
+                "writable": a.writable, "read_column": a.read_column,
+                "last_read_column": a.last_read_column,
             })).collect::<Vec<_>>(),
             "seen": self.seen.iter().map(|v| json!({
                 "uuid": v.uuid, "name": v.name, "host": v.host, "port": v.port,
@@ -199,12 +222,15 @@ impl Config {
             port: Some(v.port),
             hostname: (!v.hostname.is_empty()).then_some(v.hostname),
             password: None,
+            ..Default::default()
         });
         true
     }
 
     /// Adds or updates an allowed library ("Add server", or after
-    /// connecting). Keeps an existing password unless a new one is given.
+    /// connecting). Keeps an existing password unless a new one is given,
+    /// and always keeps an existing library's sync settings: only
+    /// [`Config::set_writable`] changes those.
     pub fn upsert_allowed(&mut self, lib: AllowedLibrary) {
         self.seen.retain(|v| v.uuid != lib.uuid);
         match self.allowed.iter_mut().find(|a| a.uuid == lib.uuid) {
@@ -214,6 +240,9 @@ impl Config {
                 *a = AllowedLibrary {
                     password,
                     hostname,
+                    writable: a.writable,
+                    read_column: a.read_column.take(),
+                    last_read_column: a.last_read_column.take(),
                     ..lib
                 };
             }
@@ -226,6 +255,23 @@ impl Config {
         let before = self.allowed.len();
         self.allowed.retain(|a| a.uuid != uuid);
         self.allowed.len() != before
+    }
+
+    /// Lets the Kindle change an allowed library, through the given sync
+    /// columns, or stops it (`None`, keeping the names). Returns false if the
+    /// library isn't allowed.
+    pub fn set_writable(&mut self, uuid: &str, columns: Option<Columns>) -> bool {
+        match self.allowed.iter_mut().find(|a| a.uuid == uuid) {
+            Some(a) => {
+                a.writable = columns.is_some();
+                if let Some(c) = columns {
+                    a.read_column = c.read;
+                    a.last_read_column = c.last_read;
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Sets or clears an allowed library's password. Returns false if the
@@ -285,6 +331,7 @@ mod tests {
             port: Some(9090),
             hostname: None,
             password: Some("pw".into()),
+            ..Default::default()
         });
         c.save().unwrap();
 
@@ -306,6 +353,45 @@ mod tests {
         let b = c.allowed("lib-2").unwrap();
         assert_eq!(b.password.as_deref(), Some("pw"));
         assert_eq!(b.port, Some(9091));
+    }
+
+    #[test]
+    fn writable_and_its_columns_survive_reload_and_reconnect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Config::load(tmp.path()).unwrap();
+        c.upsert_allowed(AllowedLibrary {
+            uuid: "lib-1".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            c.allowed("lib-1").unwrap().sync_columns(),
+            None,
+            "off by default"
+        );
+        assert!(!c.set_writable("nope", Some(Columns::defaults())));
+        assert!(c.set_writable("lib-1", Some(Columns::defaults())));
+        c.save().unwrap();
+
+        let mut c = Config::load(tmp.path()).unwrap();
+        assert_eq!(
+            c.allowed("lib-1").unwrap().sync_columns(),
+            Some(Columns::defaults())
+        );
+        // The daemon updating the address after a session keeps them.
+        c.upsert_allowed(AllowedLibrary {
+            uuid: "lib-1".into(),
+            host: Some("10.0.0.7".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            c.allowed("lib-1").unwrap().sync_columns(),
+            Some(Columns::defaults())
+        );
+        // Turning it off keeps the names for next time.
+        assert!(c.set_writable("lib-1", None));
+        let a = c.allowed("lib-1").unwrap();
+        assert_eq!(a.sync_columns(), None);
+        assert_eq!(a.read_column.as_deref(), Some("#kindle_read"));
     }
 
     #[test]

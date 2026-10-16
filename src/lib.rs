@@ -10,5 +10,6 @@ pub mod library;
 pub mod lpath;
 pub mod network;
 pub mod protocol;
+pub mod readsync;
 pub mod series;
 pub mod session;

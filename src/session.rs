@@ -12,6 +12,7 @@ use serde_json::{json, Map, Value};
 use crate::library::Library;
 use crate::lpath;
 use crate::protocol::{Connection, Opcode};
+use crate::readsync::{self, Columns};
 
 pub const APP_NAME: &str = "Kindle Wireless Sync";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -61,11 +62,15 @@ impl CalibreInfo {
     }
 }
 
-/// The answer to "may we talk to this library?", with the password it needs.
+/// The answer to "may we talk to this library?", with the password it needs
+/// and, if the Kindle may change it, the sync columns to use (ADR 0017).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Admission {
     Reject,
-    Accept { password: Option<String> },
+    Accept {
+        password: Option<String>,
+        columns: Option<Columns>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +85,9 @@ pub enum SessionEnd {
     /// The library is not on our allowlist (ADR 0003).
     LibraryRejected(CalibreInfo),
     ProtocolMismatch,
+    /// The sync columns we can name changed (ADR 0017). Calibre only reads
+    /// them in the handshake, so reconnect now.
+    ColumnsChanged,
 }
 
 fn protocol_error(msg: impl Into<String>) -> io::Error {
@@ -95,6 +103,14 @@ pub fn run<R: BufRead, W: Write>(
     admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
 ) -> io::Result<SessionEnd> {
     let mut adopted = false;
+    let mut library_uuid = String::new();
+    // The sync columns this library should have, and those we named in the
+    // handshake because we've seen them in the library (ADR 0017).
+    let mut wanted: Option<Columns> = None;
+    let mut named = Columns::default();
+    // Read-status fields for the book list, by book index; kept for
+    // Calibre's follow-up requests for full metadata.
+    let mut sync_fields: Vec<Map<String, Value>> = Vec::new();
     loop {
         let Some(msg) = conn.recv()? else {
             return Ok(SessionEnd::Closed);
@@ -111,9 +127,12 @@ pub fn run<R: BufRead, W: Write>(
                 let admission = if version_ok {
                     admit(&info)
                 } else {
-                    Admission::Accept { password: None }
+                    Admission::Accept {
+                        password: None,
+                        columns: None,
+                    }
                 };
-                let Admission::Accept { password } = admission else {
+                let Admission::Accept { password, columns } = admission else {
                     log::warn!(
                         "library {:?} ({}) is not allowed",
                         info.library_name,
@@ -126,9 +145,15 @@ pub fn run<R: BufRead, W: Write>(
                     info.calibre_version,
                     info.library_name
                 );
+                library_uuid = info.library_uuid.clone();
+                named = columns
+                    .as_ref()
+                    .map(|c| c.available_in(&lib.known_columns(&library_uuid)))
+                    .unwrap_or_default();
+                wanted = columns;
                 conn.send(
                     Opcode::Ok,
-                    init_info(cfg, p, version_ok, password.as_deref()),
+                    init_info(cfg, p, version_ok, password.as_deref(), &named),
                 )?;
                 if !version_ok {
                     return Ok(SessionEnd::ProtocolMismatch);
@@ -171,7 +196,22 @@ pub fn run<R: BufRead, W: Write>(
                     json!({"free_space_on_device": lib.free_space()?}),
                 )?;
             }
-            Opcode::SetLibraryInfo => conn.send(Opcode::Ok, json!({}))?,
+            Opcode::SetLibraryInfo => {
+                conn.send(Opcode::Ok, json!({}))?;
+                let custom = readsync::custom_columns(&p["fieldMetadata"]);
+                let available = wanted.as_ref().map(|w| w.available_in(&custom));
+                match lib.record_columns(&library_uuid, custom) {
+                    Ok(()) => {
+                        if available.is_some_and(|a| a != named) {
+                            log::info!("the library's sync columns changed; reconnecting");
+                            return Ok(SessionEnd::ColumnsChanged);
+                        }
+                    }
+                    // Without the record, a reconnect would name the same
+                    // columns again; carry on with what we have.
+                    Err(e) => log::warn!("cannot record the library's columns: {e}"),
+                }
+            }
             Opcode::GetBookCount => {
                 // Once per session, before Calibre first sees the list:
                 // books sent over USB since the last session (ADR 0013).
@@ -183,7 +223,11 @@ pub fn run<R: BufRead, W: Write>(
                         Err(e) => log::warn!("adopting books failed: {e}"),
                     }
                 }
-                send_book_list(conn, lib, p)?
+                sync_fields = lib.read_sync_fields(&named).unwrap_or_else(|e| {
+                    log::warn!("cannot save read-sync state: {e}");
+                    Vec::new()
+                });
+                send_book_list(conn, lib, p, &sync_fields)?
             }
             Opcode::Noop => {
                 if p.get("ejecting").and_then(Value::as_bool) == Some(true) {
@@ -191,8 +235,10 @@ pub fn run<R: BufRead, W: Write>(
                     return Ok(SessionEnd::Ejected);
                 } else if let Some(index) = p.get("priKey").and_then(Value::as_u64) {
                     // Calibre's cache missed this book; send full metadata.
+                    let index = index as usize;
                     let book = lib
-                        .calibre_metadata(index as usize)
+                        .calibre_metadata(index)
+                        .map(|b| with_fields(b, sync_fields.get(index)))
                         .unwrap_or_else(|| json!({}));
                     conn.send(Opcode::Ok, book)?;
                 } else if p.get("count").is_some() {
@@ -273,7 +319,13 @@ pub fn run<R: BufRead, W: Write>(
     }
 }
 
-fn init_info(cfg: &DeviceConfig, p: &Value, version_ok: bool, password: Option<&str>) -> Value {
+fn init_info(
+    cfg: &DeviceConfig,
+    p: &Value,
+    version_ok: bool,
+    password: Option<&str>,
+    named: &Columns,
+) -> Value {
     let challenge = str_field(p, "passwordChallenge");
     let password_hash = match password {
         Some(pw) if !challenge.is_empty() => {
@@ -289,7 +341,7 @@ fn init_info(cfg: &DeviceConfig, p: &Value, version_ok: bool, password: Option<&
         .iter()
         .map(|e| (e.clone(), json!(e.len())))
         .collect();
-    json!({
+    let mut info = json!({
         "appName": APP_NAME,
         "acceptedExtensions": cfg.accepted_extensions,
         "cacheUsesLpaths": true,
@@ -309,13 +361,29 @@ fn init_info(cfg: &DeviceConfig, p: &Value, version_ok: bool, password: Option<&
         "passwordHash": password_hash,
         "useUuidFileNames": false,
         "versionOK": version_ok,
-    })
+    });
+    if let Some(col) = &named.read {
+        info["isReadSyncCol"] = json!(col);
+    }
+    if let Some(col) = &named.last_read {
+        info["isReadDateSyncCol"] = json!(col);
+    }
+    info
+}
+
+/// A book-list entry with its read-status fields added.
+fn with_fields(mut entry: Value, fields: Option<&Map<String, Value>>) -> Value {
+    if let (Some(obj), Some(fields)) = (entry.as_object_mut(), fields) {
+        obj.extend(fields.clone());
+    }
+    entry
 }
 
 fn send_book_list<R: BufRead, W: Write>(
     conn: &mut Connection<R, W>,
     lib: &Library,
     p: &Value,
+    sync_fields: &[Map<String, Value>],
 ) -> io::Result<()> {
     let cached = p["willUseCachedMetadata"].as_bool().unwrap_or(false);
     let books = lib.books();
@@ -330,18 +398,17 @@ fn send_book_list<R: BufRead, W: Write>(
                 .rsplit_once('.')
                 .map(|(_, e)| e.to_string())
                 .unwrap_or_default();
-            conn.send(
-                Opcode::Ok,
-                json!({
-                    "priKey": index,
-                    "uuid": book.get("uuid").cloned().unwrap_or(Value::Null),
-                    "lpath": lpath,
-                    "last_modified": book.get("last_modified").cloned().unwrap_or(json!("None")),
-                    "extension": extension,
-                }),
-            )?;
+            let entry = json!({
+                "priKey": index,
+                "uuid": book.get("uuid").cloned().unwrap_or(Value::Null),
+                "lpath": lpath,
+                "last_modified": book.get("last_modified").cloned().unwrap_or(json!("None")),
+                "extension": extension,
+            });
+            conn.send(Opcode::Ok, with_fields(entry, sync_fields.get(index)))?;
         } else {
-            conn.send(Opcode::Ok, lib.calibre_metadata(index).unwrap_or_default())?;
+            let book = lib.calibre_metadata(index).unwrap_or_default();
+            conn.send(Opcode::Ok, with_fields(book, sync_fields.get(index)))?;
         }
     }
     Ok(())
@@ -475,6 +542,17 @@ mod tests {
         script: Script,
         password: Option<&str>,
     ) -> Outcome {
+        run_script_with(lib, cfg, script, password, None)
+    }
+
+    /// Admits library "lib-1" with `password` and sync `columns`.
+    fn run_script_with(
+        lib: &mut Library,
+        cfg: &DeviceConfig,
+        script: Script,
+        password: Option<&str>,
+        columns: Option<Columns>,
+    ) -> Outcome {
         let mut out = Vec::new();
         let end = {
             let mut conn = Connection::new(Cursor::new(script.0), &mut out);
@@ -482,6 +560,7 @@ mod tests {
                 if info.library_uuid == "lib-1" {
                     Admission::Accept {
                         password: password.map(str::to_owned),
+                        columns: columns.clone(),
                     }
                 } else {
                     Admission::Reject
@@ -567,6 +646,85 @@ mod tests {
         assert_eq!(lib.driveinfo()["device_store_uuid"], "dev-1");
         assert!(o.replies[3].1["free_space_on_device"].as_u64().unwrap() > 0);
         assert_eq!(o.replies.len(), 6);
+    }
+
+    fn library_info(columns: Value) -> (Opcode, Value) {
+        (
+            Opcode::SetLibraryInfo,
+            json!({"libraryName": "Calibre Library", "libraryUuid": "lib-1",
+                   "fieldMetadata": columns, "otherInfo": {}}),
+        )
+    }
+
+    fn sync_columns() -> Value {
+        json!({
+            "#kindle_read": {"is_custom": true, "datatype": "bool"},
+            "#kindle_last_read": {"is_custom": true, "datatype": "datetime"},
+            "title": {"is_custom": false, "datatype": "text"},
+        })
+    }
+
+    #[test]
+    fn read_sync_columns_appearing_reconnect_then_get_named() {
+        let (_tmp, mut lib) = setup();
+        let cfg = DeviceConfig::default();
+        let (op, info) = library_info(sync_columns());
+        let script = || {
+            Script::new()
+                .handshake()
+                .msg(op, info.clone())
+                .msg(Opcode::Noop, json!({"ejecting": true}))
+        };
+
+        // First connection: not seen yet, so not named; seeing them ends it.
+        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        assert_eq!(o.end, SessionEnd::ColumnsChanged);
+        assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+        assert_eq!(lib.known_columns("lib-1")["#kindle_read"], "bool");
+
+        // The reconnect names them, and the same list doesn't end it again.
+        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        assert_eq!(o.end, SessionEnd::Ejected);
+        assert_eq!(o.replies[0].1["isReadSyncCol"], "#kindle_read");
+        assert_eq!(o.replies[0].1["isReadDateSyncCol"], "#kindle_last_read");
+
+        // A library that isn't writable never names them or reconnects.
+        let o = run_script_with(&mut lib, &cfg, script(), None, None);
+        assert_eq!(o.end, SessionEnd::Ejected);
+        assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+    }
+
+    #[test]
+    fn book_list_carries_read_sync_fields_when_named() {
+        let (_tmp, mut lib) = setup();
+        let cfg = DeviceConfig::default();
+        let o = run_script(
+            &mut lib,
+            &cfg,
+            send_book(Script::new().handshake(), "a.azw3", b"x"),
+        );
+        assert_eq!(o.end, SessionEnd::Closed);
+        lib.record_columns("lib-1", readsync::custom_columns(&sync_columns()))
+            .unwrap();
+        let (op, info) = library_info(sync_columns());
+        let script = Script::new()
+            .handshake()
+            .msg(op, info)
+            .msg(Opcode::GetBookCount, json!({"willUseCachedMetadata": true}))
+            .msg(Opcode::Noop, json!({"priKey": 0}));
+        let o = run_script_with(&mut lib, &cfg, script, None, Some(Columns::defaults()));
+        // After the handshake and library info: OK for the count, then the
+        // cached entry, then the full metadata.
+        let entry = &o.replies[3].1;
+        assert_eq!(entry["lpath"], "a.azw3");
+        // No catalog and no Calibre value yet: a first sync, with no value.
+        assert_eq!(entry["_sync_type_"], 2);
+        assert_eq!(entry["_is_read_"], Value::Null);
+        assert!(entry.as_object().unwrap().contains_key("_last_read_date_"));
+        let full = &o.replies[4].1;
+        assert_eq!(full["title"], "Rogue Protocol");
+        assert_eq!(full["_sync_type_"], 2);
+        assert!(full.get("_kws").is_none());
     }
 
     #[test]
