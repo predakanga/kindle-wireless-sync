@@ -229,6 +229,13 @@ sync works end to end with only stock Calibre.
   back), with no restart (2026-10-16).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
+  **Status (2026-10-16):** research done (`research/calibre-wireless-protocol.md`,
+  "Where Calibre keeps reading progress" and "Can a plugin extend the
+  wireless driver?"). Read status and last-read date can sync with stock
+  Calibre. ADR 0017 (Proposed) covers them, with fixed column names
+  `#kindle_read` and `#kindle_last_read`. Percent read and ratings need a
+  Calibre plugin, which is deferred (Later list). Next: the device probes
+  listed in ADR 0017.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
@@ -259,7 +266,9 @@ Not part of any phase. Pick these up after the base and stretch goals
 2. **Review the UI.** Usability on e-ink, and the actual wording of every
    label, hint and message. Consider moving the text into a translation
    file. Known item: status messages disappear after 6 s, which is easy to
-   miss.
+   miss. Also: let the user pick the read-sync columns from a list of the
+   library's columns (Calibre sends them in `SET_LIBRARY_INFO`), instead of
+   the fixed names in ADR 0017.
 3. **Kindle collections from Calibre fields** (series, tags, custom
    columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
    `insert` a `Collection`, then `addCollectionMember`. That's the command
@@ -276,7 +285,14 @@ Not part of any phase. Pick these up after the base and stretch goals
    which identifier counts as the "device UUID". Start from the dev tool
    `tools/series-grouping.sh` (2026-10-16): only two `appreg.db` values are
    needed (research note, "Which change does it").
-5. **A tap-debugging helper in this repo.** UI checks over SSH currently
+5. **A Calibre plugin for percent read and ratings** (deferred 2026-10-16).
+   It must extend the wireless connection, not add a second one: either
+   replace the wireless driver with a subclass, or read extra fields from
+   the device book list. It would write progress into Calibre's own
+   `last_read_positions`, so `reading_progress()` works. Trade-offs are in
+   `research/calibre-wireless-protocol.md`, "Can a plugin extend the
+   wireless driver?". Ratings first need the probe in ADR 0017.
+6. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
    installed on the reference device. Add our own (or a vendored, credited
    copy, after checking its licence), plus a recipe that taps, screenshots

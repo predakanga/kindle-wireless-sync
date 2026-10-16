@@ -44,3 +44,4 @@ What this commits us to, and any follow-up work or risks.
 - [0014: Releases on GitHub, KPM index on GitHub Pages](0014-release-and-distribution.md)
 - [0015: Report the Kindle's own name to Calibre](0015-device-name.md)
 - [0016: Calibre series as the Kindle's native series grouping](0016-calibre-series-as-native-series.md)
+- [0017: Sync read status and last-read date with Calibre](0017-read-status-sync.md)
