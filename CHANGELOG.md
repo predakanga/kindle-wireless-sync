@@ -8,6 +8,8 @@ one.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
 ### Added
 - Books in a Calibre series are grouped as one series tile in the Kindle
   library, in series order, like series bought from Amazon. This needs the
@@ -46,6 +48,7 @@ First release.
   on the device instead of sending them again.
 - Install, upgrade and uninstall through KPM. Uninstalling keeps your books.
 
-[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/predakanga/kindle-wireless-sync/releases/tag/v0.1.0
