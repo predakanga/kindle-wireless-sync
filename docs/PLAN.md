@@ -229,18 +229,19 @@ sync works end to end with only stock Calibre.
   back), with no restart (2026-10-16).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
-  **Status (2026-10-16):** research done (`research/calibre-wireless-protocol.md`,
-  "Where Calibre keeps reading progress" and "Can a plugin extend the
-  wireless driver?"). Read status and last-read date can sync with stock
-  Calibre. ADR 0017 (Proposed) sends them from the Kindle to Calibre, with
-  fixed column names `#kindle_read` and `#kindle_last_read`. The other
-  direction is on the Later list. Percent read needs a Calibre plugin, which
-  is deferred (Later list). **Ratings are out of scope:** on 5.20.1 the
-  Goodreads rating prompt only appears for Amazon books. Each allowed library is
-  read-only (the default) or read-write, and only read-write libraries
-  sync. The device probes ADR 0017 needed are done
-  (2026-10-16): the read state can be read and set through the catalog.
-  Next: accept ADR 0017, then build.
+  **Status (2026-10-16):** research done
+  (`research/calibre-wireless-protocol.md`, "Where Calibre keeps reading
+  progress" and "Can a plugin extend the wireless driver?"). Without a
+  plugin, only read status and a last-read date can reach Calibre, through
+  the wireless driver's optional sync of two custom columns the user
+  creates. ADR 0017 (Proposed) sends them from the Kindle to Calibre, into
+  `#kindle_read` and `#kindle_last_read`, for libraries marked read-write
+  (read-only is the default). The other direction is on the Later list.
+  Percent read needs a Calibre plugin, which is deferred (Later list).
+  **Ratings are out of scope:** on 5.20.1 the Goodreads rating prompt only
+  appears for Amazon books. The device probes are done (2026-10-16): the
+  Kindle's read state and last-read time are in `cc.db`. Next: accept ADR
+  0017, then build.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a

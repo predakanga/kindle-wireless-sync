@@ -178,11 +178,13 @@ collections only flow Calibre → device.
 
 ### Stretch 2: progress and rating, partly possible with stock Calibre
 
-- Stock Calibre supports two-way sync of **read status (bool)** and **last
-  read date (datetime)**. The device sets `isReadSyncCol` and
-  `isReadDateSyncCol` to the names of the user's Calibre custom columns and
-  returns `_is_read_` and `_last_read_date_` in each `GET_BOOK_COUNT` record.
-  Calibre checks that the columns exist and have the right types.
+- Calibre has no read flag or last-read date of its own. The wireless
+  driver can sync **two custom columns the user creates**: a Yes/No column
+  for **read status** and a Date column for the **last-read date**. The
+  device names them in its handshake (`isReadSyncCol`,
+  `isReadDateSyncCol`) and returns `_is_read_` and `_last_read_date_` in
+  each `GET_BOOK_COUNT` record. Calibre checks that the columns exist and
+  have the right types. Without those columns, nothing is synced.
 - **Percent progress and rating can't go back to Calibre through the stock
   driver.** It has `CAN_SET_METADATA = []` and only syncs the two columns
   above. Those need a Calibre plugin (allowed by the requirements for stretch
