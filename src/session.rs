@@ -695,6 +695,41 @@ mod tests {
     }
 
     #[test]
+    fn read_sync_stops_quietly_when_columns_are_removed() {
+        let (_tmp, mut lib) = setup();
+        let cfg = DeviceConfig::default();
+        lib.record_columns("lib-1", readsync::custom_columns(&sync_columns()))
+            .unwrap();
+        // The user deleted one column; the other changed type.
+        let (op, info) = library_info(json!({
+            "#kindle_last_read": {"is_custom": true, "datatype": "text"},
+        }));
+        let script = || {
+            Script::new()
+                .handshake()
+                .msg(op, info.clone())
+                .msg(Opcode::GetBookCount, json!({"willUseCachedMetadata": true}))
+                .msg(Opcode::Noop, json!({"ejecting": true}))
+        };
+        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        assert_eq!(
+            o.replies[0].1["isReadSyncCol"], "#kindle_read",
+            "named from the old record"
+        );
+        // Ended before the book list, so Calibre never checks the columns.
+        assert_eq!(o.end, SessionEnd::ColumnsChanged);
+        assert_eq!(o.replies.len(), 2);
+
+        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        assert_eq!(o.end, SessionEnd::Ejected);
+        assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+        assert!(o.replies[0].1.get("isReadDateSyncCol").is_none());
+        // No read fields in the book list.
+        assert!(o.replies[2].1.get("count").is_some());
+        assert!(o.replies.iter().all(|(_, v)| v.get("_is_read_").is_none()));
+    }
+
+    #[test]
     fn book_list_carries_read_sync_fields_when_named() {
         let (_tmp, mut lib) = setup();
         let cfg = DeviceConfig::default();
