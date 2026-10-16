@@ -200,4 +200,10 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
   `have_bad_sync_columns` only when its wireless driver starts, not on each
   connection. Removing a column needs a Calibre restart anyway, which
   resets it.
+- **Messages need a reply.** In the device test, deleting the columns made
+  Calibre send its "not in calibre's library" message (`DISPLAY_MESSAGE`).
+  We logged it without replying, and Calibre's device thread hung waiting,
+  so no keep-alives came and the reconnect never happened. The session now
+  replies `OK` to every message. That was a bug from Phase 2; read sync is
+  just the first thing to trigger one.
 

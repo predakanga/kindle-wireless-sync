@@ -336,10 +336,15 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     }
                 }
             }
-            Opcode::DisplayMessage => match p["messageKind"].as_u64() {
-                Some(1) => return Ok(SessionEnd::PasswordRejected),
-                _ => log::info!("calibre says: {}", p["message"]),
-            },
+            Opcode::DisplayMessage => {
+                // Calibre waits for a reply, with no timeout: without one
+                // its device thread hangs (seen with a missing sync column).
+                conn.send(Opcode::Ok, json!({}))?;
+                match p["messageKind"].as_u64() {
+                    Some(1) => return Ok(SessionEnd::PasswordRejected),
+                    _ => log::info!("calibre says: {}", p["message"]),
+                }
+            }
             Opcode::CalibreBusy => return Ok(SessionEnd::Busy),
             Opcode::Ok
             | Opcode::Error
@@ -1007,6 +1012,24 @@ mod tests {
                 .msg(Opcode::DisplayMessage, json!({"messageKind": 1})),
         );
         assert_eq!(o.end, SessionEnd::PasswordRejected);
+    }
+
+    #[test]
+    fn messages_from_calibre_get_a_reply() {
+        let (_tmp, mut lib) = setup();
+        let o = run_script(
+            &mut lib,
+            &DeviceConfig::default(),
+            Script::new()
+                .handshake()
+                .msg(
+                    Opcode::DisplayMessage,
+                    json!({"messageKind": 3, "message": "The read sync column #x is not in calibre's library"}),
+                )
+                .msg(Opcode::Noop, json!({"ejecting": true})),
+        );
+        assert_eq!(o.end, SessionEnd::Ejected);
+        assert_eq!(o.replies[1], (Opcode::Ok, json!({})));
     }
 
     #[test]

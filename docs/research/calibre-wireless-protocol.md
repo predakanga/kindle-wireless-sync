@@ -72,7 +72,7 @@ is needed when broadcast doesn't work, for example across subnets.
 | DELETE_BOOK | 13 | `{lpaths: [...]}`; device replies with one OK `{uuid}` per lpath |
 | GET_BOOK_FILE_SEGMENT | 14 | Calibre pulls a file off the device |
 | SEND_BOOK_METADATA | 16 | One per book after SEND_BOOKLISTS; no reply |
-| DISPLAY_MESSAGE | 17 | 1 = password error, 2 = update needed, 3 = toast |
+| DISPLAY_MESSAGE | 17 | 1 = password error, 2 = update needed, 3 = toast. **Calibre waits for a reply** (`_show_message` uses `_call_client`, and the device socket has no timeout), so the device must answer `OK`, or Calibre's device thread hangs |
 | CALIBRE_BUSY | 18 | Another device is already connected |
 | SET_LIBRARY_INFO | 19 | Library name, UUID, field metadata |
 | ERROR | 20 | Device → Calibre, refuses a SEND_BOOK (Calibre ≥ 4.18) |
