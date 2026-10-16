@@ -46,13 +46,18 @@ just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
+just release X.Y.Z        # prepare a release: bump, date the changelog, commit (no push)
+just publish-release [-y] # tag the prepared version and push main + tag (publishes; ask first)
 ```
 
-**Releases (ADR 0014):** bump `version` in `Cargo.toml`, move the
-`Unreleased` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - date`
-heading, commit, then (after asking) push a matching `vX.Y.Z` tag. The
-workflow fails if the changelog has no section for the version, and uses
-that section as the release notes. `.github/workflows/release.yml` checks, tests and
+**Releases (ADR 0014):** `just release X.Y.Z` (`tools/release.sh`) bumps
+`Cargo.toml` and `Cargo.lock`, moves the `Unreleased` entries in
+`CHANGELOG.md` under `## [X.Y.Z] - today`, updates the compare links and
+commits. It refuses a dirty tree, a branch other than `main`, a version that
+isn't newer, or an empty `Unreleased`. Show the developer the commit, then
+(after asking) `just publish-release -y` tags `vX.Y.Z` and pushes `main` and
+the tag atomically. The workflow fails if the changelog has no section for
+the version, and uses that section as the release notes. `.github/workflows/release.yml` checks, tests and
 packages the release, publishes it on GitHub, and rebuilds the KPM index on
 GitHub Pages (`https://predakanga.github.io/kindle-wireless-sync/repo.json`).
 Run the workflow by hand to rebuild only the Pages site.
@@ -112,6 +117,12 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   Calibre source paths or device observations.
 - **Keep `CHANGELOG.md` current:** add user-facing changes under
   `## [Unreleased]` as you make them.
+- **Licence headers:** every new source or script file starts with an
+  `SPDX-License-Identifier: GPL-3.0-or-later` line in its comment syntax:
+  `// ` for Rust, `# ` after the shebang for shell and Python, `/* */` for
+  JS and CSS, and `<!-- -->` after `<!DOCTYPE>` for HTML. In the scriptlet
+  it goes after the Name/Author/Icon header. Formats without comments
+  (JSON) are exempt. The copyright line lives in the README.
 - **Commit as you go**, in small commits at each meaningful step (a research
   finding written up, a decision recorded, a feature working). Don't batch a
   whole phase into one commit.

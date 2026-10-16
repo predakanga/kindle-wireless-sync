@@ -121,6 +121,14 @@ package: build-kindle-package scriptlet
     sh tools/package.sh target/{{kindle_target}}/release/kindle-wireless-sync \
         target/package/WirelessSync.sh target/package/kindle-wireless-sync.kpkg
 
+# Prepare a release: bump the version, date the changelog, commit (ADR 0014)
+release version:
+    sh tools/release.sh prepare {{version}}
+
+# Tag the prepared release and push it, which publishes it (asks first)
+publish-release *flags:
+    sh tools/release.sh publish {{flags}}
+
 # Install the package with the device's own KPM, as a user would
 kpm-install: package
     scp -q target/package/kindle-wireless-sync.kpkg kindle:/tmp/kindle-wireless-sync.kpkg
