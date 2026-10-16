@@ -214,10 +214,10 @@ On the reference device, with grouping turned on and Calibre 9.16.0:
   later found nothing to change.
 - **Amazon sync: no sign of it.** After the Kindle synced, the developer's
   other Kindles (no grouping support) and the iOS Kindle app showed no new
-  series. The iOS app's "Ringworld" collection is one of the developer's
-  own. The Kindle holds it as a separate cloud `Collection` (last used
-  three days before our series existed), one of 14 synced from the
-  account.
+  series. The iOS app showed a collection with the same name as the test
+  series, but it is one of the developer's own. The Kindle holds it as a
+  separate cloud `Collection` (last used three days before our series
+  existed), one of 14 synced from the account.
 
   In `ksdk.asset.db`, every series and collection tag reads
   `PENDING_SYNC`, the account's own included, so that state doesn't mean

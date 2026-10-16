@@ -360,9 +360,9 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
 
   | Book | Device | "Before you go" |
   |---|---|---|
-  | Sideloaded earlier with this app | reference (5.20.1) | no |
+  | Sideloaded earlier with this app | reference: Paperwhite 12th gen (5.20.1) | no |
   | Amazon book | reference (5.20.1) | **yes** |
-  | Sideloaded by Calibre (USB) | older Kindle | **yes** |
+  | Sideloaded by Calibre (USB) | Paperwhite 10th gen (5.17.1) | **yes** |
   | The same book, sent by Calibre over USB (MTP) | reference (5.20.1) | no |
 
   So on 5.20.1 the end-of-book page, and the Goodreads rating it asks for,

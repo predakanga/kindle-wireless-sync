@@ -158,6 +158,6 @@ something else.
   reference device (5.20.1) doesn't show for sideloaded books. That held
   for a book sent with this app, and for one sent by Calibre over USB
   (MTP). It did show for an Amazon book, and for the same sideloaded book
-  on the developer's older Kindle. So on the target firmware there's no
-  rating to sync. See `research/kindle-library-integration.md`, "Read state
-  probe".
+  on the developer's older Kindle (Paperwhite 10th gen, 5.17.1). So on the
+  target firmware there's no rating to sync. See
+  `research/kindle-library-integration.md`, "Read state probe".
