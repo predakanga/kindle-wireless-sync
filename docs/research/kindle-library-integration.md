@@ -347,9 +347,9 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
 | Closed (back to Library) | 2 | 1 | `p_lastOpenTime` and `p_lastAccess` set to the close time, `p_percentFinished` 98.9, asset `PERCENT_READ` too |
 
 - **On 5.20.1 the read state is in `cc.db`**, unlike the 5.18.1 report
-  above (fmcache only). `p_readState`: 0 = never set, 1 = read (manual),
-  2 = read (automatic, end of book), 3 = unread (manual). The asset store
-  uses 0, 1 (read), 2 (unread).
+  above (fmcache only). `p_readState`: 0 = never set, 1 = marked read,
+  2 = marked read automatically (end of book), 3 = marked unread. The
+  asset store uses 0, 1 (read), 2 (unread).
 - **`p_lastOpenTime` is the "last read" time:** unset until the book is
   first opened, and set on open and on close. `p_lastAccess` is also set
   when the file is indexed, so it isn't a reading signal.

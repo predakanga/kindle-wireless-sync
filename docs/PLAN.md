@@ -235,8 +235,8 @@ sync works end to end with only stock Calibre.
   plugin, only read status and a last-read date can reach Calibre, through
   the wireless driver's optional sync of two custom columns the user
   creates. ADR 0017 (Proposed) sends them from the Kindle to Calibre, into
-  `#kindle_read` and `#kindle_last_read`, for libraries marked read-write
-  (read-only is the default). The other direction is on the Later list.
+  `#kindle_read` and `#kindle_last_read`, for libraries marked writable
+  (off by default). The other direction is on the Later list.
   Percent read needs a Calibre plugin, which is deferred (Later list).
   **Ratings are out of scope:** on 5.20.1 the Goodreads rating prompt only
   appears for Amazon books. The device probes are done (2026-10-16): the
@@ -274,8 +274,8 @@ Not part of any phase. Pick these up after the base and stretch goals
    file. Known item: status messages disappear after 6 s, which is easy to
    miss. Also: let the user pick the read-sync columns from a list of the
    library's columns (Calibre sends them in `SET_LIBRARY_INFO`), instead of
-   the fixed names in ADR 0017, and a toggle for each library's read-only
-   or read-write mode (command line only until then).
+   the fixed names in ADR 0017, and a toggle for each library's
+   `writable` setting (command line only until then).
 3. **Kindle collections from Calibre fields** (series, tags, custom
    columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
    `insert` a `Collection`, then `addCollectionMember`. That's the command

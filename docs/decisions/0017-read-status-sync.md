@@ -37,7 +37,7 @@ Consequences).
 
 **What the Kindle stores**, probed on 5.20.1 for a sideloaded book
 (`research/kindle-library-integration.md`, "Read state probe"):
-- `cc.db` `p_readState`: 0 = never set, 1 = marked read, 2 = read
+- `cc.db` `p_readState`: 0 = never set, 1 = marked read, 2 = marked read
   automatically at the end of the book, 3 = marked unread.
 - `p_lastOpenTime`: set when the book is opened and when it's closed. It's
   unset until the first open. (`p_lastAccess` also changes when the file is
@@ -56,31 +56,37 @@ there, reach Calibre on the next connection. Changes made in Calibre stay
 in Calibre: we don't change the Kindle's read state (developer, 2026-10-16;
 the other direction is on the Later list).
 
-**Into two columns with fixed names**, which the user creates in Calibre:
-**`#kindle_read`** (Yes/No) and **`#kindle_last_read`** (Date). Their
-headings can be anything. The `kindle_` prefix keeps them apart from a
-user's own `#read`, which may have another type or belong to another tool.
-Letting the user pick existing columns from a list comes with the UI
-redesign (Later list).
-
-**Only for libraries marked read-write.** Each allowed library gets a mode
-on its allowlist entry in `config.json` (ADR 0003): `"access": "read-only"`
-or `"read-write"`.
-- A **read-only** library only sends books to the Kindle. We never name the
-  columns for it, so nothing the Kindle does changes that library.
-- A **read-write** library also takes changes from the Kindle: read status
-  and last-read date now, and whatever a later plugin adds.
-- **The default is read-only**, including for existing entries. Letting a
+**Only for libraries marked writable.** Each allowed library's entry in
+`config.json` (ADR 0003) gets a boolean `"writable"`.
+- A library with `writable: false` only sends books to the Kindle. We never
+  name the columns for it, so nothing the Kindle does changes that library.
+- A library with `writable: true` also takes changes from the Kindle: read
+  status and last-read date now, and whatever a later plugin adds.
+- **The default is `false`**, including for existing entries. Letting a
   Kindle write into a Calibre library should be a deliberate choice, made
   per library. For example, a shared household library might send books
   without being changed by this Kindle.
-- For now it's set from the command line only: `allow --read-write`, and a
-  way to change an already allowed library (developer, 2026-10-16). The app
-  gets a toggle with the UI redesign.
+- A boolean, rather than a mode string, leaves no spellings to get wrong
+  (developer, 2026-10-16).
+
+**Into two columns the user creates in Calibre.** Their lookup names are
+stored per library in the same entry: `"read_column"` (a Yes/No column) and
+`"last_read_column"` (a Date column). The daemon uses whatever names are
+stored, so it's ready for user-chosen columns. **For now, every caller
+stores fixed names:** **`#kindle_read`** and **`#kindle_last_read`**
+(developer, 2026-10-16). The headings can be anything. The `kindle_` prefix
+keeps them apart from a user's own `#read`, which may have another type or
+belong to another tool.
+- For now, these settings are only set from the command line, with
+  `allow --writable`, and with a way to change an already allowed library.
+  Both store the fixed names.
+- With the UI redesign (Later list), the app gets a toggle for `writable`,
+  and can then let the user pick the columns from the library's own list
+  of columns.
 
 **Name a column only once it exists.** Naming a missing column would make
 Calibre show an error on the Kindle at every connection, to every user who
-hasn't created it. So for a read-write library, we name a column only after
+hasn't created it. So for a writable library, we name a column only after
 seeing it, with the right type, in that library's column list. We record
 the columns we've seen per library, keyed by the library's UUID, and
 refresh the record on every connection.
@@ -110,7 +116,14 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
 
 ## Alternatives considered
 - **Pick the columns from a list in our app:** preferred long-term, but
-  waits for the UI redesign. Fixed names need no UI.
+  waits for the UI redesign. The daemon already takes any names; only the
+  callers use fixed ones.
+- **Hard-code the fixed names in the daemon:** rejected. Storing the names
+  per library costs little now and avoids a migration when users can pick
+  them.
+- **A mode string (`"access": "read-only"` / `"read-write"`):** replaced by
+  the `writable` boolean (developer, 2026-10-16), which has no spellings to
+  get wrong.
 - **Type the column names into our app:** typing on the e-ink keyboard, and
   easy to get wrong.
 - **Guess the columns by name** (say, any Yes/No column called "read"):
@@ -132,10 +145,10 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
 
 ## Consequences
 - **To use it**, the user creates the two columns in Calibre (Preferences →
-  Add your own columns) and marks the library read-write on the Kindle. The
+  Add your own columns) and marks the library writable on the Kindle. The
   README documents both steps.
-- New config field per allowed library (`access`), and command-line options
-  to set it.
+- New config fields per allowed library (`writable`, `read_column`,
+  `last_read_column`), and command-line options to set them.
 - New state per book in `books.json`: the values last sent by Calibre and
   the values we last reported.
 - Changes reach Calibre only when a connection starts, because that's when
