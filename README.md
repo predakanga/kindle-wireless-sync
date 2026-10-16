@@ -106,7 +106,12 @@ Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   was the model for the on-device app, the KPM packaging and the
   development workflow.
 - [Kindle HID Passthrough](https://github.com/zampierilucas/kindle-hid-passthrough)
-  was the model for the user-controlled service and its autostart.
+  was the model for the user-controlled service. It and Button Mapper
+  supplied the crash-loop guard, a boot counter that turns autostart off.
+- [kindle-usbnetlite](https://github.com/notmarek/kindle-usbnetlite)
+  supplied the autostart switch: a sentinel file checked by an
+  always-installed job, so turning autostart on or off never touches the
+  read-only system partition.
 - [LibrarianSync](https://github.com/barsanuphe/librariansync) and
   [kindle-series-manager](https://github.com/mlapaglia/kindle-series-manager)
   showed how to talk to the Kindle's catalog and how series are stored.
