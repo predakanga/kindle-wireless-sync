@@ -28,9 +28,14 @@ native series over collections on 2026-10-16. The research is in
 - **How it behaves:**
   - Replacing a book file in place keeps the series, but resets that book's
     `originType`.
-  - Deleting a book makes the firmware un-hide the rest and zero the
-    container's cloud count, which degrades safely. It leaves that book's
-    `Series` row behind.
+  - Deleting a book makes the firmware's post-processing (run when the
+    scanner notices the deletion) set the container's count to the number
+    of *cloud* copies, which is always 0 for sideloaded books. It also
+    un-hides **every** remaining member, however many are left. So the
+    series falls apart until we re-apply it. It's a safe state, since books
+    are visible and ungrouped, but the re-apply must come *after* the
+    firmware has run. It also leaves the deleted book's `Series` row
+    behind.
   - With grouping off (the default outside JP, US, UK and DE), the data has
     no visible effect: hidden members still show.
 - Calibre already sends `series` and `series_index` with every book, and we
@@ -65,10 +70,9 @@ series.
 - `itemPositionLabel` = the index as written ("2", "2.5")
 - `seriesOrderType ordered`
 
-**Reconcile, don't patch.** After each Calibre session that changed books
-(received, replaced, deleted, metadata updated, adopted), and once at
-daemon start, we compare the series we want (from `books.json`) with the
-series we last applied, which we record in `state/series.json`. Then:
+**Reconcile, don't patch.** We compare the series we want (from
+`books.json`) with the series we last applied, which we record in
+`state/series.json`. Then:
 - **New or changed series:** write `Series` rows, the container,
   `members`, and `isProcessed`, **then** hide the members (`seriesState 0`,
   `originType 0`). Books are only hidden once a visible container exists.
@@ -79,9 +83,25 @@ series we last applied, which we record in `state/series.json`. Then:
   series, since a re-index resets `originType`, and a delete resets counts
   and visibility. All of these updates are idempotent.
 
-The reconcile runs between sessions, never during a transfer. All of a
-session's changes go in batches of at most 100 commands (LibrarianSync's
-limit, to avoid running out of memory).
+**When to reconcile: a debounce after book changes.** Sessions can stay
+open for hours, so we don't wait for one to end.
+- Every change to our book list (received, replaced, deleted, metadata
+  updated, adopted) marks the series state dirty and restarts a timer of
+  about **15 s**. That's long enough for the scanner to index new files and
+  for the firmware's post-processing after deletes, so we re-apply after
+  the firmware rather than before it. A batch from Calibre arrives as one
+  burst, so it's reconciled once.
+- While a session is open, the session loop checks the timer whenever
+  Calibre's keep-alive `NOOP` arrives (about every 3 s), and reconciles
+  between Calibre's operations, never during a transfer. No extra thread is
+  needed.
+- When a session ends while the state is dirty, the daemon reconciles
+  straight away, and it also reconciles once at start-up.
+- If a new book has no catalog entry yet (not yet indexed), its series is
+  left for the next pass instead of failing.
+
+Commands go in batches of at most 100 (LibrarianSync's limit, to avoid
+running out of memory).
 
 **Failure handling:** if the endpoint or the token is unavailable (as off a
 Kindle, or on firmware without it), we log once and skip. Books still sync,
@@ -105,6 +125,10 @@ stops managing them. A UI toggle can come later.
   offer downloads that can't work, and a cloud sync might remove them.
 - **Patching incrementally per event:** reconciling against our recorded
   state is simpler, and it repairs firmware drift as it goes.
+- **Reconciling only when a session ends:** sessions can stay open for
+  hours, so series would lag far behind the books.
+- **Reconciling straight after each operation:** after a delete it would
+  run before the firmware's post-processing, which would then undo it.
 
 ## Consequences
 - The `members` update writes link rows in the catalog's `Collections`
