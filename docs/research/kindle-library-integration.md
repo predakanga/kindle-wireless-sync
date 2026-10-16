@@ -480,36 +480,54 @@ and our container is missing something that the series-tile query needs.
 Why is **out of scope** for this investigation, which is only about turning
 grouping on.
 
-Next steps, in order:
+#### Which change does it (2026-10-17)
 
-1. Find out which change does it: the `dcc` marketplace override, `dcc`
-   `series.grouping.enabled`, the UserDefaults flag, or a combination.
-   Also find out whether grouping only makes the Settings switch appear,
-   or works without the switch being touched, and what has to restart for a
-   change to apply (nothing, a reboot, or some process other than
-   `kppmainapp`). Don't touch the Settings switch while testing, because
-   it writes both the `dcc` and UserDefaults values.
-2. Then, if there's time, why Quick Settings still has no tile.
-3. Then a developer script (checked in, with a `just` task, not shipped in
-   the package) that turns grouping on and off using only the settings
-   that step 1 shows are needed.
+Each setting was switched on its own, with the Settings switch left alone.
+The Library was redrawn by going to Home and back, with no restart. Every
+change took effect **live**, so last night's reboot wasn't needed.
 
-Undo:
+| Marketplace override | `dcc` enabled | UserDefaults | Series grouped | Settings switch |
+|---|---|---|---|---|
+| – | `false` | – | no | hidden |
+| – | `false` | `1` | no | hidden |
+| – | `true` | – | **yes** | hidden |
+| added | `true` | – | **yes** | shown, on |
+| added | `false` | – | no | shown, off |
+
+- **`dcc series.grouping.enabled` is the on/off switch.** Setting it to
+  `true` groups series even while the Settings switch is hidden.
+- **The marketplace override only shows the switch** ("Group series",
+  under Settings > Home and Library > Library tab).
+- **The UserDefaults flag has no effect** on this device, which fits
+  `IsLibraryRearchitectureEnabled()` being false here.
+
+State left on the device: the marketplace override plus `dcc` enabled
+`true`, and no UserDefaults row. The Settings switch writes the
+UserDefaults row as well as the `dcc` value, which is harmless.
+
+Undo (back to how it was found):
 
 ```sh
 sqlite3 /var/local/appreg.db "update properties set value='false' where handlerId='dcc' and name='series.grouping.enabled';"
-sqlite3 /var/local/user_defaults.db "delete from user_defaults where ID=1 and Key='IGNITE_LIBRARY_NAMESPACE.IGNITE_SERIES_GROUPING_ENABLED_KEY';"
 sqlite3 /var/local/appreg.db "delete from properties where handlerId='dcc' and name='series.grouping.supported.marketplaces';"
 ```
+
+Next steps, in order:
+
+1. A developer script (checked in, with a `just` task, not shipped in the
+   package) that sets these two values.
+2. Whether a server config refresh resets them (below).
+3. If there's time, why Quick Settings still has no tile.
 
 What might reset it (unconfirmed):
 
 - `dcc` rows are written from the server's dynamic config, so a refresh
   could set `series.grouping.enabled` back to `false` or drop the
   marketplace override. Check after a reboot and a sync.
-- UserDefaults are wiped on deregistration ("Wiped all user-defaults data
-  on deregistration"), and Ignite's "Cleaning user preferences for library
-  namespace" routine clears `IGNITE_SERIES_GROUPING_ENABLED_KEY` too.
+- They survived one reboot (2026-10-16).
+- UserDefaults are wiped on deregistration, and Ignite's "Cleaning user
+  preferences for library namespace" routine clears the UserDefaults key.
+  Neither matters here, since the key has no effect on this device.
 
 ### Test data left on the device for that investigation
 
