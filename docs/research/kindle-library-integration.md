@@ -598,8 +598,10 @@ sideloaded books is untested.
 **Still to check before building on it:**
 - Whether it survives a reboot with the counts set (the earlier reboot was
   before `members`).
-- Whether anything tries to sync the series or the `Collections` rows to
-  Amazon (the asset store tag is `PENDING_SYNC`; real series tags are too).
+- ~~Whether anything tries to sync the series or the `Collections` rows to
+  Amazon~~: no sign of it (ADR 0016, "Device test"). Every tag reads
+  `PENDING_SYNC`, the account's own collections included, while the
+  membership rows (`ContentTag`) read `SYNCED`, ours and Amazon's alike.
 
 ### Test data (removed 2026-10-17)
 

@@ -220,8 +220,8 @@ sync works end to end with only stock Calibre.
   after the send, and deleting a book while viewing the series updated the
   view in place. A 2-book series formed too. Deleting one of its books
   dissolved it, which bounced the open view back to the Library. Series
-  survive a reboot. Still to check: that nothing syncs our series to
-  Amazon.
+  survive a reboot. After a sync, no series showed up on other devices or
+  the iOS app, and nothing is queued for upload (see the ADR).
   For testing, `just series-grouping [status|enable|disable]` turns grouping
   on and off. Changes apply as soon as the Library redraws (go to Home and
   back), with no restart (2026-10-17).

@@ -147,8 +147,8 @@ stops managing them. A UI toggle can come later.
 - Still to verify on the device, and to document:
   - ~~that a series survives a reboot with its counts set~~: done, see
     "Device test" below.
-  - that nothing syncs our series or link rows to Amazon (their asset tags
-    are `PENDING_SYNC`, like real series)
+  - ~~that nothing syncs our series or link rows to Amazon~~: no sign of
+    it, see "Device test" below.
   - ~~what the Library does when a book is deleted while the user is
     viewing its series~~: done, see "Device test" below.
 
@@ -212,3 +212,17 @@ On the reference device, with grouping turned on and Calibre 9.16.0:
   Library showed the tile with its "3" badge. Our first pass, at start-up,
   hit `database is locked` (the catalog is busy at boot). Its retry 15 s
   later found nothing to change.
+- **Amazon sync: no sign of it.** After the Kindle synced, the developer's
+  other Kindles (no grouping support) and the iOS Kindle app showed no new
+  series. The iOS app's "Ringworld" collection is one of the developer's
+  own. The Kindle holds it as a separate cloud `Collection` (last used
+  three days before our series existed), one of 14 synced from the
+  account.
+
+  In `ksdk.asset.db`, every series and collection tag reads
+  `PENDING_SYNC`, the account's own included, so that state doesn't mean
+  an upload is queued. Our membership rows read `SYNCED`, like Amazon's
+  own series' rows. Our members are also sideloaded books, identified by
+  uuid rather than ASIN, so the cloud has nothing to match them to. This
+  is absence of evidence, not proof. The Daemon series existed for only
+  about 90 s, so it says nothing either way.
