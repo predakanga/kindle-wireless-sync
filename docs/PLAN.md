@@ -218,8 +218,10 @@ sync works end to end with only stock Calibre.
   **Built (2026-10-17, ADR 0016, unreleased):** series now sync from
   Calibre. On the device, a 4-book series merged into one ordered tile 15 s
   after the send, and deleting a book while viewing the series updated the
-  view in place (no bounce to the Library). Still to check: survival across
-  a reboot, and that nothing syncs our series to Amazon.
+  view in place. A 2-book series formed too. Deleting one of its books
+  dissolved it, which bounced the open view back to the Library. Series
+  survive a reboot. Still to check: that nothing syncs our series to
+  Amazon.
   For testing, `just series-grouping [status|enable|disable]` turns grouping
   on and off. Changes apply as soon as the Library redraws (go to Home and
   back), with no restart (2026-10-17).

@@ -145,7 +145,8 @@ stops managing them. A UI toggle can come later.
   the reconcile logic with tests against a fake endpoint, and a `series`
   command.
 - Still to verify on the device, and to document:
-  - that a series survives a reboot with its counts set
+  - ~~that a series survives a reboot with its counts set~~: done, see
+    "Device test" below.
   - that nothing syncs our series or link rows to Amazon (their asset tags
     are `PENDING_SYNC`, like real series)
   - ~~what the Library does when a book is deleted while the user is
@@ -198,3 +199,9 @@ On the reference device, with grouping turned on and Calibre 9.16.0:
   book showed as a plain book, with no stack or badge. So a series view
   closes only when its container is removed. While the container still
   exists, the view updates in place.
+- **Reboot:** the 3-book series survived it. 30 s after boot, before our
+  service had started, the catalog held the same container counts (3/3/3),
+  `isProcessed` and the members' `seriesState 0` and `originType 0`. The
+  Library showed the tile with its "3" badge. Our first pass, at start-up,
+  hit `database is locked` (the catalog is busy at boot). Its retry 15 s
+  later found nothing to change.
