@@ -1,0 +1,125 @@
+# 0016: Calibre series as the Kindle's native series grouping
+
+- Status: Proposed
+- Date: 2026-10-17
+
+## Context
+Phase 5: show Calibre series as the Kindle's own series grouping, with one
+tile per series and the books inside in series order. The developer chose
+native series over collections on 2026-10-16. The research is in
+`research/kindle-library-integration.md`, "Native series on FW 5.20.1" and
+"Making a sideloaded series show". In summary:
+
+- **Interface:** the catalog's ChangeRequest endpoint,
+  `POST 127.0.0.1:9101/change`, with an `AuthToken` header read from
+  `/tmp/session_token`. It's the system's own path: the catalog's triggers
+  keep `cc.db` and `ksdk.asset.db` in sync. That keeps ADR 0005's rule of no
+  direct database writes.
+- **What a visible series needs** (tested on the reference device):
+  1. One `Series` row per book (`insertOr`, `table: SERIES`), with a seriesId
+     of `urn:collection:1:asin-<KEY>`, where `<KEY>` is **exactly 10
+     characters**.
+  2. An `Entry:Item:Series` container (`insertOr`).
+  3. `update` the container with `members: [book uuids]`, which sets the
+     member counts the Library's filter needs (both at least 2), and with
+     `isProcessed: 1`.
+  4. `update` each book to `seriesState: 0` (hidden in the series) and
+     `originType: 0` (otherwise the tile gets a Kindle Unlimited badge).
+- **How it behaves:**
+  - Replacing a book file in place keeps the series, but resets that book's
+    `originType`.
+  - Deleting a book makes the firmware un-hide the rest and zero the
+    container's cloud count, which degrades safely. It leaves that book's
+    `Series` row behind.
+  - With grouping off (the default outside JP, US, UK and DE), the data has
+    no visible effect: hidden members still show.
+- Calibre already sends `series` and `series_index` with every book, and we
+  store them in `books.json`. No Calibre setting is needed, unlike its
+  collections map.
+
+## Decision
+**Which series:** we manage series built from our own `books.json` only:
+books we received or adopted (ADR 0013) that have a Calibre `series` and a
+content key (`_kws`). We never touch Amazon's series or books we don't
+track. A series is created only when **2 or more** of its books are on the
+device, since the Library ignores smaller ones anyway.
+
+**Keys:** `<KEY>` is a fixed function of the series name: `"KW"` followed by
+8 base-32 characters of the SHA-1 of the series name (trimmed and
+case-folded). That gives 10 uppercase letters and digits, unlikely to clash
+with a real ASIN (`B0…`) or an ISBN-10. The same name always gives the same
+series.
+
+**Container:**
+- title = series name
+- credits = the first book's authors
+- thumbnail = the first book's cover
+- `virtualCollectionCount` = the number of members, so the series view says
+  "N out of N"
+- `originType -1`, `isArchived 1`, `cdeType series`,
+  `mimeType application/x-kindle-series` (as Amazon series and
+  kindle-series-manager have)
+
+**Members:**
+- `itemPosition` = Calibre's `series_index` (books are ordered by it)
+- `itemPositionLabel` = the index as written ("2", "2.5")
+- `seriesOrderType ordered`
+
+**Reconcile, don't patch.** After each Calibre session that changed books
+(received, replaced, deleted, metadata updated, adopted), and once at
+daemon start, we compare the series we want (from `books.json`) with the
+series we last applied, which we record in `state/series.json`. Then:
+- **New or changed series:** write `Series` rows, the container,
+  `members`, and `isProcessed`, **then** hide the members (`seriesState 0`,
+  `originType 0`). Books are only hidden once a visible container exists.
+- **Series that dropped below 2, or a book that left a series:** un-hide
+  those books first (`seriesState 1`), then remove its rows, the links
+  (`members` update) and, if it's empty, the container.
+- **Firmware drift:** re-assert the member updates for every managed
+  series, since a re-index resets `originType`, and a delete resets counts
+  and visibility. All of these updates are idempotent.
+
+The reconcile runs between sessions, never during a transfer. All of a
+session's changes go in batches of at most 100 commands (LibrarianSync's
+limit, to avoid running out of memory).
+
+**Failure handling:** if the endpoint or the token is unavailable (as off a
+Kindle, or on firmware without it), we log once and skip. Books still sync,
+just without series. A failed reconcile is retried after the next session.
+
+**Uninstall** (`uninstall.sh`, not on upgrade) first runs
+`kindle-wireless-sync series --remove-all`, which dissolves every managed
+series so books aren't left grouped by a removed app.
+
+**Switch:** on by default. It's harmless where grouping is off, and useful
+where it's on. A config option (`series: false`) dissolves our series and
+stops managing them. A UI toggle can come later.
+
+## Alternatives considered
+- **Writing `p_memberCount` directly with SQL** (kindle-series-manager):
+  rejected by ADR 0005.
+- **Collections:** deferred to the Later list. They work everywhere, but
+  aren't what the developer wants for series.
+- **Fake cloud copies** (`isArchived 1` entries), so the firmware's own
+  post-processing would count members: rejected. Phantom cloud books would
+  offer downloads that can't work, and a cloud sync might remove them.
+- **Patching incrementally per event:** reconciling against our recorded
+  state is simpler, and it repairs firmware drift as it goes.
+
+## Consequences
+- The `members` update writes link rows in the catalog's `Collections`
+  table for our series containers. Real collections aren't affected: a
+  book's collection count only counts `Collection` entries, which was
+  checked on the device.
+- Member books get `originType 0`, the value for purchased books. Any other
+  effects on sideloaded books are untested; watch for them.
+- Series only appear where grouping is on. On AU and other unsupported
+  marketplaces that needs the developer tool (`just series-grouping`) or
+  the guarded script on the Later list.
+- New code: a small HTTP POST client (we already speak HTTP for the API, so
+  no new dependency), read-only `cc.db` lookups for `p_uuid` and `cdeKey`,
+  the reconcile logic with tests against a fake endpoint, and a `series`
+  command.
+- Still to verify: that a series survives a reboot with its counts set, and
+  that nothing syncs our series or link rows to Amazon (their asset tags
+  are `PENDING_SYNC`, like real series).
