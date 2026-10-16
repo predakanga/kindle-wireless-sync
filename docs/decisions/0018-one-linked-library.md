@@ -41,17 +41,17 @@ daemon only ever connects to that library. The security property of ADR
 - *Link* a library (from Find libraries or Add server), *Unlink* it.
 - "Linked library" in status text and settings.
 - Not "connected", which already means an open session. Not "allowed", which
-  suggests a list. ("Paired" was the other candidate; see Open questions.)
+  suggests a list. Not "paired", which suggests both sides approve it, and
+  Calibre has nothing to approve (developer, 2026-10-17).
 
 **Config.** `config.json` holds one optional `library` object instead of the
 `allowed` list: UUID, name, last host and port, broadcast hostname,
 password, and the read-sync settings from ADR 0017 (`writable`,
 `read_column`, `last_read_column`). The `seen` list stays: Find libraries
 still lists what it found, for the user to link one.
-- **Migration** (on load, written back at the next save): an old `allowed`
-  list becomes `library`. If it has several entries, keep the one whose UUID
-  matches `driveinfo.json`'s `last_library_uuid` (the library Calibre last
-  synced with), or else the first, and log the ones dropped.
+- **No migration** from the `allowed` list: the app hasn't been shared
+  with anyone yet (developer, 2026-10-17). The developer's Kindle is
+  re-linked by hand after upgrading.
 
 **Linking a different library resets what belonged to the old one.** It's a
 deliberate act, so the app asks first, and says that books stay on the
@@ -79,11 +79,15 @@ can offer to link it instead, with the same confirmation.
 Two ways to forget the old library's metadata:
 1. **Delete `books.json`** and let adoption (ADR 0013) rebuild it at the
    next session. That's simple, but adoption only recovers books whose file
-   carries a Calibre UUID: AZW3 and MOBI (EXTH 112/113), or anything listed
-   in `metadata.calibre` from a USB transfer. **PDF, TXT and KFX books sent
-   wirelessly have neither, so Calibre would never see them again.** They'd
-   stay on the Kindle, readable, but invisible to Calibre, which couldn't
-   update or delete them.
+   carries a **Calibre book UUID**: AZW3 and MOBI (EXTH 112/113), or
+   anything listed in `metadata.calibre` from a USB transfer. (This is not
+   the Kindle's content key, which for PDF and TXT is `"*" +
+   sha1(path)`. That key ties a file to its Library entry, not to a Calibre
+   book.) **TXT files can't carry a Calibre UUID, so a TXT sent wirelessly
+   would never be seen by Calibre again.** It would stay on the Kindle,
+   readable, but Calibre couldn't update or delete it. PDF and KFX are
+   unknown: Calibre may write its UUID into a PDF's metadata, and KFX was
+   never explored, but adoption reads neither today.
 2. **Keep each record's identity (lpath, size, `_kws`), and drop the
    Calibre-library parts** (title stays, but series, `user_metadata` and
    read-sync state go). The new library's Calibre then pairs each book by
@@ -91,8 +95,8 @@ Two ways to forget the old library's metadata:
    Books it can't match show as on the device but not in the library, as
    they would after a USB transfer.
 
-**Proposed: option 2**, because option 1 silently loses books in three of
-the six formats we accept.
+**Proposed: option 2**, because option 1 silently loses TXT books, and
+possibly PDF and KFX ones, unless adoption learns to read those formats.
 
 Series follow automatically. The next series pass (ADR 0016) sees no series
 in the records, dissolves ours, and rebuilds them from the new library's
@@ -115,7 +119,7 @@ metadata once Calibre resends it.
   UUID. On acceptance, those ADRs get "Amended by 0018" notes, and ADR 0017's
   "each allowed library" wording becomes "the linked library".
 - **Code:**
-  - `config` holds `Option<LinkedLibrary>` and does the migration.
+  - `config` holds `Option<LinkedLibrary>`.
   - The daemon's candidate list, password-failure set and status text
     become single-library.
   - `Library` gets a reset for re-linking (driveinfo, columns, per-book
@@ -133,15 +137,13 @@ metadata once Calibre resends it.
   with a confirmation if it replaces one.
 - **README and CHANGELOG** say "link" throughout; the change in behaviour
   (one library) gets a changelog entry.
-- **Tests:** config migration (none, one, several), re-linking the same and
-  a different library, and the daemon only trying the linked library.
+- **Tests:** re-linking the same and a different library, and the daemon
+  only trying the linked library.
+- **Covers we backed up are kept** when linking a different library
+  (developer, 2026-10-17). They're keyed by the Kindle's content key, not
+  by library.
 
 ## Open questions
-- "Link" or "pair"? "Pair" is familiar from Bluetooth, which suits a
-  one-to-one relationship, but suggests a handshake on both sides, and
-  Calibre has nothing to approve.
-- Should re-linking a different library clear covers we backed up? They're
-  keyed by the Kindle's content key, not by library, so probably not.
-- Does Calibre's wireless driver care that a device it knew under one
-  library now shows up with another library's books? Clearing
-  `driveinfo.json` should make it a new device to Calibre; to verify.
+- Does clearing `driveinfo.json` really make the Kindle a new device to
+  Calibre, with a fresh metadata cache? Explore on the device before
+  building the reset (developer, 2026-10-17: unknown).
