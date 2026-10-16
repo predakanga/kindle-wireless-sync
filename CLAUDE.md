@@ -41,6 +41,7 @@ just deploy               # build (with dev-tools) and copy to the Kindle
 just device-connect --allow <uuid>   # dev: one foreground session on the Kindle
 just install-service      # install the upstart jobs (briefly remounts / read-write)
 just start | stop | status | logs | autostart-on | autostart-off
+just screensaver-off | screensaver-on   # keep the Kindle awake for long tests (Wi-Fi drops with it)
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
@@ -148,8 +149,8 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
 - When you ask the developer to check something on the device, wait for
   their answer before the next step, and don't undo what they're checking.
 - Wi-Fi goes down with the screensaver. For long device tests, run
-  `lipc-set-prop -i com.lab126.powerd preventScreenSaver 1`, and set it back
-  to 0 afterwards (a reboot also resets it).
+  `just screensaver-off`, and `just screensaver-on` afterwards (a reboot also
+  turns it back on).
 - The device has no `python3`. KPM is `/var/local/kmc/bin/kpm` (0.2.2).
   Its source is github.com/KindleModding/KPM (0.2.2 is `07495e0` to
   `94608b3^`). github.com/gingrspacecadet/kpm is a different tool with the

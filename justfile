@@ -97,6 +97,14 @@ autostart-on:
 autostart-off:
     ssh kindle "rm -f {{kindle_dir}}/autostart"
 
+# Keep the Kindle awake for long tests (Wi-Fi drops with the screensaver).
+# A reboot also turns the screensaver back on.
+screensaver-off:
+    ssh kindle "lipc-set-prop -i com.lab126.powerd preventScreenSaver 1 && lipc-get-prop com.lab126.powerd preventScreenSaver"
+
+screensaver-on:
+    ssh kindle "lipc-set-prop -i com.lab126.powerd preventScreenSaver 0 && lipc-get-prop com.lab126.powerd preventScreenSaver"
+
 # Build the library-tile scriptlet with its icon embedded
 scriptlet:
     #!/bin/sh
