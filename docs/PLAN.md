@@ -194,9 +194,10 @@ sync works end to end with only stock Calibre.
 
 ### Phase 5: Stretch goals
 
-- Series from Calibre as the Kindle's **native series grouping** (one tile per
-  series, in series order), through the catalog's ChangeRequest endpoint.
-  Decided 2026-10-16. Collections in general are on the "Later" list.
+- ✅ Series from Calibre as the Kindle's **native series grouping** (one tile
+  per series, in series order), through the catalog's ChangeRequest
+  endpoint (ADR 0016, released in 0.2.0). Decided 2026-10-16. Collections in
+  general are on the "Later" list. History:
   **Status (2026-10-16):** research done
   (`research/kindle-library-integration.md`, "Native series on FW 5.20.1").
   Series data can be written correctly through ChangeRequest. But the
@@ -210,12 +211,13 @@ sync works end to end with only stock Calibre.
   **Update (2026-10-16):** the developer has turned series grouping on for
   their device, in a separate session. The two test books disappeared from
   the Library, but the "kws-test series" tile didn't appear.
-  **Update (2026-10-17):** fixed in the experiment. The Library hides series
+  **Update (2026-10-16):** fixed in the experiment. The Library hides series
   containers whose member counts are under 2, and a ChangeRequest `members`
   update sets them. With that, the tile showed and opened with both books
   in order. Member deletion degrades safely. Details are in the research
   note ("Making a sideloaded series show"). Test data removed.
-  **Built (2026-10-17, ADR 0016, unreleased):** series now sync from
+  **Built (2026-10-16, ADR 0016; released in 0.2.0 the same day, and
+  upgraded on the device through KPM):** series now sync from
   Calibre. On the device, a 4-book series merged into one ordered tile 15 s
   after the send, and deleting a book while viewing the series updated the
   view in place. A 2-book series formed too. Deleting one of its books
@@ -224,7 +226,7 @@ sync works end to end with only stock Calibre.
   the iOS app, and nothing is queued for upload (see the ADR).
   For testing, `just series-grouping [status|enable|disable]` turns grouping
   on and off. Changes apply as soon as the Library redraws (go to Home and
-  back), with no restart (2026-10-17).
+  back), with no restart (2026-10-16).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
@@ -272,7 +274,7 @@ Not part of any phase. Pick these up after the base and stretch goals
    doing. It changes Amazon-side settings, so document the risk. It builds
    on the developer's own enabling work (2026-10-16). Still to decide:
    which identifier counts as the "device UUID". Start from the dev tool
-   `tools/series-grouping.sh` (2026-10-17): only two `appreg.db` values are
+   `tools/series-grouping.sh` (2026-10-16): only two `appreg.db` values are
    needed (research note, "Which change does it").
 5. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be

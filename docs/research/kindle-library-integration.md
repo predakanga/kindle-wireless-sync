@@ -480,7 +480,7 @@ and our container is missing something that the series-tile query needs.
 Why is **out of scope** for this investigation, which is only about turning
 grouping on.
 
-#### Which change does it (2026-10-17)
+#### Which change does it (2026-10-16)
 
 Each setting was switched on its own, with the Settings switch left alone.
 The Library was redrawn by going to Home and back, with no restart. Every
@@ -517,7 +517,7 @@ Next steps, in order:
 1. ✅ `tools/series-grouping.sh`, run with `just series-grouping
    [status|enable|disable]`. It's a developer tool, not shipped in the
    package, and sets exactly these two values. Tested both ways on the
-   device (2026-10-17).
+   device (2026-10-16).
 2. Whether a server config refresh resets them (below).
 3. If there's time, why Quick Settings still has no tile.
 
@@ -531,7 +531,7 @@ What might reset it (unconfirmed):
   preferences for library namespace" routine clears the UserDefaults key.
   Neither matters here, since the key has no effect on this device.
 
-### Making a sideloaded series show (2026-10-17)
+### Making a sideloaded series show (2026-10-16)
 
 With grouping switched on (`just series-grouping enable`), the test series's
 books were hidden but there was no series tile, even after a reboot. The
@@ -576,7 +576,7 @@ sideloaded books is untested.
 - `homeMemberCount` sent in the container insert was dropped (it ended up
   0), but `members` sets it.
 
-**What normal sync activity does to it** (tested 2026-10-17):
+**What normal sync activity does to it** (tested 2026-10-16):
 - **Replacing a member file in place** (our client's update path, ADR
   0005): the scanner re-indexed it, and the series stayed intact (counts,
   `seriesState`, links and `Series` rows). But **re-indexing reset that
@@ -603,9 +603,9 @@ sideloaded books is untested.
   `PENDING_SYNC`, the account's own collections included, while the
   membership rows (`ContentTag`) read `SYNCED`, ours and Amazon's alike.
 
-### Test data (removed 2026-10-17)
+### Test data (removed 2026-10-16)
 
-The test series and both test books were removed on 2026-10-17. The
+The test series and both test books were removed on 2026-10-16. The
 details below are kept for reference.
 
 - Files `kws-series-1.mobi` (cdeKey `e1dddd39-…`, `Entries` uuid

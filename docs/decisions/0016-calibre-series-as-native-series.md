@@ -1,7 +1,7 @@
 # 0016: Calibre series as the Kindle's native series grouping
 
 - Status: Accepted
-- Date: 2026-10-17
+- Date: 2026-10-16
 
 ## Context
 Phase 5: show Calibre series as the Kindle's own series grouping, with one
@@ -152,7 +152,7 @@ stops managing them. A UI toggle can come later.
   - ~~what the Library does when a book is deleted while the user is
     viewing its series~~: done, see "Device test" below.
 
-## Implementation notes (2026-10-17)
+## Implementation notes (2026-10-16)
 - **No `state/series.json`.** Each pass reads the catalog (read-only): our
   containers (keys matching `KW` + 8 base-32 characters), their `Series`
   rows, and the books' `seriesState` and `originType`. It plans only the
@@ -179,7 +179,7 @@ stops managing them. A UI toggle can come later.
   first. A check made only at start-up would turn series off until the
   next restart.
 
-## Device test (2026-10-17)
+## Device test (2026-10-16)
 On the reference device, with grouping turned on and Calibre 9.16.0:
 - **Four books sent from Calibre** (a 4-book series, sent in one batch):
   they showed individually for a few seconds. **15 s after the last one**,
