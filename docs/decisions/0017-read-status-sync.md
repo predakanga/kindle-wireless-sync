@@ -36,12 +36,16 @@ driver?"). In summary:
   (`fieldMetadata`), in `SET_LIBRARY_INFO` on every connection. We already
   accept that message, and currently ignore it. It arrives *after* the
   handshake in which we name the columns.
-- **On the Kindle** (`research/kindle-library-integration.md`, "Progress,
-  read state and rating"): `cc.db` has `p_lastAccess` and `p_lastOpenTime`
-  (epoch seconds), and a legacy `p_readState` (0/1/2). The asset store has
-  `READ_STATE`. Modern "Mark as read" was seen in `fmcache.db`, a rolling
-  upload buffer, which is unreliable on an offline device. **We haven't yet
-  checked which field "Mark as read" and finishing a book change on 5.20.1.**
+- **On the Kindle**, probed on 5.20.1 (`research/kindle-library-integration.md`,
+  "Read state probe"):
+  - `cc.db` `p_readState` holds the read state: 0 = never set, 1 = marked
+    read, 2 = read automatically at the end of the book, 3 = marked unread.
+  - `p_lastOpenTime` is set when a book is opened and when it's closed, and
+    is unset before the first open. `p_lastAccess` is also set when the file
+    is indexed, so it isn't a reading signal.
+  - A ChangeRequest `update` with `readState` 1 or 3 sets the state. The
+    asset store follows through its triggers, and the Library tile changes
+    at once.
 
 ## Decision
 **Fixed column names for now.** We use **`#kindle_read`** (Yes/No) and
@@ -81,12 +85,10 @@ library's UUID, and update the record on every connection.
 - If a column disappears, we stop naming it from the next connection.
 
 **What we report per book:**
-- `_is_read_`: the Kindle's read flag, from the field that "Mark as read"
-  and finishing a book set. That's to be confirmed by a probe before we
-  build.
-- `_last_read_date_`: when the book was last opened on the Kindle
-  (`p_lastOpenTime`, falling back to `p_lastAccess`), as an ISO date, or
-  null if the book was never opened.
+- `_is_read_`: true for `p_readState` 1 or 2, false for 3. A 0 (never set)
+  gives the Kindle no opinion, so we report Calibre's last value.
+- `_last_read_date_`: `p_lastOpenTime` as an ISO date, or Calibre's last
+  value if the book has never been opened on the Kindle.
 
 Reads are read-only `sqlite3` queries on `cc.db` (ADR 0005), at the start of
 each session, when we build the `GET_BOOK_COUNT` reply.
@@ -100,10 +102,12 @@ them.
   Kindle's value, and Calibre takes it.
 - Otherwise we report Calibre's last value, so a change made in Calibre isn't
   undone by the Kindle's older value.
-- Whether we also **set** the read flag on the Kindle when Calibre changes
-  it depends on the probe: is there a ChangeRequest `update` the firmware
-  honours? If there is, we use it. If not, Calibre's value stays in Calibre
-  only, and the Kindle's flag changes only on the Kindle.
+- **When Calibre's read flag changes, we set it on the Kindle too:** a
+  ChangeRequest `update` of `readState` to 1 (read) or 3 (unread), batched
+  like the series commands (ADR 0016). We then record the Kindle's new
+  value as reported, so it doesn't read back as a Kindle-side change.
+- The last-read date only goes from the Kindle to Calibre. We don't rewrite
+  the Kindle's open times.
 
 **No separate off switch.** A read-only library never syncs. That also
 covers a user whose library has columns with these names that mean
@@ -139,14 +143,12 @@ something else.
 - Sync happens only while a session is open, at its start. That's when
   Calibre asks for the book list. A change on the Kindle reaches Calibre on
   the next connection.
-- **Probes before building**, on the reference device:
-  1. "Mark as read", "Mark as unread" and finishing a book: which `cc.db` or
-     asset-store fields change, for a sideloaded book.
-  2. Whether a ChangeRequest `update` can set the read flag, and the Library
-     shows it.
-  3. Which of `p_lastOpenTime` and `p_lastAccess` tracks opening a book,
-     rather than other access (such as indexing or a cover refresh).
+- The probes this decision needed were run on 2026-10-16 (see Context).
+- `p_percentFinished` (with the asset store's `PERCENT_READ`) holds percent
+  read, ready for the deferred plugin.
 - **Ratings stay open.** The developer points out that the Kindle prompts
   for a Goodreads rating after a book is finished, so a rating may be stored
-  somewhere. That needs a probe with a rated book (sideloaded and, for
-  comparison, an Amazon one). It only matters once the plugin is picked up.
+  somewhere. Finishing the sideloaded test book showed no end-of-book screen
+  at all: it was just marked read. So the prompt may only appear for Amazon
+  books. That needs a probe with a book that shows the prompt. It only
+  matters once the plugin is picked up.

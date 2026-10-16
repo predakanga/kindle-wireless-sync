@@ -325,7 +325,46 @@ be read from `lipc-get-prop com.lab126.wifid cmState`.
   **There's no rating anywhere.** The built-in reader doesn't seem to store a
   per-book rating for sideloaded books, so **rating sync is probably not
   possible** unless something writes a rating after the end-of-book flow.
-  Not tested.
+  Not tested. **Correction (2026-10-16):** the developer points out that
+  the Kindle prompts for a Goodreads rating at the end of a book, so a
+  rating may be stored once a book has been rated. No book had been rated
+  when this was probed. See "Read state probe" below.
+
+### Read state probe (2026-10-16)
+
+For ADR 0017. A sideloaded AZW3 (`kws-read-probe.azw3`, made with
+`ebook-convert`, with the service stopped so it wasn't adopted) was
+driven with `tap.sh` and screenshots. `cc.db`, the asset store,
+`fmcache.db` and the `.sdr` folder were compared after each step.
+
+| Step | `cc.db` `p_readState` | asset `READ_STATE` | Other changes |
+|---|---|---|---|
+| Indexed (never touched) | 0 | 0 | `p_lastAccess` = index time, `p_lastOpenTime` unset |
+| Library ⋮ → "Mark as read" | **1** | 1 | `read_state_origin` 1, fmcache `mar_content_readstate_update_success` (`MANUAL`, `DETAIL_VIEW`) |
+| ⋮ → "Mark as unread" | **3** | 2 | fmcache `previous_read_state: READ_MANUAL`, `read_state: UNREAD` |
+| Opened | 3 | 2 | `p_lastOpenTime` and `p_lastAccess` set to the open time, `.sdr` created |
+| Turned past the last page | **2** | 1 | `read_state_origin` 2, fmcache `mar_auto_markasread` (`BOOK_END_POSITION`) and `AUTOMATIC`/`END_OF_BOOK` |
+| Closed (back to Library) | 2 | 1 | `p_lastOpenTime` and `p_lastAccess` set to the close time, `p_percentFinished` 98.9, asset `PERCENT_READ` too |
+
+- **On 5.20.1 the read state is in `cc.db`**, unlike the 5.18.1 report
+  above (fmcache only). `p_readState`: 0 = never set, 1 = read (manual),
+  2 = read (automatic, end of book), 3 = unread (manual). The asset store
+  uses 0, 1 (read), 2 (unread).
+- **`p_lastOpenTime` is the "last read" time:** unset until the book is
+  first opened, and set on open and on close. `p_lastAccess` is also set
+  when the file is indexed, so it isn't a reading signal.
+- **No end-of-book screen** appeared for this sideloaded book (no "Before
+  you go", no Goodreads rating prompt). The read state changed silently. A
+  rating may still be stored for books where the prompt does appear (Amazon
+  books, perhaps). Not yet probed.
+- **ChangeRequest can set it:** `{"update": {"uuid": <p_uuid>,
+  "readState": 3}}` returned `ok`, set `p_readState` 3 and asset
+  `READ_STATE` 2 (through the triggers), and the Library tile changed from
+  the "Read" banner to "99%" at once, with no refresh. `readState: 1` turned
+  it back to read, with the banner shown.
+- Cleanup: the book, its `.sdr` folder and its thumbnail
+  (`thumbnail_<cdeKey>_EBOK_portrait.jpg`, written by the firmware) were
+  removed, and the catalog entry went with the file.
 
 ## Native series on FW 5.20.1 (2026-10-16)
 

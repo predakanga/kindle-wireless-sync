@@ -236,8 +236,9 @@ sync works end to end with only stock Calibre.
   `#kindle_read` and `#kindle_last_read`. Percent read and ratings need a
   Calibre plugin, which is deferred (Later list). Each allowed library is
   read-only (the default) or read-write, and only read-write libraries
-  sync. Next: the device probes
-  listed in ADR 0017.
+  sync. The device probes ADR 0017 needed are done
+  (2026-10-16): the read state can be read and set through the catalog.
+  Next: accept ADR 0017, then build.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
