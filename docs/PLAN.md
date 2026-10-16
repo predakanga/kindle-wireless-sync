@@ -240,8 +240,13 @@ sync works end to end with only stock Calibre.
   Percent read needs a Calibre plugin, which is deferred (Later list).
   **Ratings are out of scope:** on 5.20.1 the Goodreads rating prompt only
   appears for Amazon books. The device probes are done (2026-10-16): the
-  Kindle's read state and last-read time are in `cc.db`. Next: accept ADR
-  0017 (done), then build.
+  Kindle's read state and last-read time are in `cc.db`.
+  **Built (2026-10-17, unreleased):** tested on the device against Calibre
+  9.16.0. Kindle changes reached Calibre, an edit made in Calibre survived
+  a reconnect, and deleting the columns stopped sync quietly. The test found
+  three bugs, all fixed: an error dialog when reconnecting mid-job, books
+  skipped because of Calibre's `"None"` dates, and unanswered
+  `DISPLAY_MESSAGE`s hanging Calibre (ADR 0017, implementation notes).
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
