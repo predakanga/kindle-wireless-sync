@@ -47,8 +47,27 @@ daemon only ever connects to that library. The security property of ADR
 **Config.** `config.json` holds one optional `library` object instead of the
 `allowed` list: UUID, name, last host and port, broadcast hostname,
 password, and the read-sync settings from ADR 0017 (`writable`,
-`read_column`, `last_read_column`). The `seen` list stays: Find libraries
-still lists what it found, for the user to link one.
+`read_column`, `last_read_column`), plus the `series` switch. That's all:
+the config holds the user's settings, and the linked library's last
+address, which reconnecting needs.
+
+**Found libraries are kept in memory, not in the config** (developer,
+2026-10-17). The `seen` list only drove the UI and the `find` → `allow`
+command pair. The daemon now keeps what Find libraries found, and any other
+library that answered at the linked address, in memory. The app's Find and
+Link both go through the daemon (ADR 0011), so they share it. A restart
+forgets it; the user runs Find libraries again. Find no longer rewrites
+`config.json` on every run.
+
+**Linking from the command line goes by address**, so it needs no saved
+list: `link HOST [PORT] [--uuid UUID]` probes that address and links the
+library that answers. With `--uuid`, it refuses if a different library
+answers, which closes the race between `find` and `link`, for example when
+the user switches libraries in Calibre in between (developer, 2026-10-17).
+`find` only prints what it found, with each library's address and UUID, so
+its output can be copied into `link`. `link` replaces both `allow` and
+`add-server`, with `--password`, `--writable`/`--read-only`, and
+`--replace` to confirm replacing a different linked library.
 - **No migration** from the `allowed` list: the app hasn't been shared
   with anyone yet (developer, 2026-10-17). The developer's Kindle is
   re-linked by hand after upgrading.
@@ -72,8 +91,9 @@ series stay as they are, so linking the same library again picks up where it
 left off.
 
 **A different library answering at the linked address** (the user switched
-libraries inside Calibre) is refused, as now, and recorded as seen. The app
-can offer to link it instead, with the same confirmation.
+libraries inside Calibre) is refused, as now, and added to the daemon's
+found libraries. The app can offer to link it instead, with the same
+confirmation.
 
 ### What happens to `books.json`
 Two ways to forget the old library's metadata:
@@ -126,19 +146,21 @@ metadata once Calibre resends it.
     metadata).
   - The session's admission is unchanged in shape.
   - It's a net reduction in code.
-- **Command line:** `allow` becomes `link` (with `--writable`/`--read-only`,
-  and a confirmation flag such as `--replace` when another library is
-  linked), and the app's Forget becomes `unlink`. The API endpoints
-  (`/allow`, `/forget`) are renamed to match (ADR 0011). There's no
-  compatibility shim, as the only users are the developer's Kindle and our
-  own app, upgraded together.
+- **Command line:** `link` (see Decision) replaces `allow` and `add-server`,
+  and `unlink` replaces the app's Forget; `find` only prints. **API** (ADR
+  0011): `/link` (by UUID, from the daemon's found libraries, or by
+  address, as Add server does now) and `/unlink` replace `/allow`,
+  `/add-server` and `/forget`; `/status` reports the found libraries from
+  memory. There's no compatibility shim, as the only users are the
+  developer's Kindle and our own app, upgraded together.
 - **App:** a single "Calibre library" section: the linked library, or Find
   libraries and Add server if there's none. A found library can be linked,
   with a confirmation if it replaces one.
 - **README and CHANGELOG** say "link" throughout; the change in behaviour
   (one library) gets a changelog entry.
-- **Tests:** re-linking the same and a different library, and the daemon
-  only trying the linked library.
+- **Tests:** re-linking the same and a different library, `link --uuid`
+  refusing a different library, the daemon only trying the linked library,
+  and found libraries surviving between API calls but not restarts.
 - **Covers we backed up are kept** when linking a different library
   (developer, 2026-10-17). They're keyed by the Kindle's content key, not
   by library.
