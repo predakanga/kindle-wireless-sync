@@ -189,6 +189,57 @@ collections only flow Calibre → device.
   goals). The plugin could, for example, wrap or extend the smart device
   driver to accept extra fields in the book records.
 
+#### Where Calibre keeps reading progress (2026-10-16)
+
+Read from Calibre's source on GitHub (master, October 2026):
+- Calibre does store progress, in the library's `last_read_positions` table
+  (book, format, user, device, CFI, epoch, `pos_frac` 0–1). The template
+  function `reading_progress()` reads it (`utils/formatter_functions.py`,
+  `BuiltinReadingProgress`). The custom-column dialog's "Read progress"
+  preset is a composite column of `{id:reading_progress()}`
+  (`gui2/preferences/create_custom_column.py`). It isn't a standard
+  column. The developer's test column `#read_progress_custom` is one of
+  these, for research only.
+- **Writers:** Calibre's own viewer (`gui2/viewer/integration.py`) and the
+  Content server's reader, through `POST
+  /book-set-last-read-position/{library_id}/{book_id}/{fmt}` with a JSON
+  body of `device`, `cfi` and `pos_frac` (`srv/books.py`). The wireless
+  driver never touches it.
+- So a device could only set progress without a plugin over a **second
+  connection** to the Content server. The developer ruled that out
+  (2026-10-16): one transport between Calibre and the daemon, for
+  security.
+
+#### Can a plugin extend the wireless driver? Yes (2026-10-16)
+
+Both ways below keep the single wireless connection.
+- **Replacing the driver.** The GUI's device manager registers every
+  *enabled* device plugin whose `is_dynamically_controllable()` returns a
+  name. The Connect/share menu and autostart then drive the one named
+  `smartdevice` (`gui2/device.py` `run()` and `dynamic_plugins`;
+  `gui2/ui.py` `start_smartdevice`). A device-driver plugin that subclasses
+  `SMART_DEVICE_APP` can take its place once the user disables the
+  built-in "SmartDevice App Interface". It can then read any extra field,
+  or opcode, we send. The cost: it overrides private methods of a large
+  class with no stable API, so it can break with Calibre updates.
+- **An interface plugin reading the device book list.** `raw_to_book`
+  (`ebooks/metadata/book/json_codec.py`) keeps every key of a book record
+  as an attribute. So extra fields from the daemon (say a progress fraction)
+  reach Calibre's in-memory device books, where a GUI plugin could copy them
+  into the library, without touching the driver. **The catch is the metadata
+  cache**, which we use (`canUseCachedMetadata: true`). For a cached book
+  (same uuid, lpath and `last_modified`, `_metadata_in_cache`), `books()`
+  copies only `_is_read_`, `_sync_type_`, `_last_read_date_` and
+  `_format_mtime_` from the device's record. Everything else is dropped. An
+  extra field only arrives when the cache misses. That means the cache would
+  be turned off (full metadata on every connect), or `last_modified` would
+  be changed whenever progress changes, which also makes Calibre resend that
+  book's metadata.
+- Either plugin could write progress where Calibre itself keeps it
+  (`db.set_last_read_position(..., device=<Kindle name>, pos_frac=...)`),
+  so the standard `reading_progress()` would work with no custom column. A
+  rating would go to Calibre's built-in `rating` field.
+
 ## Things the client must persist on the Kindle
 
 - The `driveinfo` record (`device_store_uuid` etc.) from
