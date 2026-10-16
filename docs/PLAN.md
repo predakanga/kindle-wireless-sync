@@ -234,7 +234,9 @@ sync works end to end with only stock Calibre.
   wireless driver?"). Read status and last-read date can sync with stock
   Calibre. ADR 0017 (Proposed) covers them, with fixed column names
   `#kindle_read` and `#kindle_last_read`. Percent read and ratings need a
-  Calibre plugin, which is deferred (Later list). Next: the device probes
+  Calibre plugin, which is deferred (Later list). Each allowed library is
+  read-only (the default) or read-write, and only read-write libraries
+  sync. Next: the device probes
   listed in ADR 0017.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:

@@ -51,9 +51,25 @@ another type or be owned by another tool. Picking columns from a list in our
 app comes with the UI redesign (Later list, "Review the UI"). The
 `fieldMetadata` list makes that possible without typing.
 
-**Opt in by creating the columns.** Calibre reports every bad sync column
-to the device as a message, on every connection. So we name a column in the
-handshake only once we've seen it, with the right type, in that library's
+**Each allowed library is read-only or read-write.** The mode is stored on
+the library's allowlist entry in `config.json` (ADR 0003), as
+`"access": "read-only"` or `"read-write"`.
+- A **read-only** library only sends to the Kindle. We never name sync
+  columns for it, so nothing we report changes that library.
+- A **read-write** library may also receive changes from the Kindle: read
+  status and last-read date now, and whatever a later Calibre plugin adds.
+- **The default is read-only.** Writing into a user's Calibre library should
+  be a deliberate choice, made per library: a user may allow a household
+  library to send books without letting this Kindle change it. Existing
+  entries without the field are read-only.
+- **Setting it:** a toggle on the library's entry in the app ("Let this
+  Kindle update the library"), and `--read-write` on the `allow` command.
+  The app change is small, and comes ahead of the wider UI redesign.
+
+**Opt in by creating the columns.** This applies only to read-write
+libraries. Calibre reports every bad sync column to the device as a
+message, on every connection. So we name a column in the handshake only
+once we've seen it, with the right type, in that library's
 `fieldMetadata`. We record which columns each library has, keyed by the
 library's UUID, and update the record on every connection.
 - The connection where the columns first appear syncs nothing. The next one
@@ -88,8 +104,8 @@ them.
   honours? If there is, we use it. If not, Calibre's value stays in Calibre
   only, and the Kindle's flag changes only on the Kindle.
 
-**Off switch:** `"read_sync": false` in `config.json` stops us naming the
-columns. That's needed for users who have columns with these names that mean
+**No separate off switch.** A read-only library never syncs. That also
+covers a user whose library has columns with these names that mean
 something else.
 
 ## Alternatives considered
@@ -99,6 +115,9 @@ something else.
   easy to get wrong.
 - **Guess columns from their names** (a Yes/No column called "read"):
   rejected. A wrong guess writes into a column that means something else.
+- **A global `"read_sync": false` switch:** replaced by the per-library
+  mode (developer, 2026-10-16). It's finer-grained, and it also covers
+  future write-back, such as a plugin.
 - **Always name the columns, even when the library lacks them:** rejected.
   Calibre shows an error message on the Kindle on every connection for users
   who haven't created them.
@@ -108,9 +127,13 @@ something else.
   list.
 
 ## Consequences
-- The user creates two columns in Calibre (Preferences → Add your own
-  columns) with exact lookup names. The README documents this. Their
-  headings can be anything.
+- To sync, the user creates two columns in Calibre (Preferences → Add your
+  own columns) with exact lookup names, and marks the library read-write on
+  the Kindle. The README documents both steps. The column headings can be
+  anything.
+- New config field per allowed library (`access`), a toggle in the app's
+  library entry, and an `allow --read-write` option. The API (ADR 0011)
+  gains a way to set it.
 - New state in `books.json` per book: the last values from each side.
 - Sync happens only while a session is open, at its start. That's when
   Calibre asks for the book list. A change on the Kindle reaches Calibre on
