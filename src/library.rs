@@ -60,8 +60,12 @@ pub const SERIES_DEBOUNCE: Duration = Duration::from_secs(15);
 struct SeriesSync {
     catalog: Catalog,
     debounce: Duration,
+    /// False when series are turned off: passes dissolve ours instead.
+    keep: bool,
     /// Set by any book change; cleared by a complete pass.
     dirty_since: Option<Instant>,
+    /// We've logged that the catalog isn't ready yet.
+    waiting: bool,
 }
 
 /// A book being received. Dropping it without committing removes the
@@ -201,10 +205,22 @@ impl Library {
 
     /// Turns on series (ADR 0016), and asks for a first pass straight away.
     pub fn enable_series(&mut self, catalog: Catalog, debounce: Duration) {
+        self.start_series(catalog, debounce, true);
+    }
+
+    /// Series turned off: a pass dissolves the series we created, once the
+    /// catalog is ready.
+    pub fn dissolve_series(&mut self, catalog: Catalog, debounce: Duration) {
+        self.start_series(catalog, debounce, false);
+    }
+
+    fn start_series(&mut self, catalog: Catalog, debounce: Duration, keep: bool) {
         self.series = Some(SeriesSync {
             catalog,
             debounce,
+            keep,
             dirty_since: Some(Instant::now() - debounce),
+            waiting: false,
         });
     }
 
@@ -230,8 +246,20 @@ impl Library {
 
     /// Brings the catalog's series in line with our books now.
     pub fn reconcile_series(&mut self) {
-        let books = series::books_from_records(&self.books);
         let Some(s) = &mut self.series else { return };
+        if !s.catalog.ready() {
+            if !s.waiting {
+                log::info!("series: waiting for the Kindle's catalog");
+                s.waiting = true;
+            }
+            s.dirty_since = Some(Instant::now());
+            return;
+        }
+        s.waiting = false;
+        let books = match s.keep {
+            true => series::books_from_records(&self.books),
+            false => Vec::new(),
+        };
         match apply_series(&s.catalog, &self.books_dir, &books) {
             Ok((n, pending)) => {
                 if n > 0 {
@@ -838,6 +866,54 @@ mod tests {
         moved["series_index"] = json!(3);
         assert!(lib.update_metadata(moved));
         assert_eq!(lib.series_due_in(), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn series_pass_waits_for_the_catalog_and_can_dissolve() {
+        let tmp = tempfile::tempdir().unwrap();
+        let books = tmp.path().join("books");
+        fs::create_dir_all(&books).unwrap();
+        let books = books.canonicalize().unwrap();
+        let state = tmp.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        let mut records = Vec::new();
+        for (i, k) in ["k1", "k2"].iter().enumerate() {
+            fs::write(books.join(format!("{k}.azw3")), b"x").unwrap();
+            records.push(json!({"lpath": format!("{k}.azw3"), "title": k,
+                "series": "Saga", "series_index": i + 1, "_kws": {"cde_key": k, "cde_type": "EBOK"}}));
+        }
+        fs::write(state.join(BOOKS_FILE), Value::Array(records).to_string()).unwrap();
+        let rows = format!(
+            "INSERT INTO Entries VALUES ('u1','Entry:Item','{b}/k1.azw3','k1','EBOK','',1,NULL,'k1',0,0,0,0,NULL), \
+             ('u2','Entry:Item','{b}/k2.azw3','k2','EBOK','',1,NULL,'k2',0,0,0,0,NULL);",
+            b = books.display()
+        );
+        let fake = fake_catalog(tmp.path(), &rows);
+        let token = fake.catalog.token_file.clone();
+        let saved = fs::read(&token).unwrap();
+        fs::remove_file(&token).unwrap();
+
+        // At boot the token can appear after we start: wait, don't give up.
+        let mut lib = Library::open(&books, &state).unwrap();
+        lib.enable_series(fake.catalog, Duration::ZERO);
+        lib.reconcile_series_if_due();
+        assert!(fake.requests.lock().unwrap().is_empty());
+        assert_eq!(lib.series_due_in(), Some(Duration::ZERO), "still due");
+        fs::write(&token, &saved).unwrap();
+        lib.reconcile_series_if_due();
+        assert_eq!(fake.requests.lock().unwrap().len(), 1);
+        assert_eq!(lib.series_due_in(), None);
+
+        // Series turned off: the same books plan no series at all, so the
+        // pass removes what the catalog holds of ours (nothing here).
+        let catalog = Catalog {
+            db: tmp.path().join("cc.db"),
+            endpoint: "127.0.0.1:9".into(),
+            token_file: token,
+        };
+        lib.dissolve_series(catalog, Duration::ZERO);
+        lib.reconcile_series_if_due();
+        assert_eq!(lib.series_due_in(), None, "nothing to send, so no request");
     }
 
     fn receive(lib: &mut Library, l: &str, data: &[u8], meta: Value) {

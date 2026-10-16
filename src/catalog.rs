@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -34,6 +34,12 @@ impl Catalog {
             endpoint: ENDPOINT.into(),
             token_file: TOKEN_FILE.into(),
         }
+    }
+
+    /// Whether the catalog can take changes now. The token appears once the
+    /// framework is up, which can be after our service starts at boot.
+    pub fn ready(&self) -> bool {
+        self.db.is_file() && self.token_file.is_file()
     }
 
     /// Sends `commands` in order, in batches. Fails on the first batch the
@@ -133,15 +139,11 @@ fn post(endpoint: &str, path: &str, token: &str, body: &str) -> io::Result<Value
     serde_json::from_slice(&body).map_err(io::Error::other)
 }
 
-/// Whether this looks like a Kindle with the catalog we need.
-pub fn available(db: &Path) -> bool {
-    db.is_file() && Path::new(TOKEN_FILE).is_file()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::net::TcpListener;
+    use std::path::Path;
 
     /// A one-shot fake endpoint: records each request, answers `reply`.
     fn fake(

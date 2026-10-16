@@ -148,16 +148,14 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         catalog.clone(),
     )?;
     // Series (ADR 0016) need the Kindle's catalog and its change endpoint.
-    if let Some(db) = catalog.filter(|db| kws::catalog::available(db)) {
-        let books_dir = lib.books_dir().to_path_buf();
+    // Passes wait until the catalog is ready, which at boot can be after we
+    // start.
+    if let Some(db) = catalog.filter(|db| db.is_file()) {
+        let debounce = kws::library::SERIES_DEBOUNCE;
         if Config::load(&state).map(|c| c.series).unwrap_or(true) {
-            lib.enable_series(Catalog::new(db), kws::library::SERIES_DEBOUNCE);
+            lib.enable_series(Catalog::new(db), debounce);
         } else {
-            match kws::library::remove_all_series(&Catalog::new(db), &books_dir) {
-                Ok(0) => {}
-                Ok(n) => log::info!("series turned off: removed ours ({n} changes)"),
-                Err(e) => log::warn!("series turned off, but removing ours failed: {e}"),
-            }
+            lib.dissolve_series(Catalog::new(db), debounce);
         }
     }
 

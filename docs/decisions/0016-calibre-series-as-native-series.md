@@ -169,8 +169,15 @@ stops managing them. A UI toggle can come later.
   keep-alive `NOOP` during a session or in the daemon's idle waits between
   sessions. A pass with a member not yet indexed, or one that fails, stays
   dirty and is retried.
-- **Off switch:** `"series": false` in `config.json`. **Uninstall** runs
+- **Off switch:** `"series": false` in `config.json`. Passes then dissolve
+  our series instead of building them. **Uninstall** runs
   `kindle-wireless-sync series --books … --catalog … --remove-all`.
+- **Waiting for the catalog** (amends "Failure handling"): each pass checks
+  for `cc.db` and `/tmp/session_token` itself. If they're missing, it logs
+  once, stays due and tries again after the debounce. The token appears
+  once the framework is up, and a service started at boot can get there
+  first. A check made only at start-up would turn series off until the
+  next restart.
 
 ## Device test (2026-10-17)
 On the reference device, with grouping turned on and Calibre 9.16.0:
