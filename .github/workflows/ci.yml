@@ -1,0 +1,56 @@
+# CI: lint and test on every push to main and every pull request, and check
+# that the Kindle package still builds within its size budget. The release
+# workflow (release.yml) repeats these checks before publishing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup component add clippy rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v4
+      # fmt --check, and clippy -D warnings with and without dev-tools.
+      - run: just check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The catalog and series tests build their fixtures with the sqlite3
+      # CLI, as the Kindle's catalog is read through it.
+      - name: Install sqlite3
+        run: command -v sqlite3 || { sudo apt-get update && sudo apt-get install -y sqlite3; }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup target add armv7-unknown-linux-musleabihf
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v4
+      - run: just package
+      - name: Check the package
+        run: |
+          bin=target/armv7-unknown-linux-musleabihf/release/kindle-wireless-sync
+          file "$bin" | grep -q ARM || { echo "::error::not an ARM binary"; exit 1; }
+          size=$(stat -c %s "$bin")
+          echo "binary size: $size bytes"
+          [ "$size" -lt 5000000 ] || { echo "::error::binary is over 5 MB"; exit 1; }
+          tar -tzvf target/package/kindle-wireless-sync.kpkg

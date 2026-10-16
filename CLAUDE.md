@@ -57,6 +57,10 @@ packages the release, publishes it on GitHub, and rebuilds the KPM index on
 GitHub Pages (`https://predakanga.github.io/kindle-wireless-sync/repo.json`).
 Run the workflow by hand to rebuild only the Pages site.
 
+**CI:** `.github/workflows/ci.yml` runs `just check`, `cargo test` and `just
+package` (with the 5 MB size check) on pushes to `main` and on pull
+requests. The tests need the `sqlite3` CLI.
+
 `discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
 0009). The packaged binary has `daemon`, `find`, `add-server`, `allow`
 and `status`. In Calibre, run *Connect/share → Start wireless device

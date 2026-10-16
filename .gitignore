@@ -5,3 +5,6 @@
 # A common global ignore, "Icon" (for macOS Icon\r files), also matches
 # this directory on case-insensitive filesystems. Keep it tracked.
 !/package/icon/
+
+# IDE settings
+/.idea/

@@ -1,5 +1,9 @@
 # Kindle Wireless Sync
 
+[![CI](https://github.com/predakanga/kindle-wireless-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/predakanga/kindle-wireless-sync/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/predakanga/kindle-wireless-sync)](https://github.com/predakanga/kindle-wireless-sync/releases/latest)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
+
 Send books from Calibre to a jailbroken Kindle over Wi-Fi. They go straight
 into the Kindle's own library, with no USB cable, no extra software on your
 computer, and no reboot or rescan.
