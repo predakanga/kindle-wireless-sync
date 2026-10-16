@@ -232,9 +232,11 @@ sync works end to end with only stock Calibre.
   **Status (2026-10-16):** research done (`research/calibre-wireless-protocol.md`,
   "Where Calibre keeps reading progress" and "Can a plugin extend the
   wireless driver?"). Read status and last-read date can sync with stock
-  Calibre. ADR 0017 (Proposed) covers them, with fixed column names
-  `#kindle_read` and `#kindle_last_read`. Percent read and ratings need a
-  Calibre plugin, which is deferred (Later list). Each allowed library is
+  Calibre. ADR 0017 (Proposed) sends them from the Kindle to Calibre, with
+  fixed column names `#kindle_read` and `#kindle_last_read`. The other
+  direction is on the Later list. Percent read needs a Calibre plugin, which
+  is deferred (Later list). **Ratings are out of scope:** on 5.20.1 the
+  Goodreads rating prompt only appears for Amazon books. Each allowed library is
   read-only (the default) or read-write, and only read-write libraries
   sync. The device probes ADR 0017 needed are done
   (2026-10-16): the read state can be read and set through the catalog.
@@ -289,14 +291,19 @@ Not part of any phase. Pick these up after the base and stretch goals
    which identifier counts as the "device UUID". Start from the dev tool
    `tools/series-grouping.sh` (2026-10-16): only two `appreg.db` values are
    needed (research note, "Which change does it").
-5. **A Calibre plugin for percent read and ratings** (deferred 2026-10-16).
+5. **A Calibre plugin for percent read** (deferred 2026-10-16).
    It must extend the wireless connection, not add a second one: either
    replace the wireless driver with a subclass, or read extra fields from
    the device book list. It would write progress into Calibre's own
    `last_read_positions`, so `reading_progress()` works. Trade-offs are in
    `research/calibre-wireless-protocol.md`, "Can a plugin extend the
-   wireless driver?". Ratings first need the probe in ADR 0017.
-6. **A tap-debugging helper in this repo.** UI checks over SSH currently
+   wireless driver?". Ratings are out of scope (ADR 0017).
+6. **Send read status from Calibre to the Kindle** (deferred 2026-10-16).
+   ADR 0017 only goes from the Kindle to Calibre. A ChangeRequest `update`
+   of `readState` (1 = read, 3 = unread) works on 5.20.1, and the Library
+   shows it at once (research note, "Read state probe"). First check
+   whether a read state set this way is reported to Amazon.
+7. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
    installed on the reference device. Add our own (or a vendored, credited
    copy, after checking its licence), plus a recipe that taps, screenshots

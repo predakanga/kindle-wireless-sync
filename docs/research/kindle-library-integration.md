@@ -354,9 +354,20 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
   first opened, and set on open and on close. `p_lastAccess` is also set
   when the file is indexed, so it isn't a reading signal.
 - **No end-of-book screen** appeared for this sideloaded book (no "Before
-  you go", no Goodreads rating prompt). The read state changed silently. A
-  rating may still be stored for books where the prompt does appear (Amazon
-  books, perhaps). Not yet probed.
+  you go", no Goodreads rating prompt). The read state changed silently.
+  The developer then checked by hand, reaching the end each time with the
+  progress slider and then paging forward:
+
+  | Book | Device | "Before you go" |
+  |---|---|---|
+  | Sideloaded earlier with this app | reference (5.20.1) | no |
+  | Amazon book | reference (5.20.1) | **yes** |
+  | Sideloaded by Calibre (USB) | older Kindle | **yes** |
+  | The same book, sent by Calibre over USB (MTP) | reference (5.20.1) | no |
+
+  So on 5.20.1 the end-of-book page, and the Goodreads rating it asks for,
+  only appear for Amazon books, whatever the transfer method. **Rating sync
+  is out of scope** (developer, 2026-10-16; ADR 0017).
 - **ChangeRequest can set it:** `{"update": {"uuid": <p_uuid>,
   "readState": 3}}` returned `ok`, set `p_readState` 3 and asset
   `READ_STATE` 2 (through the triggers), and the Library tile changed from

@@ -1,4 +1,4 @@
-# 0017: Sync read status and last-read date with Calibre
+# 0017: Send read status and last-read date from the Kindle to Calibre
 
 - Status: Proposed
 - Date: 2026-10-16
@@ -26,7 +26,7 @@ driver?"). In summary:
   in `last_read_positions`, which only its viewer and Content server write.
   A plugin can extend the wireless connection itself, so it would keep a
   single transport. The developer decided (2026-10-16) to **defer the
-  plugin** to the Later list. Ratings are also unprobed on the Kindle (see
+  plugin** to the Later list. Ratings turned out to be out of scope (see
   Consequences).
 - **Calibre has no built-in read or last-read field**, so the user has to
   create the two columns. There's no community convention for their names.
@@ -93,21 +93,23 @@ library's UUID, and update the record on every connection.
 Reads are read-only `sqlite3` queries on `cc.db` (ADR 0005), at the start of
 each session, when we build the `GET_BOOK_COUNT` reply.
 
-**Calibre → Kindle.** Calibre's rule assumes the device shows the value
-Calibre sent unless the user changed it on the device. So we store, per
-book, the read flag and date Calibre last sent us (in `books.json`, from
-the book's `user_metadata`), and the Kindle's values when we last reported
-them.
+**One direction: Kindle → Calibre** (developer, 2026-10-16). Changes made
+on the Kindle reach Calibre. Changes made in Calibre stay in Calibre: we
+don't write the Kindle's read state. Setting it is possible (see Context),
+and is on the Later list.
+
+**Don't undo Calibre's edits.** Calibre's rule assumes the device shows the
+value Calibre sent, unless the user changed it on the device. A device
+that just reported its own unchanged value would overwrite every edit made
+in Calibre. So we store, per book, the read flag and date Calibre last sent
+us (in `books.json`, from the book's `user_metadata`), and the Kindle's
+values when we last reported them.
 - If the Kindle's value has changed since our last report, we report the
   Kindle's value, and Calibre takes it.
 - Otherwise we report Calibre's last value, so a change made in Calibre isn't
   undone by the Kindle's older value.
-- **When Calibre's read flag changes, we set it on the Kindle too:** a
-  ChangeRequest `update` of `readState` to 1 (read) or 3 (unread), batched
-  like the series commands (ADR 0016). We then record the Kindle's new
-  value as reported, so it doesn't read back as a Kindle-side change.
-- The last-read date only goes from the Kindle to Calibre. We don't rewrite
-  the Kindle's open times.
+- So the two sides can differ: a book marked read in Calibre stays unread
+  on the Kindle until it's marked there. That's accepted for now.
 
 **No separate off switch.** A read-only library never syncs. That also
 covers a user whose library has columns with these names that mean
@@ -120,6 +122,12 @@ something else.
   easy to get wrong.
 - **Guess columns from their names** (a Yes/No column called "read"):
   rejected. A wrong guess writes into a column that means something else.
+- **Also setting the read flag on the Kindle when Calibre's changes**
+  (ChangeRequest `update` of `readState` to 1 or 3): deferred to the Later
+  list (developer, 2026-10-16). It works on the device, but it's another
+  kind of write to the Kindle's catalog. We also haven't checked whether a
+  read state set this way is reported to Amazon, as a menu "Mark as read"
+  is in the telemetry buffer.
 - **A global `"read_sync": false` switch:** replaced by the per-library
   mode (developer, 2026-10-16). It's finer-grained, and it also covers
   future write-back, such as a plugin.
@@ -128,8 +136,7 @@ something else.
   who haven't created them.
 - **Percent read through the Content server** (`POST
   /book-set-last-read-position/...`): rejected. It's a second transport.
-- **A Calibre plugin, for percent read and ratings:** deferred to the Later
-  list.
+- **A Calibre plugin, for percent read:** deferred to the Later list.
 
 ## Consequences
 - To sync, the user creates two columns in Calibre (Preferences → Add your
@@ -146,9 +153,11 @@ something else.
 - The probes this decision needed were run on 2026-10-16 (see Context).
 - `p_percentFinished` (with the asset store's `PERCENT_READ`) holds percent
   read, ready for the deferred plugin.
-- **Ratings stay open.** The developer points out that the Kindle prompts
-  for a Goodreads rating after a book is finished, so a rating may be stored
-  somewhere. Finishing the sideloaded test book showed no end-of-book screen
-  at all: it was just marked read. So the prompt may only appear for Amazon
-  books. That needs a probe with a book that shows the prompt. It only
-  matters once the plugin is picked up.
+- **Ratings are out of scope** (developer, 2026-10-16). The Goodreads
+  rating is asked for on the end-of-book "Before you go" page, which the
+  reference device (5.20.1) doesn't show for sideloaded books. That held
+  for a book sent with this app, and for one sent by Calibre over USB
+  (MTP). It did show for an Amazon book, and for the same sideloaded book
+  on the developer's older Kindle. So on the target firmware there's no
+  rating to sync. See `research/kindle-library-integration.md`, "Read state
+  probe".
