@@ -257,7 +257,9 @@ Not part of any phase. Pick these up after the base and stretch goals
    (like typing a repo's name to delete it), so users know what they're
    doing. It changes Amazon-side settings, so document the risk. It builds
    on the developer's own enabling work (2026-10-16). Still to decide:
-   which identifier counts as the "device UUID".
+   which identifier counts as the "device UUID". Start from the dev tool
+   `tools/series-grouping.sh` (2026-10-17): only two `appreg.db` values are
+   needed (research note, "Which change does it").
 5. **A tap-debugging helper in this repo.** UI checks over SSH currently
    rely on Kindle Button Mapper's `scripts/tap.sh`, which happens to be
    installed on the reference device. Add our own (or a vendored, credited
