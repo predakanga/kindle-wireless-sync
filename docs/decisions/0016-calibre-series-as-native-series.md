@@ -148,10 +148,8 @@ stops managing them. A UI toggle can come later.
   - that a series survives a reboot with its counts set
   - that nothing syncs our series or link rows to Amazon (their asset tags
     are `PENDING_SYNC`, like real series)
-  - what the Library does when a book is deleted while the user is viewing
-    its series. The developer expects them to be bounced back to the
-    Library. Write down what actually happens, including while the series
-    is briefly ungrouped before we re-apply it.
+  - ~~what the Library does when a book is deleted while the user is
+    viewing its series~~: done, see "Device test" below.
 
 ## Implementation notes (2026-10-17)
 - **No `state/series.json`.** Each pass reads the catalog (read-only): our
@@ -189,3 +187,14 @@ On the reference device, with grouping turned on and Calibre 9.16.0:
   Our pass ran 17 s after the delete, made 5 changes (removed the orphaned
   `Series` row, updated the container, and re-hid the 3 remaining books
   the firmware had un-hidden), and the view then read "3 out of 3".
+- **A two-book series** (sent together): one pass 18 s after the send made
+  6 changes, and the tile showed a "2" badge and "2 out of 2", in order.
+- **Deleting one of the two while the series view was open:** within 6 s
+  the firmware had un-hidden the remaining book and set the container's
+  count to 0, and the open view read "(1 item)" and "1 out of 2". Our pass
+  ran 15 s after the delete and made 5 changes: it un-hid the book, removed
+  both `Series` rows, emptied the container's members and deleted it. That
+  **did** bounce the open view back to the Library, where the remaining
+  book showed as a plain book, with no stack or badge. So a series view
+  closes only when its container is removed. While the container still
+  exists, the view updates in place.
