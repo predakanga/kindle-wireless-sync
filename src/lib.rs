@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 pub mod adopt;
 pub mod api;
 pub mod catalog;

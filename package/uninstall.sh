@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # KPM uninstall hook (ADR 0012). KPM runs it from the package directory.
 # Books received from Calibre, and their thumbnails, are the user's: keep them.
 

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Run once per boot by /etc/upstart/kindle-wireless-sync-autostart.conf.
 # Starts the service if autostart is on. Crash-loop guard: after three boots
 # without a stable run (see service.sh), autostart turns itself off.

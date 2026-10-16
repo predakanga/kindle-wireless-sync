@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Kindle firmware specifics: the content key the scanner gives a book, and
 //! cover thumbnails.
 //!

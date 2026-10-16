@@ -2,6 +2,7 @@
 # Name: Wireless Sync
 # Author: Kindle Wireless Sync
 # Icon: data:image/png;base64,@ICON@
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Opens the Wireless Sync settings app (ADR 0004). Starts the service first if
 # it isn't running, and re-registers the app if a firmware update removed it.

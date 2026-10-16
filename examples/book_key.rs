@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Prints the Kindle content key we would derive for each book file given.
 //! Usage: cargo run --example book_key -- FILE...
 

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Developer tool: turns the Kindle's native series grouping on or off on a
 # device whose marketplace isn't offered it (the AU reference device). Not
 # part of the package, since the app must not change Amazon's settings.

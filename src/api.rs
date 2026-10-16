@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Localhost HTTP API for the on-device UI (ADR 0011).
 //!
 //! A deliberately small HTTP/1.1 server: one request per connection, each on

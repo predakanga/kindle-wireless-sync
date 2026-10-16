@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Wi-Fi state on the Kindle, from `com.lab126.wifid` over lipc.
 //!
 //! `cmState` is `CONNECTED` when Wi-Fi is usable. It changes to `NA`

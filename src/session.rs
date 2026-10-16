@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The device side of one Calibre wireless session.
 //!
 //! Calibre drives the conversation: it sends a request, we answer. The order

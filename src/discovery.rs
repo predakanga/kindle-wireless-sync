@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Finding Calibre servers by UDP broadcast.
 //!
 //! Calibre listens on the first free port of [`BROADCAST_PORTS`] and answers

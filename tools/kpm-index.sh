@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Writes the KPM repository index (repo.json, ADR 0014) to stdout: one
 # artifact per published vX.Y.Z release that has the package attached,
 # newest first. Name, author, description and platforms come from

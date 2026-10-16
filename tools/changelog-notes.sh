@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Prints the body of one version's section of CHANGELOG.md, for release notes
 # (ADR 0014). Fails if the section is missing or empty, so a release can't
 # go out without a changelog entry.

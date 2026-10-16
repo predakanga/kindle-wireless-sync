@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Validation of `lpath`s supplied by Calibre.
 //!
 //! Calibre names every book by an `lpath`, a `/`-separated path relative to

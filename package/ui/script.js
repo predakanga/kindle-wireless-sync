@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Wireless Sync settings app. Talks to the daemon's localhost API
  * (ADR 0011). ES5 only: the Kindle's mesquite engine has no fetch, promises

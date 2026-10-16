@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Builds the KPM package (ADR 0012, 0014) from an already built binary and
 # scriptlet. Used by `just package` on macOS and by the release workflow on
 # Linux, so it handles both bsdtar and GNU tar.

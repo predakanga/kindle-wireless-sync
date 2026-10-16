@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Adopting books that Calibre sent over USB (ADR 0013).
 //!
 //! Calibre's wireless connection only knows the books we report, so a book

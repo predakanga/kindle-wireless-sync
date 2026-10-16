@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Calibre series as the Kindle's native series grouping (ADR 0016).
 //!
 //! Each pass reads the catalog (read-only), works out what our series

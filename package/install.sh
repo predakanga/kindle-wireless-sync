@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # KPM install hook (ADR 0012). KPM runs it from the extracted package
 # (/mnt/us/kmc/kpm/packages/kindle-wireless-sync/) on install and on upgrade.
 # Every step is safe to repeat: if this fails, KPM keeps no record of the

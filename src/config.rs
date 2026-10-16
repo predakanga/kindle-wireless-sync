@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The allowlist of Calibre libraries, and libraries found by "Find
 //! libraries" but not yet allowed (ADR 0003, ADR 0008). Stored as
 //! `config.json` in the state directory.

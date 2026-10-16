@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The device-side book store: the books directory plus our own state.
 //!
 //! Book files are written so the Kindle's scanner only ever sees complete

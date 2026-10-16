@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Turn recorded `kindle-wireless-sync connect --transcript` sessions into shareable fixtures.
 
 Usage: anonymize_transcript.py OUT.jsonl IN.jsonl [IN.jsonl ...]

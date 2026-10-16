@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Replays anonymized recordings of real Calibre sessions (see
 //! `tools/anonymize_transcript.py`) and checks that our replies match what
 //! the client sent when they were recorded.

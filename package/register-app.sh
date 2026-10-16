@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Registers or unregisters the Wireless Sync WAF app in appreg.db, so
 # `lipc-set-prop com.lab126.appmgrd start app://com.kindlewirelesssync.app`
 # opens it in mesquite (ADR 0004). Only our own handler's rows are touched.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The long-running client (ADR 0004, ADR 0008).
 //!
 //! Waits for Wi-Fi, connects only to allowed Calibre libraries, runs

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Wire format of Calibre's smart device ("wireless device") protocol.
 //!
 //! Every control message is `<decimal length>[opcode, {payload}]`, where the

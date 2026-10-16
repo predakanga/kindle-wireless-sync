@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Run by /etc/upstart/kindle-wireless-sync.conf. Kept on writable storage so
 # it can change without remounting the root filesystem (ADR 0004).
 DIR=/var/local/kindle-wireless-sync

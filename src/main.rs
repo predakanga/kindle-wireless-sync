@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `kindle-wireless-sync`: the daemon and its command-line tools.
 
 use std::net::{IpAddr, TcpListener};

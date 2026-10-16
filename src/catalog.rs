@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The content catalog, for series (ADR 0016).
 //!
 //! Writes go through the catalog's own ChangeRequest endpoint (`POST
