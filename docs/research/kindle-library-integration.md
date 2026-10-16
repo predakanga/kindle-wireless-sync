@@ -576,19 +576,35 @@ sideloaded books is untested.
 - `homeMemberCount` sent in the container insert was dropped (it ended up
   0), but `members` sets it.
 
+**What normal sync activity does to it** (tested 2026-10-17):
+- **Replacing a member file in place** (our client's update path, ADR
+  0005): the scanner re-indexed it, and the series stayed intact (counts,
+  `seriesState`, links and `Series` rows). But **re-indexing reset that
+  book's `originType` to NULL**, which brings the badge back, so re-apply
+  `originType: 0` after re-indexing a member.
+- **Deleting a member file:** the firmware's post-processing ran and
+  degraded the series safely. It reset the counts to (cloud 0, downloaded
+  1), made the remaining book visible (`seriesState 1`, and
+  `VISIBILITY_WITH_GROUPING 0` in the asset store), and removed the deleted
+  book's link row and asset-store membership. It **left the deleted book's
+  `Series` row behind** (orphaned). After a delete, the sync must remove
+  that row, and either re-apply the series (2 or more members left) or
+  dissolve it (fewer).
+- **Cleanup** through ChangeRequest worked: `members: []`, delete the
+  `Series` rows, delete the container. Both stores were then clean. The
+  scanner's placeholder thumbnails for the deleted test books stayed behind
+  and were removed by hand.
+
 **Still to check before building on it:**
-- The firmware's post-processing (on device-side insert or delete of a
-  member, or for containers with `isProcessed` not 1) resets the counts to
-  (cloud 0, downloaded N) and the members to visible. Find out which events
-  trigger it (for example replacing a book file in place), and whether
-  re-applying `members`, `seriesState` and `isProcessed` afterwards
-  restores the series.
 - Whether it survives a reboot with the counts set (the earlier reboot was
   before `members`).
 - Whether anything tries to sync the series or the `Collections` rows to
   Amazon (the asset store tag is `PENDING_SYNC`; real series tags are too).
 
-### Test data left on the device for that investigation
+### Test data (removed 2026-10-17)
+
+The test series and both test books were removed on 2026-10-17. The
+details below are kept for reference.
 
 - Files `kws-series-1.mobi` (cdeKey `e1dddd39-…`, `Entries` uuid
   `4f6374f3-962a-4f6d-9260-4146b47460af`) and `kws-series-2.mobi` (cdeKey

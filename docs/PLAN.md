@@ -208,9 +208,14 @@ sync works end to end with only stock Calibre.
   collections forward. A test series is still on the device (see the
   research note).
   **Update (2026-10-16):** the developer has turned series grouping on for
-  their device, in a separate session. Now the two test books disappear from
-  the Library, but the "kws-test series" tile doesn't appear. Not yet
-  investigated; wait for the developer before looking into it.
+  their device, in a separate session. The two test books disappeared from
+  the Library, but the "kws-test series" tile didn't appear.
+  **Update (2026-10-17):** fixed in the experiment. The Library hides series
+  containers whose member counts are under 2, and a ChangeRequest `members`
+  update sets them. With that, the tile showed and opened with both books
+  in order. Member deletion degrades safely. Details are in the research
+  note ("Making a sideloaded series show"). Test data removed. Next: an ADR
+  for the series sync design, then build it.
   For testing, `just series-grouping [status|enable|disable]` turns grouping
   on and off. Changes apply as soon as the Library redraws (go to Home and
   back), with no restart (2026-10-17).
