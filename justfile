@@ -141,3 +141,7 @@ device-connect *args: deploy
 # Run discovery from the Kindle
 device-discover: deploy
     ssh kindle "{{kindle_dir}}/kindle-wireless-sync discover"
+
+# Dev: native series grouping on the Kindle: status (default), enable or disable. Not packaged.
+series-grouping action="status":
+    ssh kindle "sh -s -- {{action}}" < tools/series-grouping.sh

@@ -45,6 +45,7 @@ just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
+just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
 ```
 
 **Releases (ADR 0014):** bump `version` in `Cargo.toml`, move the

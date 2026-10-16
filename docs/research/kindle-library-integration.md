@@ -514,8 +514,10 @@ sqlite3 /var/local/appreg.db "delete from properties where handlerId='dcc' and n
 
 Next steps, in order:
 
-1. A developer script (checked in, with a `just` task, not shipped in the
-   package) that sets these two values.
+1. ✅ `tools/series-grouping.sh`, run with `just series-grouping
+   [status|enable|disable]`. It's a developer tool, not shipped in the
+   package, and sets exactly these two values. Tested both ways on the
+   device (2026-10-17).
 2. Whether a server config refresh resets them (below).
 3. If there's time, why Quick Settings still has no tile.
 
