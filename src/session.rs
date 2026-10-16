@@ -198,6 +198,9 @@ pub fn run<R: BufRead, W: Write>(
                     // Announces how many priKey requests follow; no reply.
                 } else {
                     conn.send(Opcode::Ok, json!({}))?;
+                    // Calibre's keep-alive: a quiet moment between its
+                    // operations, so run a due series pass (ADR 0016).
+                    lib.reconcile_series_if_due();
                 }
             }
             Opcode::SendBooklists => {

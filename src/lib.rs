@@ -1,5 +1,6 @@
 pub mod adopt;
 pub mod api;
+pub mod catalog;
 pub mod config;
 pub mod daemon;
 pub mod discovery;
@@ -8,4 +9,5 @@ pub mod library;
 pub mod lpath;
 pub mod network;
 pub mod protocol;
+pub mod series;
 pub mod session;

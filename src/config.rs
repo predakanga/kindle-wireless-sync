@@ -75,6 +75,8 @@ pub struct SeenLibrary {
 pub struct Config {
     pub allowed: Vec<AllowedLibrary>,
     pub seen: Vec<SeenLibrary>,
+    /// Calibre series as native series (ADR 0016). On unless set to false.
+    pub series: bool,
     path: PathBuf,
 }
 
@@ -149,6 +151,7 @@ impl Config {
                 })
                 .filter(|v| !v.uuid.is_empty())
                 .collect(),
+            series: value.get("series").and_then(Value::as_bool).unwrap_or(true),
             path,
         })
     }
@@ -163,6 +166,7 @@ impl Config {
                 "uuid": v.uuid, "name": v.name, "host": v.host, "port": v.port,
                 "hostname": v.hostname, "last_seen": v.last_seen,
             })).collect::<Vec<_>>(),
+            "series": self.series,
         });
         let tmp = self.path.with_extension("json.tmp");
         fs::write(

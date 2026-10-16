@@ -82,6 +82,11 @@ track individual bytes.
   deleting the `.sdr` folder along with a book.
 - `lpath`: validation of server-supplied paths. Calibre is untrusted (ADR 0003).
 - `discovery`: UDP broadcast to Calibre's fixed ports.
+- `catalog` and `series`: Calibre series as native series (ADR 0016).
+  `catalog` sends ChangeRequest commands (`127.0.0.1:9101`, token from
+  `/tmp/session_token`) and reads `cc.db` read-only. `series` plans the
+  commands that differ. `Library` runs a pass 15 s after book changes, on
+  Calibre's keep-alive NOOPs or in the daemon's idle waits.
 - `adopt`: finds book files Calibre sent over USB and builds records for them
   from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
   it once per session.

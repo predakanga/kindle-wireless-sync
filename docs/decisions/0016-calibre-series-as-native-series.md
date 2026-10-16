@@ -152,3 +152,23 @@ stops managing them. A UI toggle can come later.
     its series. The developer expects them to be bounced back to the
     Library. Write down what actually happens, including while the series
     is briefly ungrouped before we re-apply it.
+
+## Implementation notes (2026-10-17)
+- **No `state/series.json`.** Each pass reads the catalog (read-only): our
+  containers (keys matching `KW` + 8 base-32 characters), their `Series`
+  rows, and the books' `seriesState` and `originType`. It plans only the
+  commands that differ. This can't drift from what the catalog holds, a
+  settled library sends nothing, and it never targets rows that don't
+  exist. That matters because the endpoint rejects a whole batch when a
+  delete or update matches nothing.
+- **Container uuids** are derived from the key (name-based, version 5
+  style), so they're stable.
+- **When passes run:** `Library` records when series became dirty: on
+  receive, replace, delete, adoption, and metadata updates that change a
+  book's series or index (Calibre resends metadata on every connect). A pass
+  runs once 15 s have passed since the last change, either on Calibre's
+  keep-alive `NOOP` during a session or in the daemon's idle waits between
+  sessions. A pass with a member not yet indexed, or one that fails, stays
+  dirty and is retried.
+- **Off switch:** `"series": false` in `config.json`. **Uninstall** runs
+  `kindle-wireless-sync series --books … --catalog … --remove-all`.

@@ -23,6 +23,12 @@ echo "Stopping Wireless Sync"
 # A graceful unload: killing mesquite makes appmgrd report a crash.
 lipc-set-prop com.lab126.appmgrd stop "app://$APP_ID" 2>/dev/null || true
 /sbin/initctl stop "$JOB" 2>/dev/null || true
+# Dissolve the series we created (ADR 0016), so books aren't left grouped by
+# a removed app. Best effort: the books stay readable either way.
+if [ -x "$DIR/kindle-wireless-sync" ]; then
+    "$DIR/kindle-wireless-sync" series --books /mnt/us/documents --catalog /var/local/cc.db \
+        --remove-all || echo "Could not remove series; continuing"
+fi
 
 for f in kindle-wireless-sync.conf kindle-wireless-sync-autostart.conf; do
     if [ -e "/etc/upstart/$f" ]; then

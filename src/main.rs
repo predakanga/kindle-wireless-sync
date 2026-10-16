@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use kws::api::{self, Api};
+use kws::catalog::Catalog;
 use kws::config::{self, Config};
 use kws::daemon::{self, Daemon, FindResult, Options};
 use kws::discovery;
@@ -23,6 +24,7 @@ usage:
   kindle-wireless-sync add-server --state DIR HOST PORT [--password PW]
   kindle-wireless-sync allow --state DIR LIBRARY_UUID
   kindle-wireless-sync status --state DIR
+  kindle-wireless-sync series --books DIR --catalog DB --remove-all
 
 daemon      the service: connects to allowed libraries (ADR 0008)
 find        \"Find libraries\": broadcast, then connect once to each server to
@@ -30,6 +32,7 @@ find        \"Find libraries\": broadcast, then connect once to each server to
 add-server  connect to HOST:PORT now and allow its library if it answers
 allow       allow a library listed by find
 status      show the daemon status and the allowed and seen libraries
+series      --remove-all: dissolve the series this app created (uninstall)
 
 Set RUST_LOG=debug to log every protocol message.";
 
@@ -78,6 +81,7 @@ fn real_main() -> CmdResult {
         "add-server" => add_server_cmd(args),
         "allow" => allow_cmd(args),
         "status" => status_cmd(args),
+        "series" => series_cmd(args),
         #[cfg(feature = "dev-tools")]
         "discover" => dev::discover_cmd(args),
         #[cfg(feature = "dev-tools")]
@@ -137,7 +141,25 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         .ok()
         .and_then(|s| s.parent().map(Path::to_path_buf))
         .ok_or("--state must be an existing directory with a parent")?;
-    let lib = open_library(required(books, "--books")?, &state, thumbnails, catalog)?;
+    let mut lib = open_library(
+        required(books, "--books")?,
+        &state,
+        thumbnails,
+        catalog.clone(),
+    )?;
+    // Series (ADR 0016) need the Kindle's catalog and its change endpoint.
+    if let Some(db) = catalog.filter(|db| kws::catalog::available(db)) {
+        let books_dir = lib.books_dir().to_path_buf();
+        if Config::load(&state).map(|c| c.series).unwrap_or(true) {
+            lib.enable_series(Catalog::new(db), kws::library::SERIES_DEBOUNCE);
+        } else {
+            match kws::library::remove_all_series(&Catalog::new(db), &books_dir) {
+                Ok(0) => {}
+                Ok(n) => log::info!("series turned off: removed ours ({n} changes)"),
+                Err(e) => log::warn!("series turned off, but removing ours failed: {e}"),
+            }
+        }
+    }
 
     // On a Kindle, follow Wi-Fi over lipc; elsewhere assume the network is up.
     let wifi = network::wifi_connected();
@@ -277,6 +299,28 @@ fn allow_cmd(mut args: lexopt::Parser) -> CmdResult {
         println!("unknown library; run `find` first, or use `add-server`");
         return Ok(ExitCode::FAILURE);
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `series --remove-all`: dissolve our series (ADR 0016), for uninstall.
+fn series_cmd(mut args: lexopt::Parser) -> CmdResult {
+    use lexopt::prelude::*;
+    let (mut books, mut catalog, mut remove_all) = (None::<PathBuf>, None::<PathBuf>, false);
+    while let Some(arg) = args.next()? {
+        match arg {
+            Long("books") => books = Some(args.value()?.into()),
+            Long("catalog") => catalog = Some(args.value()?.into()),
+            Long("remove-all") => remove_all = true,
+            _ => return Err(arg.unexpected().into()),
+        }
+    }
+    if !remove_all {
+        return Err(format!("series needs --remove-all\n{USAGE}").into());
+    }
+    let books = required(books, "--books")?.canonicalize()?;
+    let n =
+        kws::library::remove_all_series(&Catalog::new(required(catalog, "--catalog")?), &books)?;
+    println!("removed our series ({n} catalog changes)");
     Ok(ExitCode::SUCCESS)
 }
 

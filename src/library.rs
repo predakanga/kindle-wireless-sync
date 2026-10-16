@@ -23,8 +23,10 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use crate::adopt;
+use crate::catalog::Catalog;
 use crate::kindle::{self, BookKey, CoverConfig, KeySource};
 use crate::lpath;
+use crate::series;
 
 const BOOKS_FILE: &str = "books.json";
 const DRIVEINFO_FILE: &str = "driveinfo.json";
@@ -46,6 +48,20 @@ pub struct Library {
     temp_counter: u32,
     covers: Option<CoverConfig>,
     adopt_memo: adopt::Memo,
+    series: Option<SeriesSync>,
+}
+
+/// How long to wait after the last book change before updating series
+/// (ADR 0016): long enough for the scanner to index new files and for the
+/// firmware's own series processing after a delete, which we must follow.
+pub const SERIES_DEBOUNCE: Duration = Duration::from_secs(15);
+
+/// Keeps the catalog's series in line with our books (ADR 0016).
+struct SeriesSync {
+    catalog: Catalog,
+    debounce: Duration,
+    /// Set by any book change; cleared by a complete pass.
+    dirty_since: Option<Instant>,
 }
 
 /// A book being received. Dropping it without committing removes the
@@ -92,6 +108,7 @@ impl Library {
             temp_counter: 0,
             covers: None,
             adopt_memo: adopt::Memo::default(),
+            series: None,
         };
         remove_stale_temps(&lib.books_dir, 4);
         let before = lib.books.len();
@@ -165,13 +182,68 @@ impl Library {
         {
             Some(slot) => {
                 let private = slot.get(PRIVATE_KEY).cloned();
+                // Calibre resends metadata on every connect; only a change
+                // of series needs a series pass.
+                let series_changed = slot["series"] != metadata["series"]
+                    || slot["series_index"] != metadata["series_index"];
                 *slot = slim(metadata, &l);
                 if let Some(private) = private {
                     slot[PRIVATE_KEY] = private;
                 }
+                if series_changed {
+                    self.mark_series_dirty();
+                }
                 true
             }
             None => false,
+        }
+    }
+
+    /// Turns on series (ADR 0016), and asks for a first pass straight away.
+    pub fn enable_series(&mut self, catalog: Catalog, debounce: Duration) {
+        self.series = Some(SeriesSync {
+            catalog,
+            debounce,
+            dirty_since: Some(Instant::now() - debounce),
+        });
+    }
+
+    fn mark_series_dirty(&mut self) {
+        if let Some(s) = &mut self.series {
+            s.dirty_since = Some(Instant::now());
+        }
+    }
+
+    /// How long until a series pass is due, if one is needed.
+    pub fn series_due_in(&self) -> Option<Duration> {
+        let s = self.series.as_ref()?;
+        Some(s.debounce.saturating_sub(s.dirty_since?.elapsed()))
+    }
+
+    /// Runs a series pass if one is due. Errors are logged, and the pass is
+    /// retried after the next debounce.
+    pub fn reconcile_series_if_due(&mut self) {
+        if self.series_due_in() == Some(Duration::ZERO) {
+            self.reconcile_series();
+        }
+    }
+
+    /// Brings the catalog's series in line with our books now.
+    pub fn reconcile_series(&mut self) {
+        let books = series::books_from_records(&self.books);
+        let Some(s) = &mut self.series else { return };
+        match apply_series(&s.catalog, &self.books_dir, &books) {
+            Ok((n, pending)) => {
+                if n > 0 {
+                    log::info!("series: applied {n} catalog changes");
+                }
+                // A member not yet indexed: try again after the debounce.
+                s.dirty_since = pending.then(Instant::now);
+            }
+            Err(e) => {
+                log::warn!("series: {e}; will retry");
+                s.dirty_since = Some(Instant::now());
+            }
         }
     }
 
@@ -295,6 +367,7 @@ impl Library {
             Some(slot) => *slot = record,
             None => self.books.push(record),
         }
+        self.mark_series_dirty();
         self.save()
     }
 
@@ -385,6 +458,7 @@ impl Library {
             remove_if_exists(fs::remove_file(covers.thumbnails_dir.join(&name)))?;
             remove_if_exists(fs::remove_file(self.state_dir.join(COVERS_DIR).join(&name)))?;
         }
+        self.mark_series_dirty();
         self.save()?;
         Ok(Some(
             record
@@ -443,6 +517,7 @@ impl Library {
             adopted += 1;
         }
         if adopted > 0 {
+            self.mark_series_dirty();
             self.save()?;
         }
         Ok(adopted)
@@ -517,6 +592,24 @@ fn rel_to_lpath(rel: &Path) -> String {
         .map(|c| c.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+/// One series pass: returns how many changes were sent, and whether a
+/// member wasn't indexed yet.
+fn apply_series(
+    catalog: &Catalog,
+    books_dir: &Path,
+    books: &[series::Book],
+) -> io::Result<(usize, bool)> {
+    let snap = series::snapshot(catalog, books_dir)?;
+    let plan = series::plan(books, &snap);
+    catalog.change(&plan.commands)?;
+    Ok((plan.commands.len(), plan.pending))
+}
+
+/// Dissolves all of our series (uninstall, or series turned off).
+pub fn remove_all_series(catalog: &Catalog, books_dir: &Path) -> io::Result<usize> {
+    apply_series(catalog, books_dir, &[]).map(|(n, _)| n)
 }
 
 /// Our stored copy of Calibre's metadata: the lpath pinned to the one we
@@ -628,6 +721,123 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let lib = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
         (tmp, lib)
+    }
+
+    /// A fake catalog: a real sqlite file with the columns series reads,
+    /// and a change endpoint that records each request's commands.
+    struct FakeCatalog {
+        catalog: Catalog,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    }
+
+    fn fake_catalog(dir: &Path, rows: &str) -> FakeCatalog {
+        use std::io::{BufRead, BufReader};
+        let db = dir.join("cc.db");
+        let schema = "CREATE TABLE Entries (p_uuid, p_type, p_location, p_cdeKey, p_cdeType, \
+            p_thumbnail, p_seriesState, p_originType, p_titles_0_nominal, p_memberCount, \
+            p_homeMemberCount, p_isProcessed, p_virtualCollectionCount, j_members); \
+            CREATE TABLE Series (d_seriesId, d_itemCdeKey, d_itemPosition, d_itemPositionLabel);";
+        let ok = std::process::Command::new("sqlite3")
+            .arg(&db)
+            .arg(format!("{schema} {rows}"))
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = listener.local_addr().unwrap().to_string();
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut s = stream.unwrap();
+                let mut r = BufReader::new(s.try_clone().unwrap());
+                let mut len = 0;
+                loop {
+                    let mut line = String::new();
+                    r.read_line(&mut line).unwrap();
+                    if let Some(v) = line.strip_prefix("Content-Length: ") {
+                        len = v.trim().parse().unwrap();
+                    }
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                let mut body = vec![0; len];
+                r.read_exact(&mut body).unwrap();
+                let v: Value = serde_json::from_slice(&body).unwrap();
+                seen.lock().unwrap().push(v["commands"].clone());
+                let reply = r#"{"ok":true,"type":"ChangeResponse","changes":1}"#;
+                write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        let token_file = dir.join("token");
+        fs::write(&token_file, "t").unwrap();
+        FakeCatalog {
+            catalog: Catalog {
+                db,
+                endpoint,
+                token_file,
+            },
+            requests,
+        }
+    }
+
+    #[test]
+    fn series_pass_runs_after_changes_and_only_then() {
+        let tmp = tempfile::tempdir().unwrap();
+        let books = tmp.path().join("books");
+        fs::create_dir_all(&books).unwrap();
+        let books = books.canonicalize().unwrap();
+        let state = tmp.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        let mut records = Vec::new();
+        for (i, k) in ["k1", "k2"].iter().enumerate() {
+            fs::write(books.join(format!("{k}.azw3")), b"x").unwrap();
+            records.push(json!({"lpath": format!("{k}.azw3"), "title": k, "authors": ["Jane Author"],
+                "series": "Saga", "series_index": i + 1, "_kws": {"cde_key": k, "cde_type": "EBOK"}}));
+        }
+        fs::write(state.join(BOOKS_FILE), Value::Array(records).to_string()).unwrap();
+        let rows = format!(
+            "INSERT INTO Entries VALUES ('u1','Entry:Item','{b}/k1.azw3','k1','EBOK','/t/k1.jpg',1,NULL,'k1',0,0,0,0,NULL), \
+             ('u2','Entry:Item','{b}/k2.azw3','k2','EBOK','/t/k2.jpg',1,NULL,'k2',0,0,0,0,NULL), \
+             ('x','Entry:Item','/elsewhere/k9.azw3','k9','EBOK','',1,NULL,'k9',0,0,0,0,NULL);",
+            b = books.display()
+        );
+        let fake = fake_catalog(tmp.path(), &rows);
+        let mut lib = Library::open(&books, &state).unwrap();
+        assert_eq!(lib.series_due_in(), None, "off until enabled");
+        lib.enable_series(fake.catalog, Duration::ZERO);
+        assert_eq!(
+            lib.series_due_in(),
+            Some(Duration::ZERO),
+            "a first pass is due at once"
+        );
+
+        lib.reconcile_series_if_due();
+        let sent = fake.requests.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1);
+        let cmds = sent[0].as_array().unwrap();
+        assert_eq!(cmds.len(), 6, "{cmds:?}");
+        assert_eq!(
+            cmds[2]["insertOr"]["entry"]["cdeKey"],
+            series::series_key("Saga")
+        );
+        assert_eq!(cmds[3]["update"]["members"], json!(["u1", "u2"]));
+        assert_eq!(lib.series_due_in(), None, "a complete pass clears the flag");
+
+        // Calibre resending the same metadata isn't a series change.
+        let same = lib.books()[0].clone();
+        assert!(lib.update_metadata(same.clone()));
+        assert_eq!(lib.series_due_in(), None);
+        let mut moved = same;
+        moved["series_index"] = json!(3);
+        assert!(lib.update_metadata(moved));
+        assert_eq!(lib.series_due_in(), Some(Duration::ZERO));
     }
 
     fn receive(lib: &mut Library, l: &str, data: &[u8], meta: Value) {

@@ -12,7 +12,7 @@ use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
@@ -253,16 +253,28 @@ impl Daemon {
     /// Waits for a control message. Pause and resume are applied here, so
     /// every wait honours them; resuming counts as "Connect now".
     fn wait(&mut self, timeout: Option<Duration>) -> Wake {
-        let msg = match timeout {
-            Some(t) => match self.rx.recv_timeout(t) {
-                Ok(m) => m,
-                Err(RecvTimeoutError::Timeout) => return Wake::Timeout,
+        // While idle, also run the series pass when it falls due (ADR 0016).
+        let deadline = timeout.map(|t| Instant::now() + t);
+        let msg = loop {
+            let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+            let step = match (left, self.lib.series_due_in()) {
+                (Some(l), Some(s)) => Some(l.min(s)),
+                (l, s) => l.or(s),
+            };
+            let received = match step {
+                Some(t) => self.rx.recv_timeout(t),
+                None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match received {
+                Ok(m) => break m,
                 Err(RecvTimeoutError::Disconnected) => return Wake::Shutdown,
-            },
-            None => match self.rx.recv() {
-                Ok(m) => m,
-                Err(_) => return Wake::Shutdown,
-            },
+                Err(RecvTimeoutError::Timeout) => {
+                    self.lib.reconcile_series_if_due();
+                    if deadline.is_some_and(|d| Instant::now() >= d) {
+                        return Wake::Timeout;
+                    }
+                }
+            }
         };
         match msg {
             Control::Network(up) => Wake::Network(up),

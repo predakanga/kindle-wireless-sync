@@ -8,6 +8,13 @@ one.
 
 ## [Unreleased]
 
+### Added
+- Books in a Calibre series are grouped as one series tile in the Kindle
+  library, in series order, like series bought from Amazon. This needs the
+  Kindle's "Group series" feature, which Amazon only offers in some
+  countries.
+- Uninstalling removes the series this app created.
+
 ## [0.1.1] - 2026-10-16
 
 ### Fixed
