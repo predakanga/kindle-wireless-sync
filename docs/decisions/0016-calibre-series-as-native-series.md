@@ -1,6 +1,6 @@
 # 0016: Calibre series as the Kindle's native series grouping
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-17
 
 ## Context
@@ -144,6 +144,11 @@ stops managing them. A UI toggle can come later.
   no new dependency), read-only `cc.db` lookups for `p_uuid` and `cdeKey`,
   the reconcile logic with tests against a fake endpoint, and a `series`
   command.
-- Still to verify: that a series survives a reboot with its counts set, and
-  that nothing syncs our series or link rows to Amazon (their asset tags
-  are `PENDING_SYNC`, like real series).
+- Still to verify on the device, and to document:
+  - that a series survives a reboot with its counts set
+  - that nothing syncs our series or link rows to Amazon (their asset tags
+    are `PENDING_SYNC`, like real series)
+  - what the Library does when a book is deleted while the user is viewing
+    its series. The developer expects them to be bounced back to the
+    Library. Write down what actually happens, including while the series
+    is briefly ungrouped before we re-apply it.
