@@ -531,6 +531,63 @@ What might reset it (unconfirmed):
   preferences for library namespace" routine clears the UserDefaults key.
   Neither matters here, since the key has no effect on this device.
 
+### Making a sideloaded series show (2026-10-17)
+
+With grouping switched on (`just series-grouping enable`), the test series's
+books were hidden but there was no series tile, even after a reboot. The
+cause is the **Library's legacy listing filter** on `cc.db` (strings in
+`KPPMainApp`; this device has no library re-architecture). Roughly:
+
+- *All*: hide books with `p_seriesState` 0 or 2, and hide series containers
+  with `p_memberCount <= 1`.
+- *Downloaded*: hide books with `p_seriesState` 0, and hide containers with
+  `p_homeMemberCount <= 1`.
+
+The firmware's post-processing (`updateSeriesMetaData`) sets
+`p_memberCount` to the number of **cloud** copies and `p_homeMemberCount`
+to the number of downloaded ones. So a sideloaded series gets
+`p_memberCount = 0`, and its tile never shows under *All*. `memberCount`
+isn't an accepted ChangeRequest field.
+
+**Fix, through ChangeRequest:** `update` the container with
+`"members": [<member Entries uuids>]` (plus `type` and `cdeType`). The
+catalog's `members` handler writes `Collections` rows linking container
+and books, and sets the container's `p_memberCount` **and**
+`p_homeMemberCount` to their count (2 and 2 here). The member books'
+`p_collectionCount` and `j_collections` stayed unchanged (0 and `[]`),
+because those only count `Collection` entries. With that, the **tile
+appeared** (stacked, "2" badge). Opening it showed both books in series
+order, labelled 1 and 2. `"members": []` undoes it.
+
+**Kindle Unlimited badge:** the tile showed a "kindleunlimited" badge while
+the member books had `p_originType` NULL (as sideloaded books do). Amazon
+series members have `0` (purchased). `update` members to `originType: 0`
+removed the badge. The same NULL books show no badge on their own tiles.
+Reversible with `"originType": "null"`. Whether 0 has other effects on
+sideloaded books is untested.
+
+**Other details:**
+- The series view shows "You have N out of M items in this series", where M
+  comes from the container's `virtualCollectionCount`. kindle-series-manager
+  writes member count + 1, so it showed "2 out of 3". Use the real size.
+- A series cover needs a real thumbnail. The test books were copied by hand,
+  so they only had the scanner's 961-byte placeholder (grey tile). Books
+  from our client get real covers.
+- `homeMemberCount` sent in the container insert was dropped (it ended up
+  0), but `members` sets it.
+
+**Still to check before building on it:**
+- The firmware's post-processing (on device-side insert or delete of a
+  member, or for containers with `isProcessed` not 1) resets the counts to
+  (cloud 0, downloaded N) and the members to visible. Find out which events
+  trigger it (for example replacing a book file in place), and whether
+  re-applying `members`, `seriesState` and `isProcessed` afterwards
+  restores the series.
+- Whether it survives a reboot with the counts set (the earlier reboot was
+  before `members`).
+- Whether anything tries to sync the series or the `Collections` rows to
+  Amazon (the asset store tag is `PENDING_SYNC`; real series tags are too).
+
 ### Test data left on the device for that investigation
 
 - Files `kws-series-1.mobi` (cdeKey `e1dddd39-…`, `Entries` uuid
