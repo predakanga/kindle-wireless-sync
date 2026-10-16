@@ -117,6 +117,20 @@ Two ways to forget the old library's metadata:
 
 **Proposed: option 2**, because option 1 silently loses TXT books, and
 possibly PDF and KFX ones, unless adoption learns to read those formats.
+Agreed by the developer (2026-10-17). Exactly what each record keeps:
+- **Kept:** `lpath`, `size`, `last_modified`, the Calibre book `uuid`,
+  `title` and `authors`, and our private `_kws` except its read-sync state
+  (so the content key, which covers and series use).
+  - **The UUID matters.** Calibre's book list carries one per book, and
+    Calibre keys its device metadata cache on UUID and `lpath`. The new
+    library won't match it, since book UUIDs are unique per library, so it
+    falls back to title and authors. But if the user links the old library
+    again, it matches every book exactly again.
+  - **Title and authors** are what the new library matches on.
+- **Dropped:** everything else Calibre sent, which belongs to the old
+  library: series, tags, `user_metadata` (custom columns, including the
+  read-sync columns), identifiers, comments and the rest, and `_kws`'s
+  read-sync state.
 
 Series follow automatically. The next series pass (ADR 0016) sees no series
 in the records, dissolves ours, and rebuilds them from the new library's

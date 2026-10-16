@@ -319,6 +319,12 @@ Not part of any phase. Pick these up after the base and stretch goals
    now (ADR 0008). Restarting Calibre, which adding columns requires, left
    the Kindle disconnected (developer, 2026-10-17). Find out whether a
    shutdown eject can be told apart from a user's eject.
+9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
+   plugin, but it has never been tested (developer, 2026-10-17). Check
+   receiving a KFX book, its cover (`KeySource::AfterIndex`, which reads the
+   content key after indexing), deleting and replacing it, whether the file
+   carries Calibre's book UUID (so adoption, ADR 0013, could recover it), and
+   what linking a different library does to it (ADR 0018).
 
 ## Open questions
 
