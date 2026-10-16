@@ -172,3 +172,20 @@ stops managing them. A UI toggle can come later.
   dirty and is retried.
 - **Off switch:** `"series": false` in `config.json`. **Uninstall** runs
   `kindle-wireless-sync series --books … --catalog … --remove-all`.
+
+## Device test (2026-10-17)
+On the reference device, with grouping turned on and Calibre 9.16.0:
+- **Four books sent from Calibre** (a 4-book series, sent in one batch):
+  they showed individually for a few seconds. **15 s after the last one**,
+  a single pass applied 10 changes (4 `Series` rows, the container, its
+  member update and 4 hidden members), and the Library merged them into one
+  series tile without a manual refresh. The tile had the first book's
+  cover, a "4" badge and no Kindle Unlimited badge. Opened, it showed
+  "You have 4 out of 4 items in this series", with books 1–4 in order.
+- **Deleting a book from Calibre while its series view was open on the
+  Kindle:** the view was **not** bounced back to the Library. It stayed open
+  and updated live. About 9 s after the delete it showed "(3 items)" and
+  "3 out of 4" (the firmware's own update, with our stored size still 4).
+  Our pass ran 17 s after the delete, made 5 changes (removed the orphaned
+  `Series` row, updated the container, and re-hid the 3 remaining books
+  the firmware had un-hidden), and the view then read "3 out of 3".

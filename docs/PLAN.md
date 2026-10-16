@@ -214,8 +214,12 @@ sync works end to end with only stock Calibre.
   containers whose member counts are under 2, and a ChangeRequest `members`
   update sets them. With that, the tile showed and opened with both books
   in order. Member deletion degrades safely. Details are in the research
-  note ("Making a sideloaded series show"). Test data removed. Next: an ADR
-  for the series sync design, then build it.
+  note ("Making a sideloaded series show"). Test data removed.
+  **Built (2026-10-17, ADR 0016, unreleased):** series now sync from
+  Calibre. On the device, a 4-book series merged into one ordered tile 15 s
+  after the send, and deleting a book while viewing the series updated the
+  view in place (no bounce to the Library). Still to check: survival across
+  a reboot, and that nothing syncs our series to Amazon.
   For testing, `just series-grouping [status|enable|disable]` turns grouping
   on and off. Changes apply as soon as the Library redraws (go to Home and
   back), with no restart (2026-10-17).
