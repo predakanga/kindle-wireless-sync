@@ -1,6 +1,6 @@
 # 0017: Send read status and last-read date from the Kindle to Calibre
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
 
 ## Context

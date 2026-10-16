@@ -234,14 +234,14 @@ sync works end to end with only stock Calibre.
   progress" and "Can a plugin extend the wireless driver?"). Without a
   plugin, only read status and a last-read date can reach Calibre, through
   the wireless driver's optional sync of two custom columns the user
-  creates. ADR 0017 (Proposed) sends them from the Kindle to Calibre, into
+  creates. ADR 0017 (Accepted) sends them from the Kindle to Calibre, into
   `#kindle_read` and `#kindle_last_read`, for libraries marked writable
   (off by default). The other direction is on the Later list.
   Percent read needs a Calibre plugin, which is deferred (Later list).
   **Ratings are out of scope:** on 5.20.1 the Goodreads rating prompt only
   appears for Amazon books. The device probes are done (2026-10-16): the
   Kindle's read state and last-read time are in `cc.db`. Next: accept ADR
-  0017, then build.
+  0017 (done), then build.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
   0.1.1). The questions below are answered there:
   - Where does the firmware store the user-set device name, and is there a
