@@ -150,14 +150,14 @@ pub fn report(
     if let Some(col) = &named.last_read {
         let calibre = calibre_value(record, col);
         calibre_unknown |= calibre.is_none();
-        let kindle = kindle.and_then(|k| k.last_open).map(|t| json!(t));
-        let value = pick(&mut state, "last_read", kindle, calibre);
-        // We track the Kindle's time as Unix seconds; Calibre wants ISO.
-        let value = match value.as_i64() {
-            Some(t) => json!(iso_utc(UNIX_EPOCH + Duration::from_secs(t.max(0) as u64))),
-            None => value,
-        };
-        out.insert("_last_read_date_".into(), value);
+        // As Calibre writes dates, so the two compare as strings.
+        let kindle = kindle
+            .and_then(|k| k.last_open)
+            .map(|t| json!(iso_utc(UNIX_EPOCH + Duration::from_secs(t.max(0) as u64))));
+        out.insert(
+            "_last_read_date_".into(),
+            pick(&mut state, "last_read", kindle, calibre),
+        );
     }
     if calibre_unknown {
         out.insert("_sync_type_".into(), json!(2));
@@ -169,23 +169,46 @@ pub fn report(
     out
 }
 
-/// The Kindle's value if it changed since we last reported it (recording it
-/// as reported), otherwise Calibre's own value.
+/// The Kindle's value if it changed since we last reported it, or if Calibre
+/// hasn't taken it yet; otherwise Calibre's own value.
+///
+/// Calibre can skip a book's sync without telling us (it swallows errors),
+/// so a report only counts once Calibre's metadata for the book shows the
+/// value (`<key>_ok`). Calibre resends a book's metadata after taking a
+/// value, so that's normally the next connection.
 fn pick(state: &mut Value, key: &str, kindle: Option<Value>, calibre: Option<Value>) -> Value {
-    match kindle {
-        Some(k) if state.get(key) != Some(&k) => {
-            state[key] = k.clone();
-            k
-        }
-        _ => calibre.unwrap_or(Value::Null),
+    let ok_key = format!("{key}_ok");
+    let Some(k) = kindle else {
+        return calibre.unwrap_or(Value::Null);
+    };
+    if state.get(key) != Some(&k) {
+        // A new change on the Kindle.
+        state[key] = k.clone();
+        state[ok_key.as_str()] = json!(false);
+        return k;
+    }
+    if calibre.as_ref() == Some(&k) {
+        state[ok_key.as_str()] = json!(true);
+    }
+    if state[ok_key.as_str()] == json!(true) {
+        calibre.unwrap_or(Value::Null)
+    } else {
+        // Reported, but Calibre doesn't have it: report it again.
+        k
     }
 }
 
 /// The value Calibre last sent for a column, or `None` if the book's
-/// metadata doesn't have the column at all.
+/// metadata doesn't have the column at all. Calibre writes an empty date as
+/// the string "None"; that comes back as null, because Calibre fails to
+/// parse "None" as a date and then skips the book's sync altogether.
 fn calibre_value(record: &Value, column: &str) -> Option<Value> {
     let meta = record.get("user_metadata")?.get(column)?;
-    Some(meta.get("#value#").cloned().unwrap_or(Value::Null))
+    Some(match meta.get("#value#") {
+        Some(Value::String(s)) if s == "None" => Value::Null,
+        Some(v) => v.clone(),
+        None => Value::Null,
+    })
 }
 
 #[cfg(test)]
@@ -237,10 +260,16 @@ mod tests {
         assert_eq!(r, [None, Some(true), Some(true), Some(false), None]);
     }
 
+    /// Calibre taking our values: it resends the book's metadata with them.
+    fn calibre_takes(rec: &mut Value, out: &Map<String, Value>) {
+        rec["user_metadata"][DEFAULT_READ_COLUMN]["#value#"] = out["_is_read_"].clone();
+        rec["user_metadata"][DEFAULT_LAST_READ_COLUMN]["#value#"] = out["_last_read_date_"].clone();
+    }
+
     #[test]
-    fn reports_a_kindle_change_once_then_echoes_calibre() {
+    fn reports_a_kindle_change_until_calibre_takes_it_then_echoes_calibre() {
         let named = Columns::defaults();
-        let mut rec = record(Some(json!(false)), Some(Value::Null));
+        let mut rec = record(Some(json!(false)), Some(json!("None")));
         let k = kindle(1, Some(86_400));
 
         let out = report(&mut rec, &named, Some(&k));
@@ -248,16 +277,32 @@ mod tests {
         assert_eq!(out["_last_read_date_"], json!("1970-01-02T00:00:00+00:00"));
         assert!(out.get("_sync_type_").is_none());
 
-        // Unchanged on the Kindle: Calibre's value comes back, even though
-        // Calibre (say the user unticked it) now differs.
+        // Calibre skipped it (its metadata is unchanged): report it again.
+        let again = report(&mut rec, &named, Some(&k));
+        assert_eq!(again, out);
+
+        // Once Calibre has it, Calibre's value comes back, even after the
+        // user unticks it in Calibre.
+        calibre_takes(&mut rec, &out);
+        assert_eq!(report(&mut rec, &named, Some(&k)), out);
+        rec["user_metadata"][DEFAULT_READ_COLUMN]["#value#"] = json!(false);
         let out = report(&mut rec, &named, Some(&k));
         assert_eq!(out["_is_read_"], json!(false));
-        assert_eq!(out["_last_read_date_"], Value::Null);
+        assert_eq!(out["_last_read_date_"], json!("1970-01-02T00:00:00+00:00"));
 
         // A new change on the Kindle is reported again.
         let out = report(&mut rec, &named, Some(&kindle(3, Some(90_000))));
         assert_eq!(out["_is_read_"], json!(false));
         assert_eq!(out["_last_read_date_"], json!("1970-01-02T01:00:00+00:00"));
+    }
+
+    #[test]
+    fn calibre_empty_date_goes_back_as_null() {
+        // Calibre can't parse "None" as a date, and then skips the book.
+        let mut rec = record(Some(json!(true)), Some(json!("None")));
+        let out = report(&mut rec, &Columns::defaults(), None);
+        assert_eq!(out["_last_read_date_"], Value::Null);
+        assert_eq!(out["_is_read_"], json!(true));
     }
 
     #[test]

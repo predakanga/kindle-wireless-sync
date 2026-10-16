@@ -982,11 +982,21 @@ mod tests {
         assert_eq!(fields[1]["_is_read_"], false, "no Kindle value: Calibre's");
         assert!(fields.iter().all(|f| f.get("_sync_type_").is_none()));
 
-        // Reported once: after a restart, book a echoes Calibre's value.
+        // Calibre didn't take it (its metadata still says false): after a
+        // restart, it's reported again.
         let mut lib = Library::open(&books, &state).unwrap();
         lib.set_catalog(Catalog::new(db));
         let fields = lib.read_sync_fields(&named).unwrap();
-        assert_eq!(fields[0]["_is_read_"], false);
+        assert_eq!(fields[0]["_is_read_"], true);
+        // Calibre takes it and resends the metadata; then the user unticks
+        // it in Calibre, and Calibre's value comes back.
+        let mut meta = lib.books()[0].clone();
+        meta["user_metadata"]["#kindle_read"]["#value#"] = json!(true);
+        assert!(lib.update_metadata(meta.clone()));
+        assert_eq!(lib.read_sync_fields(&named).unwrap()[0]["_is_read_"], true);
+        meta["user_metadata"]["#kindle_read"]["#value#"] = json!(false);
+        assert!(lib.update_metadata(meta));
+        assert_eq!(lib.read_sync_fields(&named).unwrap()[0]["_is_read_"], false);
         // And nothing at all when no columns are named.
         let none = lib.read_sync_fields(&Columns::default()).unwrap();
         assert!(none.iter().all(Map::is_empty));

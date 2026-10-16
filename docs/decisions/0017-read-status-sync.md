@@ -181,3 +181,23 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
   we only log) and skips that sync. The reconnect then names only what
   exists, so sync stops for the missing column, silently. The library stays
   writable, so re-creating the columns resumes it.
+- **Calibre skips a book's sync silently on errors.** The GUI wraps
+  `synchronize_with_db` in `except Exception: return True`
+  (`gui2/device.py`, `set_books_in_library`). In the device test, a book
+  with no last-read date was never synced. Calibre writes an empty date as
+  the string `"None"` in `user_metadata`, we sent it back as
+  `_last_read_date_`, and `parse_date("None")` raised before the read flag
+  was looked at. Found with `calibre-debug -g`: the driver logged no sync
+  decision at all, and its cached metadata showed the values differed. We
+  now send `null` for an empty date.
+- **A report counts only once Calibre has taken it.** Because Calibre can
+  skip a book without telling us, we no longer treat a Kindle change as
+  done once reported. We keep reporting it until Calibre's metadata for the
+  book (resent after a sync) shows the value; only then do we go back to
+  echoing Calibre's own value (`read_ok`, `last_read_ok` in `books.json`).
+  Without this, the test book's change was lost after the skipped sync.
+- **Calibre's "bad columns" flag outlives the connection.** Calibre resets
+  `have_bad_sync_columns` only when its wireless driver starts, not on each
+  connection. Removing a column needs a Calibre restart anyway, which
+  resets it.
+
