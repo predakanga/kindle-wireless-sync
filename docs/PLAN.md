@@ -309,6 +309,11 @@ Not part of any phase. Pick these up after the base and stretch goals
    installed on the reference device. Add our own (or a vendored, credited
    copy, after checking its licence), plus a recipe that taps, screenshots
    and fetches the PNG.
+8. **Reconnect after Calibre restarts.** Quitting Calibre ejects the
+   device, and an eject keeps us disconnected until Wi-Fi cycles or Connect
+   now (ADR 0008). Restarting Calibre, which adding columns requires, left
+   the Kindle disconnected (developer, 2026-10-17). Find out whether a
+   shutdown eject can be told apart from a user's eject.
 
 ## Open questions
 

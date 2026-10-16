@@ -91,8 +91,9 @@ seeing it, with the right type, in that library's column list. We record
 the columns we've seen per library, keyed by the library's UUID, and
 refresh the record on every connection.
 - The connection on which the columns first appear can't sync yet, because
-  the handshake is already over. The daemon reconnects once, straight away,
-  so the next connection syncs.
+  the handshake is already over. The daemon reconnects once, so the next
+  connection syncs. It waits until Calibre is idle (see Implementation
+  notes).
 - On that first sync we flag each book `_sync_type_: 2`, so neither side's
   existing values are wiped.
 - If a column disappears, we stop naming it from the next connection.
@@ -163,3 +164,20 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
   developer's older Kindle (Paperwhite 10th gen, 5.17.1). So on the target
   firmware there's no rating to sync. See
   `research/kindle-library-integration.md`, "Read state probe".
+
+## Implementation notes (2026-10-17)
+- **When to reconnect.** The first build dropped the connection as soon as
+  `SET_LIBRARY_INFO` showed new columns. Calibre was then waiting for the
+  book count, and showed the developer an error dialog ("Device responded
+  with incorrect information"). Calibre ignores a failed keep-alive `NOOP`,
+  though: it just marks the device disconnected
+  (`detect_managed_devices`). So the session now replies to a keep-alive,
+  then ends, but only once Calibre has sent nothing but keep-alives for
+  10 s. For 5 s after any operation Calibre sends a keep-alive on every
+  probe (`SEND_NOOP_EVERY_NTH_PROBE`), and those can fall between two of
+  its jobs.
+- **Columns removed.** The session that sees it carries on with the columns
+  it named. Calibre finds one missing, sends a message to the device (which
+  we only log) and skips that sync. The reconnect then names only what
+  exists, so sync stops for the missing column, silently. The library stays
+  writable, so re-creating the columns resumes it.

@@ -6,6 +6,7 @@
 //! `docs/research/calibre-wireless-protocol.md` for the walkthrough.
 
 use std::io::{self, BufRead, Write};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
@@ -19,6 +20,11 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PROTOCOL_VERSION: u64 = 1;
 /// Chunk size Calibre uses when streaming book bytes to us.
 const MAX_BOOK_PACKET: u64 = 64 * 1024;
+/// How long Calibre must have sent nothing but keep-alives before we may
+/// drop the connection without it noticing. For 5 s after an operation it
+/// sends a keep-alive on every probe, and those can fall between two of its
+/// jobs; dropping then fails the next job with an error dialog.
+pub const QUIET_BEFORE_RECONNECT: Duration = Duration::from_secs(10);
 
 /// Formats the built-in reader opens, in Calibre's order of preference for
 /// conversion.
@@ -86,7 +92,8 @@ pub enum SessionEnd {
     LibraryRejected(CalibreInfo),
     ProtocolMismatch,
     /// The sync columns we can name changed (ADR 0017). Calibre only reads
-    /// them in the handshake, so reconnect now.
+    /// them in the handshake, so reconnect now. Returned only once Calibre
+    /// has been idle, so it doesn't report an error.
     ColumnsChanged,
 }
 
@@ -102,6 +109,17 @@ pub fn run<R: BufRead, W: Write>(
     cfg: &DeviceConfig,
     admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
 ) -> io::Result<SessionEnd> {
+    run_with_quiet(conn, lib, cfg, admit, QUIET_BEFORE_RECONNECT)
+}
+
+/// [`run`], with the idle time to wait before a reconnect (for tests).
+pub fn run_with_quiet<R: BufRead, W: Write>(
+    conn: &mut Connection<R, W>,
+    lib: &mut Library,
+    cfg: &DeviceConfig,
+    admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
+    quiet: Duration,
+) -> io::Result<SessionEnd> {
     let mut adopted = false;
     let mut library_uuid = String::new();
     // The sync columns this library should have, and those we named in the
@@ -111,6 +129,10 @@ pub fn run<R: BufRead, W: Write>(
     // Read-status fields for the book list, by book index; kept for
     // Calibre's follow-up requests for full metadata.
     let mut sync_fields: Vec<Map<String, Value>> = Vec::new();
+    // Set when the columns we can name changed: reconnect once Calibre is
+    // idle. `last_busy` is when Calibre last sent anything but a keep-alive.
+    let mut reconnect = false;
+    let mut last_busy = Instant::now();
     loop {
         let Some(msg) = conn.recv()? else {
             return Ok(SessionEnd::Closed);
@@ -120,6 +142,10 @@ pub fn run<R: BufRead, W: Write>(
             continue;
         };
         let p = &msg.payload;
+        let keep_alive = op == Opcode::Noop && p.as_object().is_none_or(Map::is_empty);
+        if !keep_alive {
+            last_busy = Instant::now();
+        }
         match op {
             Opcode::GetInitializationInfo => {
                 let info = CalibreInfo::from_init_payload(p);
@@ -203,8 +229,10 @@ pub fn run<R: BufRead, W: Write>(
                 match lib.record_columns(&library_uuid, custom) {
                     Ok(()) => {
                         if available.is_some_and(|a| a != named) {
-                            log::info!("the library's sync columns changed; reconnecting");
-                            return Ok(SessionEnd::ColumnsChanged);
+                            log::info!(
+                                "the library's sync columns changed; reconnecting when calibre is idle"
+                            );
+                            reconnect = true;
                         }
                     }
                     // Without the record, a reconnect would name the same
@@ -245,6 +273,10 @@ pub fn run<R: BufRead, W: Write>(
                     // Announces how many priKey requests follow; no reply.
                 } else {
                     conn.send(Opcode::Ok, json!({}))?;
+                    if reconnect && last_busy.elapsed() >= quiet {
+                        // Calibre takes a failed keep-alive quietly.
+                        return Ok(SessionEnd::ColumnsChanged);
+                    }
                     // Calibre's keep-alive: a quiet moment between its
                     // operations, so run a due series pass (ADR 0016).
                     lib.reconcile_series_if_due();
@@ -545,7 +577,8 @@ mod tests {
         run_script_with(lib, cfg, script, password, None)
     }
 
-    /// Admits library "lib-1" with `password` and sync `columns`.
+    /// Admits library "lib-1" with `password` and sync `columns`, and
+    /// reconnects at the first keep-alive.
     fn run_script_with(
         lib: &mut Library,
         cfg: &DeviceConfig,
@@ -553,10 +586,22 @@ mod tests {
         password: Option<&str>,
         columns: Option<Columns>,
     ) -> Outcome {
+        run_script_quiet(lib, cfg, script, password, columns, Duration::ZERO)
+    }
+
+    /// [`run_script_with`], waiting `quiet` before a reconnect.
+    fn run_script_quiet(
+        lib: &mut Library,
+        cfg: &DeviceConfig,
+        script: Script,
+        password: Option<&str>,
+        columns: Option<Columns>,
+        quiet: Duration,
+    ) -> Outcome {
         let mut out = Vec::new();
         let end = {
             let mut conn = Connection::new(Cursor::new(script.0), &mut out);
-            run(&mut conn, lib, cfg, &mut |info| {
+            let mut admit = |info: &CalibreInfo| {
                 if info.library_uuid == "lib-1" {
                     Admission::Accept {
                         password: password.map(str::to_owned),
@@ -565,8 +610,8 @@ mod tests {
                 } else {
                     Admission::Reject
                 }
-            })
-            .unwrap()
+            };
+            run_with_quiet(&mut conn, lib, cfg, &mut admit, quiet).unwrap()
         };
         // Decode replies; anything after the last frame is raw file data.
         let mut cur = Cursor::new(out);
@@ -673,13 +718,29 @@ mod tests {
             Script::new()
                 .handshake()
                 .msg(op, info.clone())
+                .msg(Opcode::Noop, json!({}))
                 .msg(Opcode::Noop, json!({"ejecting": true}))
         };
 
-        // First connection: not seen yet, so not named; seeing them ends it.
+        // Calibre hasn't been idle long enough: no reconnect yet, so it
+        // never sees us drop between two of its jobs.
+        let o = run_script_quiet(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            Some(Columns::defaults()),
+            Duration::from_secs(3600),
+        );
+        assert_eq!(o.end, SessionEnd::Ejected);
+        lib.record_columns("lib-1", Map::new()).unwrap();
+
+        // First connection: not seen yet, so not named; seeing them ends it
+        // at the keep-alive, after replying to it.
         let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+        assert_eq!(o.replies.last().unwrap().1, json!({}));
         assert_eq!(lib.known_columns("lib-1")["#kindle_read"], "bool");
 
         // The reconnect names them, and the same list doesn't end it again.
@@ -709,6 +770,7 @@ mod tests {
                 .handshake()
                 .msg(op, info.clone())
                 .msg(Opcode::GetBookCount, json!({"willUseCachedMetadata": true}))
+                .msg(Opcode::Noop, json!({}))
                 .msg(Opcode::Noop, json!({"ejecting": true}))
         };
         let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
@@ -716,9 +778,10 @@ mod tests {
             o.replies[0].1["isReadSyncCol"], "#kindle_read",
             "named from the old record"
         );
-        // Ended before the book list, so Calibre never checks the columns.
+        // The session carries on (Calibre skips its sync, as a column is
+        // missing), then ends at the keep-alive.
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
-        assert_eq!(o.replies.len(), 2);
+        assert_eq!(o.replies.last().unwrap().1, json!({}));
 
         let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
         assert_eq!(o.end, SessionEnd::Ejected);
