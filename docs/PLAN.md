@@ -211,6 +211,9 @@ sync works end to end with only stock Calibre.
   their device, in a separate session. Now the two test books disappear from
   the Library, but the "kws-test series" tile doesn't appear. Not yet
   investigated; wait for the developer before looking into it.
+  For testing, `just series-grouping [status|enable|disable]` turns grouping
+  on and off. Changes apply as soon as the Library redraws (go to Home and
+  back), with no restart (2026-10-17).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
 - ✅ Kindle device name as the Calibre device name (ADR 0015, released in
