@@ -59,7 +59,7 @@
         this.onChange = onChange || function () {};
         this.log = [];
         this.timers = {};
-        this.variants = { firstPage: "welcome", changeFlow: "choose", replaceConfirm: "dialog", serviceControls: "none" };
+        this.variants = { replaceConfirm: "dialog" };
         this.options = { probeMs: 2500, keyboard: true };
         this.preset("fresh");
     }
@@ -161,7 +161,7 @@
         var s = this.svc, l = s.linked;
         return {
             ok: true, version: "0.3.0", state: s.state, detail: s.detail,
-            paused: s.paused, autostart: s.autostart, series: s.series,
+            paused: s.paused, autostart: s.autostart, series: s.series, wifi: this.wifi,
             library: l ? {
                 uuid: l.uuid, name: l.name, hostname: l.hostname, host: l.host, port: l.port,
                 has_password: !!l.password, writable: l.writable,

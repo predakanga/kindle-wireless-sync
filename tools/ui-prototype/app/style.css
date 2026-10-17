@@ -186,6 +186,7 @@ h1 { font-size: 1.45rem; margin: 0.9rem 0 0.4rem; }
 .btn-row .btn { float: left; width: 48.5%; }
 .btn-row .btn + .btn { margin-left: 3%; }
 .btn-row.thirds .btn { width: 31.3%; }
+.btn-row .btn-wide { width: 100%; }
 
 /* ---- forms ---- */
 
@@ -211,12 +212,8 @@ input[type=text], input[type=number], input[type=password] {
     padding: 0.7rem 0.8rem;
     margin: 0.2rem 0 0.4rem;
 }
-.card-name { font-size: 1.3rem; font-weight: bold; }
-.card-state { font-size: 1.1rem; font-weight: bold; margin: 0.3rem 0 0.4rem; }
-.card .sub { font-size: 0.9rem; margin-top: 0.15rem; }
-
-.steps { margin: 0.6rem 0 0.8rem; padding-left: 1.4rem; }
-.steps li { margin-bottom: 0.4rem; }
+.card .fact:last-child { border-bottom: none; }
+.card .note { padding-top: 0.4rem; }
 
 h1.top { margin-top: 1.5rem; }
 .footer { font-size: 0.8rem; text-align: center; margin-top: 1.5rem; }

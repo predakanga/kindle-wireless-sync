@@ -12,9 +12,7 @@ for the UI review before 0.3.0. No Kindle, service or Calibre needed: run
   Presets set up common situations; each library can be switched off,
   hidden from Find, made busy, given a password or given columns.
 - **Design variants** switch between alternatives still being decided:
-  a welcome page or the library list first; a Change library button or
-  Unlink only; a dialog or a warning before replacing a library; and
-  service controls in the app settings, or none.
+  for now, a dialog or a warning on the page before replacing a library.
 
 The app (`app/`) is ES5 with no flexbox, like the real one, so it can be
 copied to the Kindle to check the fit there. Opened on its own, it runs its
