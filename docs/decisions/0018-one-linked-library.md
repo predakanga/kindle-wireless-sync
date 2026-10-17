@@ -244,3 +244,28 @@ emulated Kindle and the Calibre harness both answer it: yes.
   and in 9.16.0 nothing in Calibre's GUI calls it, so only a plugin could.
   The `connected_device_name()` template function is the only place
   Calibre shows it.
+
+## Implementation notes (2026-10-17)
+- **`link` without HOST** changes the linked library's settings
+  (`--password`, `--writable`/`--read-only`) without contacting Calibre.
+  ADR 0017's `allow UUID --writable` worked without Calibre running, and
+  this keeps that. Linking by HOST needs Calibre to answer.
+- **`link`'s port is optional.** Without one, it uses Calibre's default
+  wireless port, 9090.
+- **`/link`** takes `{"uuid"}` for a found library, linked at the address
+  where it was found, without contacting it again. It takes `{"host",
+  "port", "password"?, "uuid"?}` to link by address. Either form can add
+  `"replace": true`. Without it, linking a different library replies
+  `{"ok": false, "needs_replace": true, "linked", "library"}`. After the
+  user confirms, the app sends the same request again with `"replace":
+  true` and the answering library's `uuid`. A by-address link is probed
+  again, so a different library answering by then is refused, not linked.
+- **`/link` that replaces a library cuts the open session** (as `/unlink`
+  and `/password` do), so the old library gets no more syncs. A `link` or
+  `unlink` from the command line only changes the config. The daemon
+  follows it at its next connection, and an open session continues until
+  it ends.
+- **`find` on the command line** prints a ready-made `link` command for
+  each library it found, with `--uuid`.
+- **Found libraries are listed without the linked one**, and a library
+  leaves the list once it's linked.

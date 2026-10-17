@@ -30,11 +30,11 @@ reader. KOReader and other third-party readers are out of scope.
 - **Wireless sending from Calibre.** Calibre sees the Kindle as a wireless
   device: send, replace and delete books as usual. Each book appears in the
   library as soon as its transfer finishes.
-- **Allowlisted libraries.** The Kindle only talks to the Calibre libraries
-  you allow, found on your network or added by address. Password-protected
+- **One linked library.** The Kindle only talks to the Calibre library you
+  link it to, found on your network or added by address. Password-protected
   Calibre connections work too.
 - **On-device app.** A **Wireless Sync** tile in the Library shows the
-  status. It lets you connect or pause, manage libraries, and choose whether
+  status. It lets you connect or pause, link a library, and choose whether
   the service starts automatically when the Kindle starts.
 - **Native series.** Books in a Calibre series are grouped into one series
   tile, in series order, like series bought from Amazon. This needs the
@@ -52,7 +52,7 @@ sideloaded EPUBs, so Calibre converts them when sending.
 - A jailbroken Kindle with [KPM](https://kindlemodding.org/jailbreaking/whats-next/installing-homebrew.html#kpm)
   (the Kindle Package Manager) installed.
 - Calibre on a computer on the same network. A different network also works,
-  using *Add a server by address* in the app.
+  using *Link a library by address* in the app.
 
 ## Install
 
@@ -77,8 +77,13 @@ stay in your library. The series this app created are removed.
 
 1. In Calibre, choose *Connect/share → Start wireless device connection*.
 2. On the Kindle, open **Wireless Sync** from the Library. Tap **Find
-   libraries**, then **Allow** your library.
+   libraries**, then **Link** your library.
 3. Send books from Calibre as usual.
+
+To use a different Calibre library, link it in the same way. The app asks
+first. Your books stay on the Kindle, but what the old library knew about
+them (series, read status) is forgotten until the new library sends its own.
+Books the new library doesn't have show in Calibre as on the device only.
 
 To stop the app managing series, set `"series": false` in
 `/var/local/kindle-wireless-sync/state/config.json` and restart the Kindle.
@@ -96,19 +101,19 @@ your Calibre library. It's off until you turn it on for a library:
    - `kindle_last_read`, of type *Date*
 
    Restart Calibre when it asks.
-2. On the Kindle, in kterm or over SSH, let the Kindle change that library.
-   `status` lists your allowed libraries with their IDs:
+2. On the Kindle, in kterm or over SSH, let the Kindle change the linked
+   library:
 
    ```sh
    cd /var/local/kindle-wireless-sync
-   ./kindle-wireless-sync status --state state
-   ./kindle-wireless-sync allow --state state LIBRARY_ID --writable
+   ./kindle-wireless-sync link --state state --writable
    ```
 
 From the next connection, books you mark read or unread on the Kindle, or
 finish there, update `#kindle_read`, and opening a book updates
 `#kindle_last_read`. Changes you make in Calibre stay in Calibre: they don't
-change the Kindle. `--read-only` turns it off again.
+change the Kindle. `--read-only` turns it off again. Linking a different
+library turns it off too.
 
 ## Development
 

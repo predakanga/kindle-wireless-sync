@@ -75,8 +75,8 @@ snippet to that README's "`exec` snippets in use" list with the date. Snippets
 that recur become named commands.
 
 `discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
-0009). The packaged binary has `daemon`, `find`, `add-server`, `allow`
-and `status`. In Calibre, run *Connect/share → Start wireless device
+0009). The packaged binary has `daemon`, `find`, `link`, `unlink`,
+`status` and `series`. In Calibre, run *Connect/share → Start wireless device
 connection* first.
 
 ## Code layout
@@ -111,8 +111,12 @@ track individual bytes.
   of idleness, and the daemon reconnects. Dropping the connection while
   Calibre is mid-job makes it show an error dialog.
   `Library::read_sync_fields` reads `cc.db` and adds `_is_read_` and
-  `_last_read_date_` to the book list. Only for libraries with
+  `_last_read_date_` to the book list. Only when the linked library has
   `writable: true` in `config.json`.
+- `config` and `daemon`: one linked library (ADR 0018). Found libraries
+  live in the daemon's memory. Linking only changes `config.json`; the
+  daemon resets the state (`Library::reset_if_relinked`) before its next
+  session when driveinfo's `last_library_uuid` names another library.
 - `adopt`: finds book files Calibre sent over USB and builds records for them
   from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
   it once per session.
@@ -221,7 +225,7 @@ quit Tailscale; don't change either yourself.
   once its DNS probe passes, and the daemon waits for CONNECTED.
 - The guest reaches the Mac at 10.0.2.2 over Wi-Fi and 192.168.15.201 over
   USB. UDP broadcast doesn't cross QEMU's network, so `find` can't see
-  Calibre. Link with `/add-server` (or `add-server`) by address.
+  Calibre. Link by address, with the app, `/link` or `link`.
 - `ping` in the guest is unreliable on macOS: replies arrive late and with
   "wrong data byte" errors. Don't read anything into it.
 

@@ -11,8 +11,16 @@ one.
 ### Added
 - The Kindle can send each book's read status and last-read date to your
   Calibre library, into two columns you create (`#kindle_read` and
-  `#kindle_last_read`). It's off by default: turn it on per library with
-  `allow --writable`. See the README.
+  `#kindle_last_read`). It's off by default: turn it on with `link
+  --writable`. See the README.
+
+### Changed
+- The Kindle is linked to one Calibre library, instead of an allowlist of
+  libraries. Link it with **Find libraries** or by address in the app, or
+  with `link` on the command line, which replaces `allow` and `add-server`.
+  Linking a different library asks first, keeps your books on the Kindle,
+  and forgets what the old library knew about them. **After upgrading, link
+  your library again.**
 
 ## [0.2.0] - 2026-10-16
 
