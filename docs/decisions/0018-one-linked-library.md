@@ -76,7 +76,8 @@ its output can be copied into `link`. `link` replaces both `allow` and
 deliberate act, so the app asks first, and says that books stay on the
 Kindle. The daemon then:
 - clears `driveinfo.json`, so the new library's Calibre sees a new device
-  and starts its metadata cache afresh;
+  and starts its metadata cache afresh (checked; see "Clearing
+  `driveinfo.json` makes a new device");
 - clears `columns.json` and every book's read-sync state, and resets
   `writable` to `false` (a fresh link starts read-only, as ADR 0017
   requires);
@@ -179,7 +180,34 @@ metadata once Calibre resends it.
   (developer, 2026-10-17). They're keyed by the Kindle's content key, not
   by library.
 
-## Open questions
-- Does clearing `driveinfo.json` really make the Kindle a new device to
-  Calibre, with a fresh metadata cache? Explore on the device before
-  building the reset (developer, 2026-10-17: unknown).
+## Clearing `driveinfo.json` makes a new device (checked 2026-10-17)
+This was an open question. Calibre's source (9.16.0) and a test with the
+emulated Kindle and the Calibre harness both answer it: yes.
+- **Source.** `smart_device_app/driver.py`, `get_device_information`: when
+  the `device_info` we send has no `device_store_uuid`,
+  `_update_driveinfo_record` creates a new `uuid4`. Calibre returns it in
+  `SET_CALIBRE_DEVICE_INFO`, and we store it. The metadata cache file is
+  named after that UUID (`wireless_device_<uuid>_metadata_cache.json`,
+  `_read_metadata_cache`), so a new UUID starts with an empty cache.
+  Outside the driver, only the `connected_device_uuid()` template function
+  reads the UUID. Nothing in Calibre reads `last_library_uuid`.
+- **Test.** The emulator (`pw6-5201-jb`, run with `-snapshot`) linked to the
+  harness library, holding one book:
+  - A normal session used device UUID `8868ac0e-…`, and Calibre got every
+    book from its cache ("Need count from device 0").
+  - With `driveinfo.json` removed, the next session got a new UUID,
+    `b8a0e635-…`. Calibre loaded 0 cache items, asked the device for full
+    metadata for its 1 book, and wrote a new cache file. The book still
+    matched its library record by UUID.
+- **Why it matters.** Calibre's cache is per device, not per library, and
+  is keyed on book UUID and `lpath`, and checked against `last_modified`.
+  The records we keep keep all three. If the device UUID stayed the same,
+  the next library opened in the same Calibre would get cache hits for
+  those books. Calibre would then show the old library's series, tags and
+  columns without asking the device. A new device UUID avoids that.
+- **Side effects.** The old cache file stays in Calibre's cache folder, and
+  nothing removes it. It's small, and it's Calibre's to manage. Deleting
+  the whole file also drops a `device_name` the user set in Calibre. ADR
+  0015 leaves that field to Calibre. Calibre's location bar doesn't show it,
+  so the loss is small. The reset could remove only `device_store_uuid` and
+  `last_library_uuid` instead (to decide when building it).
