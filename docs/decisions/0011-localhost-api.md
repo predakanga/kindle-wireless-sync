@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-10-15
 - Amended: 2026-10-15 (config ownership; see below)
+- Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
+  (2026-10-18): `/probe`, `/settings`, `/series` and `/service`, and
+  `/link` links the checked library.
 
 ## Context
 ADR 0004 puts the UI in a WAF app that talks to the daemon over a localhost

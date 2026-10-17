@@ -5,6 +5,8 @@
 - Amended: 2026-10-15. Service and directory names changed from `kws` to
   `kindle-wireless-sync` (naming decision in ADR 0006).
 - The autostart and crash-loop guard mechanics are detailed in ADR 0010.
+- Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
+  (2026-10-18): the app has Restart and Stop, not Start and Stop.
 
 ## Context
 We need an on-device UI for the allowlist, service start/stop, autostart and

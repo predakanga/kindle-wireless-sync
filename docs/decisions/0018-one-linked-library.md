@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-10-17
+- Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
+  (2026-10-18): the app checks a library (password, columns) before linking
+  it, and links it with the settings chosen.
 
 ## Context
 ADR 0003 made the Kindle connect only to Calibre libraries the user has

@@ -1,11 +1,11 @@
 # 0020: One screen per page, and checking a library before linking it
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-10-18)
 - Date: 2026-10-18
-- Amends, once accepted: [0004](0004-ui-architecture.md) (service
-  controls), [0011](0011-localhost-api.md) (the API),
-  [0017](0017-read-status-sync.md) (the user chooses the columns) and
-  [0018](0018-one-linked-library.md) (how a library is linked).
+- Amends [0004](0004-ui-architecture.md) (service controls),
+  [0011](0011-localhost-api.md) (the API), [0017](0017-read-status-sync.md)
+  (the user chooses the columns, which move into `config.json`) and
+  [0018](0018-one-linked-library.md) (linking checks the library first).
 
 ## Context
 **Scrolling.** The developer's UI review (2026-10-17) started from one
@@ -335,5 +335,4 @@ count towards the crash-loop guard (ADR 0010).
     lockout.
   - A cached library can be out of date for up to 5 minutes; the check
     catches a changed library before linking.
-- **Docs:** the README's app section, the changelog, and "Amended by 0020"
-  notes in ADRs 0004, 0011, 0017 and 0018 once this is accepted.
+- **Docs:** the README's app section and the changelog.

@@ -5,6 +5,9 @@
 - Amended by [0018](0018-one-linked-library.md) (2026-10-17): the settings
   belong to the linked library, `link --writable` replaces `allow
   --writable`, and linking a different library resets them.
+- Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
+  (2026-10-18): the user chooses the columns from the library's own, and
+  the library's column list moves from `columns.json` into `config.json`.
 
 ## Context
 Phase 5, stretch goal 2, is to send reading progress and ratings from the
