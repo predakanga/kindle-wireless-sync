@@ -185,6 +185,25 @@ The result lives in the daemon's memory, like found libraries (ADR 0018):
 the checked library's UUID, name, address, the password that worked, and
 its columns.
 
+**Find libraries remembers what it learned for 5 minutes** (developer,
+2026-10-18). Each search still broadcasts, which Calibre answers from a
+separate listener that doesn't count towards the lockout (`driver.py`,
+the broadcast thread). It then connects only to servers it hasn't heard
+from in the last 5 minutes. For the rest it reuses what it learned: the
+library's name, UUID and whether it wants a password.
+- **The list shows only servers that answered this search's broadcast.**
+  A Calibre that has closed drops off at once.
+- **The 5 minutes count from the last connection to that server,** so
+  repeated searches don't extend a stale entry.
+- **Search again uses the cache too.** Otherwise tapping it would bring
+  back the risk.
+- **A cached entry can be stale.** For example, Calibre may have switched
+  to another library within the 5 minutes. The check's handshake names the
+  library Calibre serves now. If that's a different library, the check
+  says so and updates the entry, rather than linking the wrong one.
+- **The cache is in memory.** It goes with the service, and on a Wi-Fi
+  change.
+
 **A lockout gets its own message.** When Calibre closes a connection before
 sending anything, the check, Find libraries and the service's own session
 report it as a probable lockout, not as "unreachable" or "not a Calibre
@@ -282,7 +301,8 @@ count towards the crash-loop guard (ADR 0010).
 - **Work:**
   - A check mode for sessions, and the daemon running a check alongside
     its own session.
-  - Find libraries recording whether a password is needed.
+  - Find libraries recording whether a password is needed, and caching
+    what it learned for 5 minutes.
   - The lockout message.
   - The API changes.
   - The columns moving into `config.json`.
@@ -296,6 +316,8 @@ count towards the crash-loop guard (ADR 0010).
     Find libraries without linking), then the message on the next check,
     Find and session, and that stopping and starting Calibre's wireless
     connection clears it.
+  - Repeated searches within 5 minutes connecting to each server only
+    once, and a library switched in Calibre within that time.
   - A check while the service is connected to the same Calibre.
   - Calibre starting a job during a check, say a send.
   - The check's cache file being reused.
@@ -307,7 +329,11 @@ count towards the crash-loop guard (ADR 0010).
   - A check adds a device to Calibre's view, briefly.
   - Each failed connection (a Find libraries probe, a wrong password)
     counts towards Calibre's lockout of 5 from one address, and the library
-    list searches every time it opens. A completed check resets the count.
-    The message above tells the user how to clear a lockout.
+    list searches every time it opens. The 5-minute cache keeps searches to
+    at most one connection per server in that time, and a completed check
+    resets the count. The message above tells the user how to clear a
+    lockout.
+  - A cached library can be out of date for up to 5 minutes; the check
+    catches a changed library before linking.
 - **Docs:** the README's app section, the changelog, and "Amended by 0020"
   notes in ADRs 0004, 0011, 0017 and 0018 once this is accepted.
