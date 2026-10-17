@@ -27,6 +27,9 @@ one.
   could not be started") when the package was installed from a shell with
   a restrictive umask, because its files were readable only by root.
   Installing or upgrading now sets the files' permissions itself.
+- After an upgrade, reopening the **Wireless Sync** app could show the old
+  version, because the app stayed open in the background. Upgrading now
+  closes it.
 
 ## [0.2.0] - 2026-10-16
 

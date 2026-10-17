@@ -35,6 +35,11 @@ fresh=1
 running=0
 /sbin/initctl status "$JOB" 2>/dev/null | grep -q running && running=1
 
+# A backgrounded app keeps its page in memory, so after an upgrade reopening
+# it would run the old script against the new service. Close it the graceful
+# way (killing mesquite makes appmgrd report a crash).
+lipc-set-prop com.lab126.appmgrd stop "app://$APP_ID" 2>/dev/null || true
+
 echo "Installing to $DIR"
 mkdir -p "$DIR/state"
 chmod 755 "$DIR"

@@ -153,3 +153,15 @@ also repair an earlier install on upgrade. Tested on the emulator: with the
 0.2.0 install's `0700` modes, running the new `install.sh` over the
 umask-`0077` SSH (as KPM runs its hooks) fixed the modes, and the app
 opened.
+
+## Upgrades close the app (2026-10-17)
+The firmware keeps a backgrounded app's mesquite process, with its page and
+script in memory. On the device, an app opened at 00:45 was still running
+after a KPM upgrade at 21:37, so reopening it resumed the 0.2.0 script
+against the new service (it showed the raw state `not_linked` and no found
+libraries). Clearing mesquite's cache (`/var/local/mesquite/<app id>`)
+doesn't help with that. `install.sh` now closes the app before replacing
+its files, with `lipc-set-prop com.lab126.appmgrd stop app://<app id>`,
+the same graceful unload `uninstall.sh` uses (killing mesquite makes
+appmgrd report a crash). Tested on the device: with the app backgrounded
+behind Home, a repository upgrade closed it and Home stayed in front.
