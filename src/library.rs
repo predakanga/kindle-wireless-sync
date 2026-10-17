@@ -19,6 +19,8 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{json, Map, Value};
@@ -68,7 +70,10 @@ struct SeriesSync {
     catalog: Catalog,
     debounce: Duration,
     /// False when series are turned off: passes dissolve ours instead.
+    /// What the last pass applied; `switch` is what the user wants now.
     keep: bool,
+    /// Turned by the app's Settings (ADR 0020); a change makes a pass due.
+    switch: Arc<AtomicBool>,
     /// Set by any book change; cleared by a complete pass.
     dirty_since: Option<Instant>,
     /// We've logged that the catalog isn't ready yet.
@@ -270,6 +275,7 @@ impl Library {
             catalog,
             debounce,
             keep,
+            switch: Arc::new(AtomicBool::new(keep)),
             dirty_since: Some(Instant::now() - debounce),
             waiting: false,
         });
@@ -284,7 +290,16 @@ impl Library {
     /// How long until a series pass is due, if one is needed.
     pub fn series_due_in(&self) -> Option<Duration> {
         let s = self.series.as_ref()?;
+        if s.switch.load(Ordering::SeqCst) != s.keep {
+            return Some(Duration::ZERO);
+        }
         Some(s.debounce.saturating_sub(s.dirty_since?.elapsed()))
+    }
+
+    /// The switch that turns series on and off while running, if series
+    /// are managed at all (they need the Kindle's catalog).
+    pub fn series_switch(&self) -> Option<Arc<AtomicBool>> {
+        self.series.as_ref().map(|s| s.switch.clone())
     }
 
     /// Runs a series pass if one is due. Errors are logged, and the pass is
@@ -307,6 +322,7 @@ impl Library {
             return;
         }
         s.waiting = false;
+        s.keep = s.switch.load(Ordering::SeqCst);
         let books = match s.keep {
             true => series::books_from_records(&self.books),
             false => Vec::new(),
@@ -992,6 +1008,17 @@ mod tests {
         );
         assert_eq!(cmds[3]["update"]["members"], json!(["u1", "u2"]));
         assert_eq!(lib.series_due_in(), None, "a complete pass clears the flag");
+
+        // The app's switch makes a pass due each way it's turned.
+        let switch = lib.series_switch().unwrap();
+        switch.store(false, Ordering::SeqCst);
+        assert_eq!(lib.series_due_in(), Some(Duration::ZERO));
+        lib.reconcile_series_if_due();
+        assert_eq!(lib.series_due_in(), None);
+        switch.store(true, Ordering::SeqCst);
+        assert_eq!(lib.series_due_in(), Some(Duration::ZERO));
+        lib.reconcile_series_if_due();
+        assert_eq!(lib.series_due_in(), None);
 
         // Calibre resending the same metadata isn't a series change.
         let same = lib.books()[0].clone();

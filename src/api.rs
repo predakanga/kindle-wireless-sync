@@ -15,10 +15,12 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::config::Link;
+use crate::check::Target;
 use crate::config::{self, Config};
+use crate::config::{Link, LinkedLibrary};
 use crate::daemon::{self, FindResult, FoundLibrary, Handle, LinkError, State};
 use crate::discovery::CalibreServer;
+use crate::readsync::Columns;
 use crate::session::CalibreInfo;
 
 pub const DEFAULT_PORT: u16 = 8325;
@@ -240,7 +242,27 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
             None => bad_request("expected {\"enabled\": true|false}"),
         },
         ("POST", "/find") => find(api),
+        ("POST", "/probe") => probe(api, &body),
+        ("POST", "/probe/cancel") => {
+            api.handle.cancel_check();
+            ok()
+        }
+        // Without `uuid` or `host`: the checked library (ADR 0020).
+        ("POST", "/link") if body.get("uuid").is_none() && body.get("host").is_none() => {
+            link_checked(api, &body)
+        }
         ("POST", "/link") => link(api, &body),
+        ("POST", "/settings") => settings(api, &body),
+        ("POST", "/series") => match body.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => match config::update(&api.state_dir, |c| c.series = enabled) {
+                Ok(()) => {
+                    api.handle.set_series(enabled);
+                    ok()
+                }
+                Err(e) => fail(format!("Cannot save settings: {e}")),
+            },
+            None => bad_request("expected {\"enabled\": true|false}"),
+        },
         ("POST", "/unlink") => match uuid() {
             Some(u) => {
                 let unlinked =
@@ -277,7 +299,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         (
             _,
             "/status" | "/connect-now" | "/reconnect" | "/pause" | "/resume" | "/autostart"
-            | "/find" | "/link" | "/unlink" | "/password",
+            | "/find" | "/probe" | "/probe/cancel" | "/link" | "/settings" | "/series" | "/unlink"
+            | "/password",
         ) => (405, json!({"ok": false, "error": "method not allowed"})),
         _ => (404, json!({"ok": false, "error": "not found"})),
     }
@@ -295,17 +318,24 @@ fn status_json(api: &Api) -> Value {
         "autostart": api.home_dir.join(AUTOSTART).exists(),
         "autostart_disabled_by_guard": api.home_dir.join(AUTOSTART_DISABLED).exists(),
     });
-    let linked = match Config::load(&api.state_dir) {
-        Ok(c) => c.library,
+    let (linked, series) = match Config::load(&api.state_dir) {
+        Ok(c) => (c.library, c.series),
         Err(e) => {
             out["config_error"] = json!(e.to_string());
-            None
+            (None, true)
         }
     };
+    out["series"] = json!(series);
+    out["wifi"] = json!(api.handle.wifi());
+    out["probe"] = api
+        .handle
+        .check_status()
+        .map_or(Value::Null, |s| s.to_json());
     out["library"] = linked.as_ref().map_or(Value::Null, |a| {
         json!({"uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
                "hostname": a.hostname, "has_password": a.password.is_some(),
-               "writable": a.writable})
+               "writable": a.writable, "read_column": a.read_column,
+               "last_read_column": a.last_read_column, "columns": a.columns})
     });
     out["found"] = api
         .handle
@@ -484,6 +514,183 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
         )),
         Err(LinkError::Unreachable(e)) => fail(e.to_string()),
         Err(LinkError::Settings(e)) => fail(format!("Cannot save settings: {e}")),
+    }
+}
+
+/// A host and port from a request body, checked.
+fn host_port(body: &Value) -> Result<(String, u16), (u16, Value)> {
+    let host = body
+        .get("host")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
+        return Err(fail("Enter the computer's name or address."));
+    }
+    let port = body.get("port").and_then(Value::as_u64);
+    let Some(port) = port.filter(|p| (1..=65535).contains(p)) else {
+        return Err(fail("Enter a port between 1 and 65535."));
+    };
+    Ok((host.to_owned(), port as u16))
+}
+
+/// `/probe`: checks a found library (`uuid`) or one by `host` and `port`,
+/// with an optional `password` (ADR 0020). Returns at once; `/status`
+/// shows the check as `probe`.
+fn probe(api: &Api, body: &Value) -> (u16, Value) {
+    let password = body
+        .get("password")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned);
+    let target = match body.get("uuid").and_then(Value::as_str) {
+        Some(uuid) => match api.handle.found().into_iter().find(|f| f.uuid == uuid) {
+            Some(found) => Target::Found(found),
+            None => return fail("That library isn't in the found list. Search again."),
+        },
+        None => match host_port(body) {
+            Ok((host, port)) => Target::Address { host, port },
+            Err(reply) => return reply,
+        },
+    };
+    api.handle.start_check(target, password);
+    ok()
+}
+
+/// The sync columns in a request body, checked against a library's columns
+/// when they're known: a Yes/No column for read, a Date column for last read.
+fn chosen_columns(
+    body: &Value,
+    columns: &serde_json::Map<String, Value>,
+) -> Result<(bool, Columns), (u16, Value)> {
+    let writable = body
+        .get("writable")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let pick = |key: &str, datatype: &str, what: &str| -> Result<Option<String>, (u16, Value)> {
+        let Some(lookup) = body
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        else {
+            return Ok(None);
+        };
+        let fits = columns.is_empty()
+            || columns.get(lookup).and_then(|c| c["datatype"].as_str()) == Some(datatype);
+        if fits {
+            Ok(Some(lookup.to_owned()))
+        } else {
+            Err(fail(format!(
+                "{lookup} isn't a {what} column in this library."
+            )))
+        }
+    };
+    let read = pick("read_column", "bool", "Yes/No")?;
+    let last_read = pick("last_read_column", "datetime", "Date")?;
+    Ok((writable, Columns { read, last_read }))
+}
+
+/// `/link` without `uuid` or `host`: links the library that passed the
+/// latest check, with `writable`, `read_column` and `last_read_column`.
+/// Replacing a different linked library needs `"replace": true` (ADR 0018).
+fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
+    let Some(checked) = api.handle.checked() else {
+        return fail("Check the library first.");
+    };
+    let (writable, columns) = match chosen_columns(body, &checked.columns) {
+        Ok(c) => c,
+        Err(reply) => return reply,
+    };
+    let replace = body
+        .get("replace")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let result = config::update(&api.state_dir, |c| {
+        let link = c.link(
+            LinkedLibrary {
+                uuid: checked.uuid.clone(),
+                name: checked.name.clone(),
+                host: Some(checked.host.clone()),
+                port: Some(checked.port),
+                hostname: checked.hostname.clone(),
+                password: checked.password.clone(),
+                columns: checked.columns.clone(),
+                ..Default::default()
+            },
+            replace,
+        );
+        if !matches!(link, Link::Refused(_)) {
+            c.set_writable(&checked.uuid, writable.then_some(columns));
+        }
+        link
+    });
+    match result {
+        Ok(Link::Refused(linked)) => (
+            200,
+            json!({
+                "ok": false,
+                "needs_replace": true,
+                "error": format!(
+                    "This Kindle is linked to {}. Linking {} replaces it.",
+                    linked.display_name(),
+                    checked.name
+                ),
+                "linked": {"uuid": linked.uuid, "name": linked.name},
+                "library": {"uuid": checked.uuid, "name": checked.name},
+            }),
+        ),
+        Ok(link) => {
+            api.handle.forget_found(&checked.uuid);
+            api.handle.cancel_check();
+            let replaced = matches!(link, Link::Replaced(_));
+            if replaced || matches!(link, Link::Updated) {
+                // Stop talking to the old library, or pick up the new
+                // settings, at once.
+                api.handle.reconnect();
+            } else {
+                api.handle.connect_now();
+            }
+            (
+                200,
+                json!({"ok": true, "library": {"uuid": checked.uuid, "name": checked.name},
+                       "replaced": replaced}),
+            )
+        }
+        Err(e) => fail(format!("Cannot save settings: {e}")),
+    }
+}
+
+/// `/settings`: the linked library's `writable`, `read_column` and
+/// `last_read_column`. The session ends once Calibre is quiet, so the next
+/// one names the new columns (ADR 0020).
+fn settings(api: &Api, body: &Value) -> (u16, Value) {
+    let linked = match Config::load(&api.state_dir) {
+        Ok(c) => c.library,
+        Err(e) => return fail(format!("Cannot read settings: {e}")),
+    };
+    let Some(linked) = linked else {
+        return fail("No library is linked.");
+    };
+    let (writable, columns) = match chosen_columns(body, &linked.columns) {
+        Ok(c) => c,
+        Err(reply) => return reply,
+    };
+    let changed = config::update(&api.state_dir, |c| {
+        let uuid = linked.uuid.clone();
+        if writable {
+            c.set_writable(&uuid, Some(columns))
+        } else {
+            // Off keeps the names for next time.
+            c.set_writable(&uuid, None)
+        }
+    });
+    match changed {
+        Ok(true) => {
+            api.handle.settings_changed();
+            ok()
+        }
+        Ok(false) => fail("That library is no longer linked."),
+        Err(e) => fail(format!("Cannot save settings: {e}")),
     }
 }
 
@@ -749,13 +956,121 @@ mod tests {
         assert!(!request_reconnect(dead.port()).unwrap());
     }
 
+    /// A Calibre serving `uuid`, whose library has a Yes/No and a Date
+    /// column: it lists them, then ejects (ADR 0020).
+    fn checkable_calibre(uuid: &'static str) -> u16 {
+        use crate::protocol::{read_message, write_message, Opcode};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let init = json!({"serverProtocolVersion": 1, "currentLibraryUUID": uuid,
+                                  "currentLibraryName": format!("Library {uuid}"),
+                                  "passwordChallenge": ""});
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                if write_message(&mut stream, Opcode::GetInitializationInfo, &init).is_err()
+                    || !matches!(read_message(&mut reader), Ok(Some(_)))
+                {
+                    continue; // a probe
+                }
+                let fm = json!({"fieldMetadata": {
+                    "#read": {"is_custom": true, "datatype": "bool", "name": "Read"},
+                    "#when": {"is_custom": true, "datatype": "datetime", "name": "When"}}});
+                let _ = write_message(&mut stream, Opcode::SetLibraryInfo, &fm);
+                let _ = read_message(&mut reader);
+                let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
+                let _ = read_message(&mut reader);
+            }
+        });
+        port
+    }
+
+    fn check_and_wait(f: &Fixture, port: u16) -> Value {
+        let body = format!(r#"{{"host": "127.0.0.1", "port": {port}}}"#);
+        assert_eq!(post(f, "/probe", &body).1["ok"], true);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let probe = get(f, "/status", None).1["probe"].clone();
+            if probe["state"] != "checking" {
+                return probe;
+            }
+            assert!(std::time::Instant::now() < deadline, "check timed out");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn check_then_link_with_settings_change_them_and_replace() {
+        let f = start();
+        let port = checkable_calibre("lib-1");
+        let probe = check_and_wait(&f, port);
+        assert_eq!(probe["state"], "ok", "{probe}");
+        assert_eq!(probe["library"]["name"], "Library lib-1");
+        assert_eq!(probe["library"]["columns"]["#read"]["name"], "Read");
+
+        // Columns must exist with the right type.
+        let (_, v) = post(
+            &f,
+            "/link",
+            r##"{"writable": true, "read_column": "#when"}"##,
+        );
+        assert_eq!(v["error"], "#when isn't a Yes/No column in this library.");
+        let body = r##"{"writable": true, "read_column": "#read", "last_read_column": "#when"}"##;
+        let (_, v) = post(&f, "/link", body);
+        assert_eq!(v["ok"], true, "{v}");
+        let status = get(&f, "/status", None).1;
+        let lib = &status["library"];
+        assert_eq!(
+            (lib["uuid"].clone(), lib["writable"].clone()),
+            (json!("lib-1"), json!(true))
+        );
+        assert_eq!(lib["read_column"], "#read");
+        assert_eq!(lib["columns"]["#when"]["datatype"], "datetime");
+        assert_eq!(status["probe"], Value::Null, "the check is done with");
+
+        // Turning read sync off keeps the column names for next time.
+        assert_eq!(
+            post(&f, "/settings", r#"{"writable": false}"#).1["ok"],
+            true
+        );
+        let lib = get(&f, "/status", None).1["library"].clone();
+        assert_eq!(
+            (lib["writable"].clone(), lib["read_column"].clone()),
+            (json!(false), json!("#read"))
+        );
+
+        assert_eq!(post(&f, "/series", r#"{"enabled": false}"#).1["ok"], true);
+        assert_eq!(get(&f, "/status", None).1["series"], false);
+
+        // Another library replaces it only when confirmed.
+        let other = checkable_calibre("lib-2");
+        assert_eq!(check_and_wait(&f, other)["state"], "ok");
+        let (_, v) = post(&f, "/link", "{}");
+        assert_eq!(v["needs_replace"], true);
+        assert_eq!(v["linked"]["uuid"], "lib-1");
+        let (_, v) = post(&f, "/link", r#"{"replace": true}"#);
+        assert_eq!(
+            (v["ok"].clone(), v["replaced"].clone()),
+            (json!(true), json!(true))
+        );
+        let lib = get(&f, "/status", None).1["library"].clone();
+        assert_eq!(
+            (lib["uuid"].clone(), lib["writable"].clone()),
+            (json!("lib-2"), json!(false))
+        );
+    }
+
     #[test]
     fn bad_requests() {
         let f = start();
         assert_eq!(get(&f, "/nope", None).0, 404);
         assert_eq!(get(&f, "/link", None).0, 405);
         assert_eq!(post(&f, "/link", "not json").0, 400);
-        assert_eq!(post(&f, "/link", "{}").0, 400);
+        // Without uuid or host: the checked library, and there's none yet.
+        let (code, v) = post(&f, "/link", "{}");
+        assert_eq!((code, v["ok"].clone()), (200, json!(false)));
+        assert_eq!(v["error"], "Check the library first.");
         assert_eq!(post(&f, "/allow", "{}").0, 404);
         assert_eq!(request(&f, "garbage\r\n\r\n").0, 400);
         let big = "x".repeat(MAX_BODY + 1);

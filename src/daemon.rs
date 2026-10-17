@@ -79,6 +79,9 @@ pub enum Control {
     Network(bool),
     ConnectNow,
     Shutdown,
+    /// Something changed that an idle wait should look at again (the
+    /// series switch).
+    Wake,
 }
 
 struct Shared {
@@ -104,6 +107,13 @@ struct Shared {
     /// Whether the service stepped aside for the hold, so releasing it
     /// should reconnect.
     held: AtomicBool,
+    /// Whether Wi-Fi is up, for the UI.
+    wifi: AtomicBool,
+    /// The linked library's sync settings changed: end the session at a
+    /// quiet moment so the next one names the new columns (ADR 0020).
+    settings_changed: AtomicBool,
+    /// Turns series on and off while running (ADR 0016), if managed.
+    series_switch: Option<Arc<AtomicBool>>,
 }
 
 impl Shared {
@@ -213,6 +223,7 @@ impl Handle {
     /// Reports a Wi-Fi change. Going down also cuts the current session at
     /// once rather than waiting for a TCP timeout.
     pub fn network_changed(&self, up: bool) {
+        self.shared.wifi.store(up, Ordering::SeqCst);
         if !up {
             self.shared.interrupt();
         }
@@ -281,6 +292,25 @@ impl Handle {
             log::info!("check of {}: {}", status.name, status.state.as_str());
             shared.checker.finish(number, status);
         });
+    }
+
+    /// Turns series on or off now, when the service manages them; the
+    /// setting itself is in `config.json`.
+    pub fn set_series(&self, enabled: bool) {
+        if let Some(switch) = &self.shared.series_switch {
+            switch.store(enabled, Ordering::SeqCst);
+            let _ = self.tx.send(Control::Wake);
+        }
+    }
+
+    pub fn wifi(&self) -> bool {
+        self.shared.wifi.load(Ordering::SeqCst)
+    }
+
+    /// The linked library's sync settings changed: end the session once
+    /// Calibre is quiet and reconnect, so they take effect (ADR 0017).
+    pub fn settings_changed(&self) {
+        self.shared.settings_changed.store(true, Ordering::SeqCst);
     }
 
     pub fn cancel_check(&self) {
@@ -375,6 +405,9 @@ impl Daemon {
             quiet: opts.quiet,
             hold: Mutex::new(None),
             held: AtomicBool::new(false),
+            wifi: AtomicBool::new(net_up),
+            settings_changed: AtomicBool::new(false),
+            series_switch: lib.series_switch(),
         });
         let handle = Handle {
             tx,
@@ -413,6 +446,7 @@ impl Daemon {
                 None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
             match received {
+                Ok(Control::Wake) => self.lib.reconcile_series_if_due(),
                 Ok(m) => break m,
                 Err(RecvTimeoutError::Disconnected) => return Wake::Shutdown,
                 Err(RecvTimeoutError::Timeout) => {
@@ -435,6 +469,7 @@ impl Daemon {
                 Wake::ConnectNow
             }
             Control::Shutdown => Wake::Shutdown,
+            Control::Wake => unreachable!("handled while waiting"),
         }
     }
 
@@ -652,6 +687,7 @@ impl Daemon {
                         attempt = 0;
                     }
                     Control::Shutdown => shutdown = true,
+                    Control::Wake => {}
                 }
             }
             if shutdown {
@@ -687,9 +723,12 @@ impl Daemon {
                     continue;
                 }
                 Outcome::Held => {
-                    // Releasing the hold sends Connect now.
+                    // Releasing the hold sends Connect now. Set first, so a
+                    // release between here and the check below isn't missed.
                     self.shared.held.store(true, Ordering::SeqCst);
                     if self.shared.hold.lock().unwrap().is_none() {
+                        // Ended for new settings, or the check is done.
+                        self.shared.held.store(false, Ordering::SeqCst);
                         attempt = 0;
                         continue;
                     }
@@ -847,7 +886,7 @@ impl Admit for LinkedAdmit<'_> {
     }
 
     fn end_when_quiet(&mut self) -> bool {
-        self.shared.is_held(self.addr)
+        self.shared.is_held(self.addr) || self.shared.settings_changed.swap(false, Ordering::SeqCst)
     }
 }
 
@@ -1498,6 +1537,20 @@ mod tests {
         assert_eq!(h.checked().unwrap().uuid, "lib-1");
         // Then the service connects again: session, probe, check, session.
         wait_until("reconnected", || count.load(Ordering::SeqCst) >= 4);
+        wait_until("connected", || h.status().state == State::Connected);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn new_sync_settings_end_the_session_at_a_quiet_moment_and_reconnect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre_with("lib-1", false);
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        wait_until("connected", || h.status().state == State::Connected);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        h.settings_changed();
+        wait_until("reconnected", || count.load(Ordering::SeqCst) == 2);
         wait_until("connected", || h.status().state == State::Connected);
         h.shutdown();
         thread.join().unwrap();
