@@ -11,6 +11,11 @@ Usage: harness.py COMMAND [ARGS]
   wireless-stop
   wait-device [--timeout S]     wait for a connected device with no jobs left
   device-books                  the device's book list as Calibre sees it
+  send ID... [--convert ask|yes|no] [--wait]
+                                send library books to the device; --convert answers
+                                the auto-convert question (default: let it ask)
+  delete LPATH... [--wait]      delete books from the device, without the confirmation
+  field NAME [ID...]            a library field per book, e.g. field '#kindle_read'
   dialogs [--accept|--dismiss]  visible dialogs (error dialogs included); answer Yes or No
   exec [--no-wait] CODE|-       run Python in the GUI (gui, db, dm in scope); prints `result`.
                                 Use --no-wait for code that can ask a question, such as
@@ -160,6 +165,18 @@ def main():
     sub.add_parser('wireless-stop')
     sub.add_parser('wait-device').add_argument('--timeout', type=float, default=120)
     sub.add_parser('device-books')
+    c = sub.add_parser('send')
+    c.add_argument('ids', nargs='+', type=int)
+    c.add_argument('--convert', choices=('ask', 'yes', 'no'), default='ask')
+    c.add_argument('--wait', action='store_true', help='then wait-device')
+    c.add_argument('--timeout', type=float, default=120)
+    c = sub.add_parser('delete')
+    c.add_argument('lpaths', nargs='+')
+    c.add_argument('--wait', action='store_true', help='then wait-device')
+    c.add_argument('--timeout', type=float, default=120)
+    c = sub.add_parser('field')
+    c.add_argument('name')
+    c.add_argument('ids', nargs='*', type=int)
     c = sub.add_parser('dialogs').add_mutually_exclusive_group()
     c.add_argument('--accept', action='store_true')
     c.add_argument('--dismiss', action='store_true')
@@ -176,6 +193,15 @@ def main():
         elif a.command == 'wireless-start':
             args = {k: v for k, v in (('port', a.port), ('password', a.password)) if v is not None}
             result = call('wireless-start', **args)
+        elif a.command in ('send', 'delete'):
+            if a.command == 'send':
+                result = call('send', ids=a.ids, convert=a.convert)
+            else:
+                result = call('delete', lpaths=a.lpaths)
+            if a.wait:
+                wait_device(a.timeout)
+        elif a.command == 'field':
+            result = call('field', name=a.name, ids=a.ids or None)
         elif a.command == 'wait-device':
             result = wait_device(a.timeout)
         elif a.command == 'dialogs':

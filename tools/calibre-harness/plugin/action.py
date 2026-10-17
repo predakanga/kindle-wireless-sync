@@ -130,6 +130,9 @@ class HarnessAction(InterfaceAction):
             'wireless-start': self.wireless_start,
             'wireless-stop': self.wireless_stop,
             'device-books': self.device_books,
+            'send': self.send,
+            'delete': self.delete,
+            'field': self.field,
             'dialogs': self.dialogs,
             'exec': self.exec_code,
             'quit': self.quit,
@@ -265,6 +268,62 @@ class HarnessAction(InterfaceAction):
                 'library_id': getattr(book, 'application_id', None),
             })
         return out
+
+    def send(self, ids, convert='ask'):
+        """Send library books to the device, as Send to device does. Returns before the jobs run.
+
+        convert answers the auto-convert question: 'yes', 'no', or 'ask' to
+        show Calibre's dialog. Other dialogs (no suitable format) still show.
+        """
+        gui = self.gui
+        if not gui.device_manager.is_device_present:
+            raise HarnessError('no device is connected')
+        if convert not in ('ask', 'yes', 'no'):
+            raise HarnessError("convert must be 'ask', 'yes' or 'no'")
+        ids = [int(i) for i in ids]
+        missing = set(ids) - set(gui.current_db.new_api.all_book_ids())
+        if missing:
+            raise HarnessError(f'no such books in the library: {sorted(missing)}')
+
+        def run():
+            # sync_to_device asks through this method; shadow it for one call.
+            if convert != 'ask':
+                gui.auto_convert_question = lambda msg, autos: convert == 'yes'
+            try:
+                gui.sync_to_device(None, False, send_ids=ids)
+            except Exception:
+                self.exec_errors.append(traceback.format_exc())
+            finally:
+                gui.__dict__.pop('auto_convert_question', None)
+
+        QTimer.singleShot(0, run)
+        return {'scheduled': ids}
+
+    def delete(self, lpaths):
+        """Delete books from the device by lpath, as the device view's Remove books does, without its confirmation."""
+        gui = self.gui
+        if not gui.device_manager.is_device_present:
+            raise HarnessError('no device is connected')
+        model = gui.memory_view.model()
+        rows = {b.lpath: i for i, b in enumerate(model.db)}
+        missing = [p for p in lpaths if p not in rows]
+        if missing:
+            raise HarnessError(f'not on the device: {missing}')
+        indices = [rows[p] for p in lpaths]
+        paths = [model.db[i].path for i in indices]
+        job = gui.remove_paths(paths)
+        gui.iactions['Remove Books'].delete_memory[job] = (paths, model)
+        model.mark_for_deletion(job, indices, rows_are_ids=True)
+        return {'deleting': list(lpaths)}
+
+    def field(self, name, ids=None):
+        """A library field's value for each book (all books by default), e.g. '#kindle_read' or 'title'."""
+        db = self.gui.current_db.new_api
+        if name not in db.fields:
+            custom = sorted(k for k in db.fields if k.startswith('#'))
+            raise HarnessError(f'no field {name!r} in this library; its custom columns are {custom}')
+        ids = db.all_book_ids() if ids is None else [int(i) for i in ids]
+        return db.all_field_for(name, ids, default_value=None)
 
     def dialogs(self, dismiss=False, accept=False):
         """Visible dialogs. After listing, accept answers each with OK/Yes, dismiss with Cancel/No/Close."""

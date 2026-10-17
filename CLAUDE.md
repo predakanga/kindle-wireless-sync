@@ -47,7 +47,7 @@ just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
-just calibre launch|status|wireless-start|wait-device|device-books|dialogs|exec|quit ...
+just calibre launch|status|wireless-start|wait-device|send|delete|field|device-books|dialogs|exec|quit ...
                           # dev: an isolated Calibre in dev-calibre/, driven by a plugin (ADR 0019)
 just release X.Y.Z        # prepare a release: bump, date the changelog, commit (no push)
 just publish-release [-y] # tag the prepared version and push main + tag (publishes; ask first)
@@ -68,6 +68,11 @@ Run the workflow by hand to rebuild only the Pages site.
 **CI:** `.github/workflows/ci.yml` runs `just check`, `cargo test` and `just
 package` (with the 5 MB size check) on pushes to `main` and on pull
 requests. The tests need the `sqlite3` CLI.
+
+**Calibre harness:** `tools/calibre-harness/README.md`. It needs the
+developer's own Calibre closed, so ask them to quit it. When you use `just calibre exec`, add the
+snippet to that README's "`exec` snippets in use" list with the date. Snippets
+that recur become named commands.
 
 `discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
 0009). The packaged binary has `daemon`, `find`, `add-server`, `allow`
