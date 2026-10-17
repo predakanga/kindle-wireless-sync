@@ -420,7 +420,7 @@ impl Daemon {
             let Some(library) = config.library else {
                 self.set(
                     State::NotLinked,
-                    "No Calibre library is linked yet. Use Find libraries or Add server.",
+                    "No Calibre library is linked yet. Use Find libraries, or link one by address.",
                 );
                 match self.wait(Some(NO_LIBRARY_RECHECK)) {
                     Wake::Network(false) => self.net_up = false,

@@ -31,6 +31,10 @@ Things to know:
   --convert yes|no` answers the auto-convert question in advance.
 - **A conversion adds the converted format to the library book**, so
   sending the same book again doesn't ask.
+- **`quit` can hang.** Once (2026-10-17), after the device's service was
+  stopped, Calibre hung in `stop_plugin` → `eject` (the end of
+  `dev-calibre/calibre.log`), and SIGTERM and `osascript` didn't end it.
+  Only `kill -KILL` did. The library was fine afterwards.
 - **Dropping the device mid-job:** freeze the device with `kill -STOP`,
   start a send, wait for `status` to show the upload job running, then
   `kill -9` it (ADR 0019, implementation notes).
@@ -44,3 +48,6 @@ shows up in several sessions should become a command.
 - Remove a format from a library book (to make a send ask about
   converting again). Used 2026-10-17.
   `db.remove_formats({2: ('AZW3',)})`
+- Update the device's cached metadata (*Update cached metadata on device*).
+  Used 2026-10-17.
+  `gui.update_metadata_on_device(); result = "ok"`

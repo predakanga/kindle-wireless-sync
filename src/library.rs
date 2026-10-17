@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{json, Map, Value};
 
@@ -682,8 +682,13 @@ impl Library {
     /// empty metadata cache. The driveinfo goes last: an interrupted reset
     /// runs again.
     fn forget_library(&mut self) -> io::Result<()> {
+        let books_dir = self.books_dir.clone();
         for record in &mut self.books {
-            *record = identity(record);
+            let modified = record_lpath(record)
+                .and_then(|l| lpath::validate(l, None).ok())
+                .and_then(|rel| fs::metadata(books_dir.join(rel)).ok())
+                .and_then(|m| m.modified().ok());
+            *record = identity(record, modified);
         }
         self.save()?;
         self.columns = json!({});
@@ -697,14 +702,20 @@ impl Library {
 
 /// The parts of a book record that aren't the library's (ADR 0018): what the
 /// next library matches on, and our private data minus read-sync state.
-/// Records built by adoption (ADR 0013) have the same shape.
-fn identity(record: &Value) -> Value {
+/// Records built by adoption (ADR 0013) have the same shape, including
+/// `last_modified` from the file: Calibre resends a book's metadata only when
+/// its own `last_modified` differs, so the old library's date would stop
+/// that library ever filling the record in again.
+fn identity(record: &Value, file_modified: Option<SystemTime>) -> Value {
     const KEPT: [&str; 6] = ["lpath", "size", "last_modified", "uuid", "title", "authors"];
     let mut out = Map::new();
     for key in KEPT {
         if let Some(v) = record.get(key) {
             out.insert(key.into(), v.clone());
         }
+    }
+    if let Some(t) = file_modified {
+        out.insert("last_modified".into(), json!(adopt::iso_utc(t)));
     }
     out.insert("thumbnail".into(), Value::Null);
     if let Some(mut private) = record.get(PRIVATE_KEY).cloned() {
@@ -1146,9 +1157,15 @@ mod tests {
         assert_eq!(lib.book("A/Book.txt").unwrap(), &before);
 
         assert!(lib.reset_if_relinked("lib-b").unwrap());
+        // Like an adopted book, dated by its file, so any library resends.
+        let modified = fs::metadata(lib.books_dir().join("A/Book.txt"))
+            .unwrap()
+            .modified()
+            .unwrap();
         let expected = json!({"lpath": "A/Book.txt", "size": 4,
-            "last_modified": "2026-10-17T00:00:00+00:00", "uuid": "u1", "title": "Book",
+            "last_modified": adopt::iso_utc(modified), "uuid": "u1", "title": "Book",
             "authors": ["A"], "thumbnail": null, "_kws": {"cde_key": "k", "cde_type": "PDOC"}});
+        assert_ne!(expected["last_modified"], before["last_modified"]);
         assert_eq!(lib.book("A/Book.txt").unwrap(), &expected);
         assert!(lib.calibre_metadata(0).unwrap().get("series").is_none());
         assert!(lib.known_columns("lib-a").is_empty());

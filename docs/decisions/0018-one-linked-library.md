@@ -269,3 +269,23 @@ emulated Kindle and the Calibre harness both answer it: yes.
   each library it found, with `--uuid`.
 - **Found libraries are listed without the linked one**, and a library
   leaves the list once it's linked.
+- **A reset record's `last_modified` is its file's modification time**, as
+  adoption does (ADR 0013), not the old library's date. Calibre resends a
+  matched book's metadata only when the library's `last_modified` differs
+  from the device's (`gui2/device.py`, `set_books_in_library`). With the old
+  date kept, re-linking the old library would match those books by UUID
+  but never fill their records in again. Tested on the emulator with the
+  harness, under Calibre's default "Manual management": with the old date,
+  Calibre sent metadata for 0 books, and *Update cached metadata on
+  device* didn't change that. With the file's date, it sent metadata for
+  the book as soon as it connected.
+- **Tested on the emulator** (`pw6-5201-jb`, 2026-10-17):
+  - An upgrade from the allowlist starts unlinked.
+  - Linking by address connects. It doesn't reset when `driveinfo.json`
+    already names that library.
+  - Linking without `replace` changes nothing and returns `needs_replace`.
+  - Confirming resets before the session: new device UUID, new Calibre
+    cache, and the book still matched by UUID, with no error dialogs.
+  - The app itself didn't open on the emulator. mesquite refused it with
+    "Unsupported content path", before loading any of our files, so the
+    app is still to be checked on the device.
