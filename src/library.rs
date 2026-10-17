@@ -855,6 +855,11 @@ fn remove_stale_temps(dir: &Path, depth: u32) {
 }
 
 /// Returns (total, available) bytes of the filesystem holding `path`.
+/// Free space on the filesystem holding `path`.
+pub fn free_space_at(path: &Path) -> io::Result<u64> {
+    statvfs(path).map(|(_, free)| free)
+}
+
 fn statvfs(path: &Path) -> io::Result<(u64, u64)> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;

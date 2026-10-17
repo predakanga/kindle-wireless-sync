@@ -12,12 +12,14 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 
+use crate::check::{self, CheckStatus, Checked, Checker, Target};
 use crate::config::{self, Config, Link, LinkedLibrary};
 use crate::discovery::CalibreServer;
 use crate::library::Library;
@@ -87,6 +89,21 @@ struct Shared {
     /// Libraries found by "Find libraries", or answering at the linked
     /// library's address, that aren't linked. Kept in memory only (ADR 0018).
     found: Mutex<Vec<FoundLibrary>>,
+    /// The latest check of a library (ADR 0020).
+    checker: Checker,
+    /// What a check needs: where state and books live, and the device
+    /// config as of the last session (for the device name).
+    state_dir: PathBuf,
+    books_dir: PathBuf,
+    device: Mutex<DeviceConfig>,
+    quiet: Duration,
+    /// The address a check is using: the service's own session with it
+    /// ends at a quiet moment, and the service waits until the check is
+    /// done.
+    hold: Mutex<Option<SocketAddr>>,
+    /// Whether the service stepped aside for the hold, so releasing it
+    /// should reconnect.
+    held: AtomicBool,
 }
 
 impl Shared {
@@ -120,6 +137,39 @@ impl Shared {
         }
     }
 
+    fn is_held(&self, addr: SocketAddr) -> bool {
+        *self.hold.lock().unwrap() == Some(addr)
+    }
+
+    /// Holds `addr` for a check, waiting (a minute at most) for the
+    /// service's own session with it to end; `None` releases the hold.
+    fn set_hold(&self, addr: Option<SocketAddr>, tx: &Sender<Control>) {
+        *self.hold.lock().unwrap() = addr;
+        match addr {
+            Some(addr) => {
+                let deadline = Instant::now() + Duration::from_secs(60);
+                while Instant::now() < deadline {
+                    let busy = self
+                        .active
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|s| s.peer_addr().ok())
+                        == Some(addr);
+                    if !busy {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+            }
+            None => {
+                if self.held.swap(false, Ordering::SeqCst) {
+                    let _ = tx.send(Control::ConnectNow);
+                }
+            }
+        }
+    }
+
     fn record_found(&self, lib: FoundLibrary) {
         let mut found = self.found.lock().unwrap();
         found.retain(|f| f.uuid != lib.uuid);
@@ -135,6 +185,8 @@ pub struct FoundLibrary {
     pub host: String,
     pub port: u16,
     pub hostname: String,
+    /// Whether Calibre asked for a password when it was found.
+    pub password_required: bool,
 }
 
 impl FoundLibrary {
@@ -145,6 +197,7 @@ impl FoundLibrary {
             host,
             port,
             hostname,
+            password_required: info.password_required,
         }
     }
 }
@@ -210,6 +263,38 @@ impl Handle {
     pub fn forget_found(&self, uuid: &str) {
         self.shared.found.lock().unwrap().retain(|f| f.uuid != uuid);
     }
+
+    /// Starts checking a library (ADR 0020) on its own thread, replacing
+    /// any earlier check. [`Handle::check_status`] shows how it goes.
+    pub fn start_check(&self, target: Target, password: Option<String>) {
+        let shared = self.shared.clone();
+        let tx = self.tx.clone();
+        let number = shared.checker.begin(CheckStatus::checking(&target));
+        std::thread::spawn(move || {
+            let env = check::Env {
+                state_dir: shared.state_dir.clone(),
+                books_dir: shared.books_dir.clone(),
+                device: shared.device.lock().unwrap().clone(),
+                quiet: shared.quiet,
+            };
+            let status = check::run(&env, &target, password, &|addr| shared.set_hold(addr, &tx));
+            log::info!("check of {}: {}", status.name, status.state.as_str());
+            shared.checker.finish(number, status);
+        });
+    }
+
+    pub fn cancel_check(&self) {
+        self.shared.checker.cancel();
+    }
+
+    pub fn check_status(&self) -> Option<CheckStatus> {
+        self.shared.checker.status()
+    }
+
+    /// The library that passed the latest check, ready to link.
+    pub fn checked(&self) -> Option<Checked> {
+        self.shared.checker.checked()
+    }
 }
 
 pub struct Options {
@@ -224,6 +309,9 @@ pub struct Options {
     /// The device name to give Calibre, read before each session so a
     /// rename on the Kindle shows at the next connect (ADR 0015).
     pub device_name: Box<dyn FnMut() -> String + Send>,
+    /// How long Calibre must be quiet before a session or a check may leave
+    /// without an error dialog: [`session::QUIET_BEFORE_RECONNECT`].
+    pub quiet: Duration,
 }
 
 impl Options {
@@ -264,6 +352,8 @@ enum Outcome {
     Lost(String),
     /// The library's sync columns changed: reconnect at once (ADR 0017).
     Reconnect,
+    /// A check is using the library's address: wait until it's done.
+    Held,
 }
 
 impl Daemon {
@@ -278,6 +368,13 @@ impl Daemon {
             active: Mutex::new(None),
             status_file: opts.state_dir.join(STATUS_FILE),
             found: Mutex::new(Vec::new()),
+            checker: Checker::default(),
+            state_dir: opts.state_dir.clone(),
+            books_dir: lib.books_dir().to_path_buf(),
+            device: Mutex::new(opts.device.clone()),
+            quiet: opts.quiet,
+            hold: Mutex::new(None),
+            held: AtomicBool::new(false),
         });
         let handle = Handle {
             tx,
@@ -474,6 +571,10 @@ impl Daemon {
 
             let mut outcome = Outcome::NotFound;
             for cand in candidates {
+                if self.shared.is_held(cand.addr) {
+                    outcome = Outcome::Held;
+                    continue;
+                }
                 match self.try_session(&cand, &library) {
                     Err(e) => log::debug!("cannot reach {}: {e}", cand.addr),
                     Ok((end, info)) => {
@@ -508,6 +609,10 @@ impl Daemon {
                             Ok(SessionEnd::Busy) => outcome = Outcome::Busy,
                             Ok(SessionEnd::ColumnsChanged) => {
                                 outcome = Outcome::Reconnect;
+                                break;
+                            }
+                            Ok(SessionEnd::Yielded) => {
+                                outcome = Outcome::Held;
                                 break;
                             }
                             Ok(SessionEnd::Closed | SessionEnd::ProtocolMismatch) | Err(_) => {
@@ -581,6 +686,25 @@ impl Daemon {
                     attempt = 0;
                     continue;
                 }
+                Outcome::Held => {
+                    // Releasing the hold sends Connect now.
+                    self.shared.held.store(true, Ordering::SeqCst);
+                    if self.shared.hold.lock().unwrap().is_none() {
+                        attempt = 0;
+                        continue;
+                    }
+                    self.set(
+                        State::Searching,
+                        format!("Waiting while Calibre at the address of {name} is checked."),
+                    );
+                    match self.wait(Some(Duration::from_secs(120))) {
+                        Wake::Network(false) => self.net_up = false,
+                        Wake::Shutdown => break,
+                        _ => {}
+                    }
+                    attempt = 0;
+                    continue;
+                }
                 Outcome::PasswordRejected(name) => {
                     self.set(
                         State::PasswordRejected,
@@ -626,6 +750,7 @@ impl Daemon {
     ) -> io::Result<(io::Result<SessionEnd>, Option<CalibreInfo>)> {
         let stream = TcpStream::connect_timeout(&cand.addr, CONNECT_TIMEOUT)?;
         self.opts.device.device_name = (self.opts.device_name)();
+        *self.shared.device.lock().unwrap() = self.opts.device.clone();
         stream.set_read_timeout(Some(self.opts.read_timeout))?;
         stream.set_nodelay(true)?;
         *self.shared.active.lock().unwrap() = Some(stream.try_clone()?);
@@ -633,12 +758,19 @@ impl Daemon {
 
         let mut admit = LinkedAdmit {
             library,
+            addr: cand.addr,
             shared: &self.shared,
             state_dir: &self.opts.state_dir,
             answered: None,
             admitted: false,
         };
-        let end = session::run(&mut conn, &mut self.lib, &self.opts.device, &mut admit);
+        let end = session::run_with_quiet(
+            &mut conn,
+            &mut self.lib,
+            &self.opts.device,
+            &mut admit,
+            self.opts.quiet,
+        );
         let LinkedAdmit {
             answered, admitted, ..
         } = admit;
@@ -684,6 +816,7 @@ impl Daemon {
 /// (ADR 0020).
 struct LinkedAdmit<'a> {
     library: &'a LinkedLibrary,
+    addr: SocketAddr,
     shared: &'a Shared,
     state_dir: &'a Path,
     answered: Option<CalibreInfo>,
@@ -711,6 +844,10 @@ impl Admit for LinkedAdmit<'_> {
     fn columns_seen(&mut self, columns: &Map<String, Value>) -> io::Result<()> {
         let uuid = &self.library.uuid;
         config::update(self.state_dir, |c| c.set_columns(uuid, columns.clone())).map(|_| ())
+    }
+
+    fn end_when_quiet(&mut self) -> bool {
+        self.shared.is_held(self.addr)
     }
 }
 
@@ -748,8 +885,44 @@ fn candidates(
     out
 }
 
+/// Why [`probe`] failed, when it's Calibre's doing rather than the network's.
+#[derive(Debug)]
+enum ProbeError {
+    Busy,
+    /// Closed before sending anything: most likely Calibre's lockout.
+    LockedOut,
+}
+
+impl std::fmt::Display for ProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ProbeError::Busy => "Calibre is busy with another device",
+            ProbeError::LockedOut => check::LOCKED_OUT,
+        })
+    }
+}
+
+impl std::error::Error for ProbeError {}
+
+fn probe_error(e: &io::Error) -> Option<&ProbeError> {
+    e.get_ref()
+        .and_then(|inner| inner.downcast_ref::<ProbeError>())
+}
+
+/// Whether a [`probe`] error means Calibre is serving another device.
+pub fn is_busy(e: &io::Error) -> bool {
+    matches!(probe_error(e), Some(ProbeError::Busy))
+}
+
+/// Whether a [`probe`] error means Calibre closed the connection at once,
+/// most likely its lockout after too many failed connections (ADR 0020).
+pub fn is_locked_out(e: &io::Error) -> bool {
+    matches!(probe_error(e), Some(ProbeError::LockedOut))
+}
+
 /// Connects to `addr`, reads which library Calibre serves, and disconnects
-/// without completing the handshake.
+/// without completing the handshake. Calibre counts that as a failed
+/// connection (ADR 0020).
 pub fn probe(addr: SocketAddr) -> io::Result<CalibreInfo> {
     let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)?;
     stream.set_read_timeout(Some(PROBE_READ_TIMEOUT))?;
@@ -759,8 +932,12 @@ pub fn probe(addr: SocketAddr) -> io::Result<CalibreInfo> {
             Ok(CalibreInfo::from_init_payload(&m.payload))
         }
         Some(m) if m.opcode() == Some(Opcode::CalibreBusy) => {
-            Err(io::Error::other("Calibre is busy with another device"))
+            Err(io::Error::other(ProbeError::Busy))
         }
+        None => Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            ProbeError::LockedOut,
+        )),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "not a Calibre wireless device connection",
@@ -877,6 +1054,7 @@ pub fn link_found(state_dir: &Path, found: &FoundLibrary, replace: bool) -> io::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::check::CheckState;
     use crate::protocol::write_message;
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -933,6 +1111,13 @@ mod tests {
                     let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
                     let _ = read_message(&mut reader);
                 } else {
+                    // Library info and the book list, then keep-alives.
+                    let fm = json!({"fieldMetadata": {}});
+                    let _ = write_message(&mut stream, Opcode::SetLibraryInfo, &fm);
+                    let _ = read_message(&mut reader);
+                    let count = json!({"willUseCachedMetadata": true});
+                    let _ = write_message(&mut stream, Opcode::GetBookCount, &count);
+                    let _ = read_message(&mut reader);
                     while write_message(&mut stream, Opcode::Noop, &json!({})).is_ok()
                         && matches!(read_message(&mut reader), Ok(Some(_)))
                     {
@@ -992,6 +1177,7 @@ mod tests {
             read_timeout: Duration::from_secs(5),
             discover: Box::new(Vec::new),
             device_name,
+            quiet: Duration::ZERO,
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         (handle, std::thread::spawn(move || daemon.run()))
@@ -1202,6 +1388,119 @@ mod tests {
         let config = Config::load(state).unwrap();
         let columns = &config.linked("lib-1").unwrap().columns;
         assert_eq!(columns["#kindle_read"]["name"], "Kindle read");
+    }
+
+    fn check_env(state: &Path) -> check::Env {
+        fs::create_dir_all(state.join("books")).unwrap();
+        check::Env {
+            state_dir: state.to_path_buf(),
+            books_dir: state.join("books"),
+            device: DeviceConfig::default(),
+            quiet: Duration::ZERO,
+        }
+    }
+
+    #[test]
+    fn a_check_by_address_probes_then_checks_and_holds_the_address() {
+        let tmp = tempfile::tempdir().unwrap();
+        let env = check_env(tmp.path());
+        let (addr, count) = fake_calibre("lib-9");
+        let holds = Mutex::new(Vec::new());
+        let by_address = Target::Address {
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+        };
+        let status = check::run(&env, &by_address, None, &|a| holds.lock().unwrap().push(a));
+        assert_eq!(status.state, CheckState::Ok, "{status:?}");
+        let lib = status.library.unwrap();
+        assert_eq!(
+            (lib.uuid.as_str(), lib.name.as_str()),
+            ("lib-9", "Test Library")
+        );
+        assert_eq!(lib.columns["#kindle_read"]["name"], "Kindle read");
+        assert_eq!(*holds.lock().unwrap(), vec![Some(addr), None]);
+        assert_eq!(count.load(Ordering::SeqCst), 2, "the probe, then the check");
+
+        // A library Find has seen skips the probe.
+        let found = FoundLibrary {
+            uuid: "lib-9".into(),
+            name: "Test Library".into(),
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+            hostname: "pc".into(),
+            password_required: false,
+        };
+        let status = check::run(&env, &Target::Found(found.clone()), None, &|_| {});
+        assert_eq!(status.state, CheckState::Ok);
+        assert_eq!(status.library.unwrap().hostname.as_deref(), Some("pc"));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+
+        // One that wants a password, without one: no connection at all.
+        let wants = Target::Found(FoundLibrary {
+            password_required: true,
+            ..found
+        });
+        let status = check::run(&env, &wants, None, &|_| panic!("held"));
+        assert_eq!(status.state, CheckState::PasswordNeeded);
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn a_check_reports_a_lockout_and_nothing_listening() {
+        let tmp = tempfile::tempdir().unwrap();
+        let env = check_env(tmp.path());
+        // Calibre's lockout: it accepts, then closes at once.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || listener.incoming().for_each(drop));
+        let target = Target::Address {
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+        };
+        let status = check::run(&env, &target, None, &|_| {});
+        assert_eq!(status.state, CheckState::LockedOut);
+        assert_eq!(status.error.as_deref(), Some(check::LOCKED_OUT));
+
+        let dead = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let target = Target::Address {
+            host: "127.0.0.1".into(),
+            port: dead.port(),
+        };
+        let status = check::run(&env, &target, None, &|_| {});
+        assert_eq!(status.state, CheckState::Unreachable, "{status:?}");
+    }
+
+    #[test]
+    fn a_check_of_the_connected_calibre_waits_for_the_session_to_step_aside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = tmp.path();
+        // Serves one connection at a time, like Calibre serves one device.
+        let (addr, count) = fake_calibre_with("lib-1", false);
+        let (h, thread) = start(state, Some(("lib-1", addr)));
+        wait_until("connected", || h.status().state == State::Connected);
+
+        h.start_check(
+            Target::Address {
+                host: "127.0.0.1".into(),
+                port: addr.port(),
+            },
+            None,
+        );
+        wait_until("the check", || {
+            h.check_status()
+                .is_some_and(|s| s.state != CheckState::Checking)
+        });
+        let s = h.check_status().unwrap();
+        assert_eq!(s.state, CheckState::Ok, "{s:?}");
+        assert_eq!(h.checked().unwrap().uuid, "lib-1");
+        // Then the service connects again: session, probe, check, session.
+        wait_until("reconnected", || count.load(Ordering::SeqCst) >= 4);
+        wait_until("connected", || h.status().state == State::Connected);
+        h.shutdown();
+        thread.join().unwrap();
     }
 
     #[test]

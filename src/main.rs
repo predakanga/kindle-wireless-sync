@@ -193,6 +193,7 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
                 .or_else(kindle::device_name)
                 .unwrap_or_else(|| DeviceConfig::default().device_name)
         }),
+        quiet: kws::session::QUIET_BEFORE_RECONNECT,
     };
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));
     if wifi.is_some() {

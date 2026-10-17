@@ -55,6 +55,8 @@ pub struct CalibreInfo {
     pub library_uuid: String,
     pub library_name: String,
     pub calibre_version: String,
+    /// Whether Calibre sent a password challenge: it has a password set.
+    pub password_required: bool,
 }
 
 impl CalibreInfo {
@@ -64,6 +66,7 @@ impl CalibreInfo {
             library_uuid: str_field(p, "currentLibraryUUID"),
             library_name: str_field(p, "currentLibraryName"),
             calibre_version: version_string(&p["calibre_version"]),
+            password_required: !str_field(p, "passwordChallenge").is_empty(),
         }
     }
 }
@@ -95,6 +98,12 @@ pub trait Admit {
     fn columns_seen(&mut self, _columns: &Map<String, Value>) -> io::Result<()> {
         Ok(())
     }
+
+    /// Asked at each keep-alive: whether to end the session as soon as
+    /// Calibre is quiet, for a check of the same Calibre (ADR 0020).
+    fn end_when_quiet(&mut self) -> bool {
+        false
+    }
 }
 
 impl<F: FnMut(&CalibreInfo) -> Admission> Admit for F {
@@ -119,6 +128,8 @@ pub enum SessionEnd {
     /// them in the handshake, so reconnect now. Returned only once Calibre
     /// has been idle, so it doesn't report an error.
     ColumnsChanged,
+    /// Ended at a quiet moment because [`Admit::end_when_quiet`] asked.
+    Yielded,
 }
 
 fn protocol_error(msg: impl Into<String>) -> io::Error {
@@ -310,9 +321,14 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     // Announces how many priKey requests follow; no reply.
                 } else {
                     conn.send(Opcode::Ok, json!({}))?;
-                    if reconnect && last_busy.elapsed() >= quiet {
-                        // Calibre takes a failed keep-alive quietly.
-                        return Ok(SessionEnd::ColumnsChanged);
+                    // Calibre takes a failed keep-alive quietly.
+                    if last_busy.elapsed() >= quiet {
+                        if reconnect {
+                            return Ok(SessionEnd::ColumnsChanged);
+                        }
+                        if admit.end_when_quiet() {
+                            return Ok(SessionEnd::Yielded);
+                        }
                     }
                     // Calibre's keep-alive: a quiet moment between its
                     // operations, so run a due series pass (ADR 0016).

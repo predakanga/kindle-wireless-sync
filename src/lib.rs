@@ -2,6 +2,7 @@
 pub mod adopt;
 pub mod api;
 pub mod catalog;
+pub mod check;
 pub mod config;
 pub mod daemon;
 pub mod discovery;

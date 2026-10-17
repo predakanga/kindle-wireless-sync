@@ -526,6 +526,7 @@ mod tests {
             read_timeout: Duration::from_secs(5),
             discover: Box::new(Vec::new),
             device_name: Box::new(|| "Kindle".into()),
+            quiet: Duration::ZERO,
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -648,6 +649,7 @@ mod tests {
             host: "10.0.0.9".into(),
             port: 9090,
             hostname: "pc".into(),
+            password_required: false,
         }
     }
 
