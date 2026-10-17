@@ -127,3 +127,63 @@ developer rather than doing it unasked.
 - **Probing read state:** a `kws-*` AZW3 built with `ebook-convert`, with
   the service stopped so adoption doesn't pick it up. Results are in
   `docs/research/kindle-library-integration.md`, "Read state probe".
+
+## Added after the handoff was written (same day, a short interstitial session)
+
+This handoff hadn't been read yet when a short session added two pieces of
+test tooling. The developer asked for them to be noted here. **`main` is
+now 32 commits ahead of `origin/main`**, still unpushed. Nothing above
+changed: ADR 0018 is still Proposed, and its open question is still the
+next step.
+
+### Calibre test harness (ADR 0019, Accepted)
+
+A development-only Calibre plugin and a client drive an **isolated**
+Calibre from scripts: `just calibre launch|status|wireless-start|
+wait-device|send|delete|field|device-books|dialogs|exec|quit`. Usage and
+pitfalls are in `tools/calibre-harness/README.md`; `CLAUDE.md` points
+there.
+- It runs Calibre with its config, caches and library in `dev-calibre/`
+  (gitignored). Your Calibre and `~/Calibre Library` are never touched. Only
+  one Calibre GUI can run per user, so **ask the developer to quit theirs
+  first**. The harness refuses to launch otherwise.
+- The test library's UUID is `4d795e39-d508-4185-b4f6-1f449818b1bb`. It
+  holds "KWS Harness Test" (TXT, id 1) and Calibre's Quick Start Guide
+  (EPUB, id 2). It has **no custom columns**, so read-sync tests need
+  `#kindle_read`/`#kindle_last_read` added first.
+- `dialogs` lists open dialogs, error dialogs included, with their details.
+  `wait-device` fails as soon as one opens.
+- The ADR's implementation notes have a reliable way to drop the device
+  mid-job: freeze it with `kill -STOP`, start a send, `kill -9` it. It
+  reproduces ADR 0017's first bug (the "Error communicating with device"
+  dialog).
+- **When you use `just calibre exec`, add the snippet to the README's
+  "`exec` snippets in use" list.** Ones that recur become named commands.
+
+### Emulated Kindle (eink-emulator)
+
+`../eink-emulator` runs Kindle firmware in QEMU. Instance **`pw6-5201-jb`**
+matches the reference device: a Paperwhite 12th Gen on 5.20.1, jailbroken
+with jb.sh. It's documented in `CLAUDE.md`, "Emulated Kindle". Read the
+checklist there first.
+- **State:** stopped (guest synced first). It has the 0.2.0 package built
+  from this `main` (read sync included), installed with its own KPM, with
+  autostart off. It's linked (allowed, since ADR 0018 isn't built) to the
+  harness library at `192.168.15.201:9090` over its USB network. The
+  `Kindle-QEMU` Wi-Fi profile is saved. One book is on it, "KWS Harness
+  Test". A send through the harness reached its Library.
+- SSH host `kindle-emu` (in the developer's `~/.ssh/config`). Device
+  recipes take `KINDLE_HOST=kindle-emu`, and now use `scp -O`, which the
+  emulator needs. Legacy scp was checked on the real Kindle too.
+- **When its network misbehaves, check two things first:** is the real
+  Kindle plugged in (its USB network overlaps the emulator's subnet), and
+  is Tailscale managing the Mac's DNS? Either one breaks QEMU's DNS
+  proxies, and `wifid` then never reaches CONNECTED. Ask the developer to
+  change them; don't change them yourself.
+- `find` can't see Calibre through QEMU (no broadcast). Link by address.
+
+**Possibly useful for ADR 0018's open question:** the emulator and the
+harness together might let the `driveinfo.json` test run without the real
+Kindle. Back up and clear the emulator's `driveinfo.json`, reconnect, and
+inspect Calibre's view with `device-books` or `exec`. Suggest this to the
+developer rather than assuming it.
