@@ -51,3 +51,7 @@ shows up in several sessions should become a command.
 - Update the device's cached metadata (*Update cached metadata on device*).
   Used 2026-10-17.
   `gui.update_metadata_on_device(); result = "ok"`
+- Switch Calibre to another library (with `--no-wait`), here a second one
+  made with `calibredb --library-path dev-calibre/library2 list`. Used
+  2026-10-18.
+  `gui.library_moved('/abs/path/dev-calibre/library2'); result = "ok"`

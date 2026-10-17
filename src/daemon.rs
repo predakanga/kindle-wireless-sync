@@ -7,7 +7,7 @@
 //! are only contacted by the explicit [`find_libraries`] and
 //! [`link_address`] actions, and what they find is kept in memory.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufReader, BufWriter};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
@@ -508,8 +508,10 @@ impl Daemon {
         let mut ejected = false;
         // Addresses serving a library other than the linked one, and which
         // library was linked when they were added: linking another library
-        // makes them worth trying again.
-        let mut skip: HashSet<SocketAddr> = HashSet::new();
+        // makes them worth trying again, as do a Wi-Fi cycle and Connect now
+        // (Calibre may have switched back).
+        // Each with the library it served, for the status.
+        let mut skip: HashMap<SocketAddr, String> = HashMap::new();
         let mut skip_for = String::new();
         // The library that rejected our password, until the user acts.
         let mut bad_password: Option<String> = None;
@@ -528,6 +530,7 @@ impl Daemon {
                         self.net_up = up;
                     }
                     Wake::ConnectNow => {
+                        skip.clear();
                         ejected = false;
                         bad_password = None;
                         attempt = 0;
@@ -560,6 +563,7 @@ impl Daemon {
                 match self.wait(None) {
                     Wake::Network(false) => self.net_up = false,
                     Wake::ConnectNow => {
+                        skip.clear();
                         ejected = false;
                         bad_password = None;
                         attempt = 0;
@@ -600,6 +604,7 @@ impl Daemon {
                 match self.wait(None) {
                     Wake::Network(false) => self.net_up = false,
                     Wake::ConnectNow => {
+                        skip.clear();
                         bad_password = None;
                         attempt = 0;
                     }
@@ -651,7 +656,10 @@ impl Daemon {
                                 outcome = Outcome::Ejected;
                                 break;
                             }
-                            Ok(SessionEnd::LibraryRejected(info)) => {
+                            // Another library at this address: from the
+                            // start, or switched to in Calibre meanwhile.
+                            Ok(SessionEnd::LibraryRejected(info))
+                            | Ok(SessionEnd::LibraryChanged(info)) => {
                                 log::warn!(
                                     "{} now serves library {:?}, which is not linked",
                                     cand.addr,
@@ -663,7 +671,7 @@ impl Daemon {
                                     cand.addr.port(),
                                     cand.hostname.clone(),
                                 ));
-                                skip.insert(cand.addr);
+                                skip.insert(cand.addr, info.library_name.clone());
                             }
                             Ok(SessionEnd::PasswordRejected) => {
                                 bad_password = info.as_ref().map(|i| i.library_uuid.clone());
@@ -710,6 +718,7 @@ impl Daemon {
                     }
                     Control::Network(true) => self.net_up = true,
                     Control::ConnectNow => {
+                        skip.clear();
                         bad_password = None;
                         attempt = 0;
                         connect_now = true;
@@ -784,10 +793,21 @@ impl Daemon {
                     );
                     continue;
                 }
-                Outcome::NotFound => self.set(
-                    State::NotFound,
-                    format!("Calibre library {name} not found. Retrying in {secs}s."),
-                ),
+                Outcome::NotFound => match skip.iter().next() {
+                    // Calibre is there, serving another library: say so.
+                    Some((addr, other)) => self.set(
+                        State::NotFound,
+                        format!(
+                            "Calibre at {} is serving {other}, not {name}. Switch back to {name} \
+                             in Calibre, then use Connect.",
+                            addr.ip()
+                        ),
+                    ),
+                    None => self.set(
+                        State::NotFound,
+                        format!("Calibre library {name} not found. Retrying in {secs}s."),
+                    ),
+                },
                 Outcome::Busy => self.set(
                     State::NotFound,
                     format!("Calibre is busy with another device. Retrying in {secs}s."),
@@ -805,6 +825,7 @@ impl Daemon {
             match self.wait(Some(delay)) {
                 Wake::Network(false) => self.net_up = false,
                 Wake::ConnectNow => {
+                    skip.clear();
                     bad_password = None;
                     attempt = 0;
                 }
@@ -932,11 +953,11 @@ impl Admit for LinkedAdmit<'_> {
 fn candidates(
     library: &LinkedLibrary,
     found: &[CalibreServer],
-    skip: &HashSet<SocketAddr>,
+    skip: &HashMap<SocketAddr, String>,
 ) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::new();
     let mut push = |addr: SocketAddr, hostname: String| {
-        if !skip.contains(&addr) && !out.iter().any(|c| c.addr == addr) {
+        if !skip.contains_key(&addr) && !out.iter().any(|c| c.addr == addr) {
             out.push(Candidate { addr, hostname });
         }
     };
@@ -1587,6 +1608,63 @@ mod tests {
     }
 
     #[test]
+    fn a_library_switch_in_calibre_ends_the_session_and_lists_the_other_library() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Serves lib-1, switches to lib-2 during the first session, and
+        // serves lib-2 until switched back.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let back = Arc::new(AtomicBool::new(false));
+        let switched_back = back.clone();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { continue };
+                let back = switched_back.load(Ordering::SeqCst);
+                let uuid = if n == 0 || back { "lib-1" } else { "lib-2" };
+                let init = json!({"serverProtocolVersion": 1, "currentLibraryUUID": uuid,
+                                  "currentLibraryName": format!("Library {uuid}"),
+                                  "passwordChallenge": ""});
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                if write_message(&mut stream, Opcode::GetInitializationInfo, &init).is_err()
+                    || !matches!(read_message(&mut reader), Ok(Some(_)))
+                {
+                    continue;
+                }
+                if n == 0 {
+                    let other = json!({"libraryName": "Library lib-2", "libraryUuid": "lib-2",
+                                       "fieldMetadata": {}});
+                    let _ = write_message(&mut stream, Opcode::SetLibraryInfo, &other);
+                    let _ = read_message(&mut reader);
+                }
+                while write_message(&mut stream, Opcode::Noop, &json!({})).is_ok()
+                    && matches!(read_message(&mut reader), Ok(Some(_)))
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+        });
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        wait_until("the other library found", || {
+            h.found().iter().any(|f| f.uuid == "lib-2")
+        });
+        wait_until("not connected", || h.status().state == State::NotFound);
+        assert!(
+            h.status()
+                .detail
+                .contains("serving Library lib-2, not Test Library"),
+            "{}",
+            h.status().detail
+        );
+
+        // Switched back in Calibre: Connect now tries that address again.
+        back.store(true, Ordering::SeqCst);
+        h.connect_now();
+        wait_until("connected again", || h.status().state == State::Connected);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
     fn new_sync_settings_end_the_session_at_a_quiet_moment_and_reconnect() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre_with("lib-1", false);
@@ -1777,10 +1855,11 @@ mod tests {
                 content_server_port: None,
             },
         ];
-        let got = candidates(&a, &found, &HashSet::new());
+        let got = candidates(&a, &found, &HashMap::new());
         let addrs: Vec<String> = got.iter().map(|c| c.addr.to_string()).collect();
         assert_eq!(addrs, vec!["10.0.0.7:4242", "10.0.0.2:9090"]);
-        let skip: HashSet<SocketAddr> = ["10.0.0.7:4242".parse().unwrap()].into();
+        let skip: HashMap<SocketAddr, String> =
+            [("10.0.0.7:4242".parse().unwrap(), "Other".into())].into();
         assert_eq!(candidates(&a, &found, &skip).len(), 1);
     }
 }

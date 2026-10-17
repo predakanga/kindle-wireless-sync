@@ -133,6 +133,11 @@ pub enum SessionEnd {
     /// Calibre closed the connection before sending anything: most likely
     /// its lockout after too many failed connections (ADR 0020).
     ClosedAtOnce,
+    /// Calibre switched to another library while we were connected: it
+    /// keeps the device connected and only sends the new library's info
+    /// (`set_current_library_information` in `gui2/device.py`). Ended at a
+    /// quiet moment, like [`SessionEnd::ColumnsChanged`].
+    LibraryChanged(CalibreInfo),
 }
 
 fn protocol_error(msg: impl Into<String>) -> io::Error {
@@ -173,6 +178,10 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
     let mut reconnect = false;
     let mut last_busy = Instant::now();
     let mut heard = false;
+    // The library admitted in the handshake, and another one Calibre
+    // switched to since (ADR 0018: only the linked library).
+    let mut admitted = String::new();
+    let mut switched: Option<CalibreInfo> = None;
     loop {
         let Some(msg) = conn.recv()? else {
             return Ok(if heard {
@@ -222,6 +231,7 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     info.calibre_version,
                     info.library_name
                 );
+                admitted = info.library_uuid.clone();
                 named = columns
                     .as_ref()
                     .map(|c| c.available_in(&known_columns))
@@ -275,6 +285,23 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
             }
             Opcode::SetLibraryInfo => {
                 conn.send(Opcode::Ok, json!({}))?;
+                let uuid = str_field(p, "libraryUuid");
+                if !uuid.is_empty() && uuid != admitted {
+                    // Not the linked library's columns: don't keep them.
+                    if switched.is_none() {
+                        log::warn!(
+                            "calibre switched to library {:?}, which is not linked; \
+                             disconnecting when calibre is idle",
+                            str_field(p, "libraryName")
+                        );
+                    }
+                    switched = Some(CalibreInfo {
+                        library_uuid: uuid,
+                        library_name: str_field(p, "libraryName"),
+                        ..Default::default()
+                    });
+                    continue;
+                }
                 let custom = readsync::custom_columns(&p["fieldMetadata"]);
                 let available = wanted.as_ref().map(|w| w.available_in(&custom));
                 let recorded = if custom == known {
@@ -332,6 +359,9 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     conn.send(Opcode::Ok, json!({}))?;
                     // Calibre takes a failed keep-alive quietly.
                     if last_busy.elapsed() >= quiet {
+                        if let Some(info) = switched.take() {
+                            return Ok(SessionEnd::LibraryChanged(info));
+                        }
                         if reconnect {
                             return Ok(SessionEnd::ColumnsChanged);
                         }
@@ -1032,6 +1062,51 @@ mod tests {
         let o = run_script_with(&mut lib, &cfg, script(), None, None, &mut known);
         assert_eq!(o.end, SessionEnd::Ejected);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+    }
+
+    #[test]
+    fn a_library_switch_in_calibre_ends_the_session_quietly() {
+        let (_tmp, mut lib) = setup();
+        let cfg = DeviceConfig::default();
+        let (op, info) = library_info(sync_columns());
+        // Calibre switches to another library: it keeps the device and
+        // sends only the new library's info.
+        let other = json!({"libraryName": "Other Library", "libraryUuid": "lib-2",
+                           "fieldMetadata": {"#x": {"is_custom": true, "datatype": "bool"}},
+                           "otherInfo": {}});
+        let script = || {
+            Script::new()
+                .handshake()
+                .msg(op, info.clone())
+                .msg(Opcode::SetLibraryInfo, other.clone())
+                .msg(Opcode::Noop, json!({}))
+                .msg(Opcode::Noop, json!({"ejecting": true}))
+        };
+        let mut known = Map::new();
+        let o = run_script_with(&mut lib, &cfg, script(), None, None, &mut known);
+        assert!(
+            matches!(o.end, SessionEnd::LibraryChanged(ref i) if i.library_uuid == "lib-2"
+                && i.library_name == "Other Library"),
+            "{:?}",
+            o.end
+        );
+        // Every request answered, the keep-alive included.
+        assert_eq!(o.replies.len(), 4);
+        // The other library's columns aren't kept as the linked one's.
+        assert!(known.contains_key("#kindle_read"));
+        assert!(!known.contains_key("#x"));
+
+        // Not before Calibre is quiet.
+        let o = run_script_quiet(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            None,
+            &mut known,
+            Duration::from_secs(3600),
+        );
+        assert_eq!(o.end, SessionEnd::Ejected);
     }
 
     #[test]

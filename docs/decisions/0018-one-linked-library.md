@@ -308,3 +308,28 @@ emulated Kindle and the Calibre harness both answer it: yes.
     library now clears the list.
   - `unlink` on the command line, during an idle session, cut the session
     through `/reconnect`. Calibre showed no error dialog.
+
+## Calibre switching libraries (2026-10-18)
+Calibre keeps a wireless device connected when the user switches to another
+library. It only sends the device the new library's `SET_LIBRARY_INFO`
+(`set_current_library_information` in `gui2/device.py`). Until then the
+session checked the library only in the handshake, so a Kindle stayed
+connected to whichever library Calibre switched to: books sent from it
+arrived, and read sync could write to its columns. That broke this
+decision's promise, and the allowlist (ADR 0003) had the same gap.
+
+Now a `SET_LIBRARY_INFO` naming another library ends the session at the
+next quiet keep-alive (`SessionEnd::LibraryChanged`), the way new sync
+columns do (ADR 0017), and that library's columns aren't recorded as the
+linked one's. The daemon treats it like another library answering at that
+address: it goes into the found list and the address is skipped, and the
+status says which library Calibre serves and to switch back, then Connect.
+Connect now (and so the app's **Connect**) also retries skipped addresses,
+since Calibre may have switched back.
+
+Tested with the harness Calibre and the service on the Mac: switching to a
+second library sent its library info at once; the session left about 16 s
+later with no dialog; the status named the other library; switching back
+and Connect reconnected. Until the session ends, Calibre can still send
+books from the other library. Ending sooner is on the Later list
+(`PLAN.md`, item 10).

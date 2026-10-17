@@ -35,6 +35,10 @@ one.
   your library again.**
 
 ### Fixed
+- Switching libraries in Calibre while the Kindle was connected kept the
+  Kindle connected to the new library, so it synced with a library it
+  wasn't linked to. The Kindle now disconnects, and the app says which
+  library Calibre is serving. Switch back in Calibre, then tap **Connect**.
 - The **Wireless Sync** app could fail to open ("The selected application
   could not be started") when the package was installed from a shell with
   a restrictive umask, because its files were readable only by root.

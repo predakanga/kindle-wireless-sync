@@ -302,10 +302,7 @@ Not part of any phase. Pick these up after the base and stretch goals
 2. **Review the UI.** Usability on e-ink, and the actual wording of every
    label, hint and message. Consider moving the text into a translation
    file. Known item: status messages disappear after 6 s, which is easy to
-   miss. Also: let the user pick the read-sync columns from a list of the
-   library's columns (Calibre sends them in `SET_LIBRARY_INFO`), instead of
-   the fixed names in ADR 0017, and a toggle for each library's
-   `writable` setting (command line only until then).
+   miss. (The column picker and the read-sync toggle came with ADR 0020.)
 3. **Kindle collections from Calibre fields** (series, tags, custom
    columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
    `insert` a `Collection`, then `addCollectionMember`. That's the command
@@ -350,6 +347,17 @@ Not part of any phase. Pick these up after the base and stretch goals
    content key after indexing), deleting and replacing it, whether the file
    carries Calibre's book UUID (so adoption, ADR 0013, could recover it), and
    what linking a different library does to it (ADR 0018).
+10. **End connections more reliably than waiting for a quiet moment.**
+    Several things end a session on purpose: new read-sync columns (ADR
+    0017), new settings, a check of the same Calibre, and Calibre switching
+    to another library (ADR 0020). Each waits for a keep-alive after 10 s
+    of quiet (3 s for a check), because dropping the connection mid-job
+    makes Calibre show an error dialog. That's a heuristic: a job could
+    still start between the keep-alive and the close. The developer finds
+    it iffy (2026-10-18). Look for other options in Calibre's driver
+    (`smart_device_app/driver.py`): for example, whether the device can ask
+    Calibre to eject it, or a reply that makes Calibre close the connection
+    itself.
 
 ## Open questions
 
