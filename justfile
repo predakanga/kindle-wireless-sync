@@ -1,7 +1,10 @@
 # Kindle Wireless Sync - build, test and run
 
 kindle_target := "armv7-unknown-linux-musleabihf"
-# On the device (ssh host `kindle`): /var/local is persistent, writable and
+# SSH host for the device recipes. `kindle` is the reference device; set
+# KINDLE_HOST to use another, e.g. `kindle-emu` for an eink-emulator guest.
+kindle_host := env("KINDLE_HOST", "kindle")
+# On the device: /var/local is persistent, writable and
 # not exposed over USB (ADR 0004).
 kindle_dir := "/var/local/kindle-wireless-sync"
 kindle_books := "/mnt/us/documents"
@@ -58,57 +61,57 @@ size-kindle: build-kindle-package
 
 # Copy the Kindle binary to the device
 deploy: build-kindle
-    ssh kindle "mkdir -p {{kindle_dir}}/state"
+    ssh {{kindle_host}} "mkdir -p {{kindle_dir}}/state"
     # Copy under a temporary name, then rename over the old binary.
-    scp -q target/{{kindle_target}}/release/kindle-wireless-sync kindle:{{kindle_dir}}/kindle-wireless-sync.new
-    ssh kindle "chmod 755 {{kindle_dir}}/kindle-wireless-sync.new && mv -f {{kindle_dir}}/kindle-wireless-sync.new {{kindle_dir}}/kindle-wireless-sync"
+    scp -O -q target/{{kindle_target}}/release/kindle-wireless-sync {{kindle_host}}:{{kindle_dir}}/kindle-wireless-sync.new
+    ssh {{kindle_host}} "chmod 755 {{kindle_dir}}/kindle-wireless-sync.new && mv -f {{kindle_dir}}/kindle-wireless-sync.new {{kindle_dir}}/kindle-wireless-sync"
 
 # Copy the service scripts (writable storage; no root remount)
 deploy-scripts:
-    scp -q package/service.sh package/autostart.sh kindle:{{kindle_dir}}/
-    ssh kindle "chmod 755 {{kindle_dir}}/service.sh {{kindle_dir}}/autostart.sh"
+    scp -O -q package/service.sh package/autostart.sh {{kindle_host}}:{{kindle_dir}}/
+    ssh {{kindle_host}} "chmod 755 {{kindle_dir}}/service.sh {{kindle_dir}}/autostart.sh"
 
 # Install the upstart jobs (remounts the root filesystem read-write briefly)
 install-service: deploy deploy-scripts
-    scp -q package/upstart/kindle-wireless-sync.conf package/upstart/kindle-wireless-sync-autostart.conf kindle:/tmp/
-    ssh kindle "trap '/usr/sbin/mntroot ro' EXIT; /usr/sbin/mntroot rw && cp /tmp/kindle-wireless-sync.conf /tmp/kindle-wireless-sync-autostart.conf /etc/upstart/ && rm -f /tmp/kindle-wireless-sync*.conf"
-    ssh kindle "/sbin/initctl reload-configuration"
+    scp -O -q package/upstart/kindle-wireless-sync.conf package/upstart/kindle-wireless-sync-autostart.conf {{kindle_host}}:/tmp/
+    ssh {{kindle_host}} "trap '/usr/sbin/mntroot ro' EXIT; /usr/sbin/mntroot rw && cp /tmp/kindle-wireless-sync.conf /tmp/kindle-wireless-sync-autostart.conf /etc/upstart/ && rm -f /tmp/kindle-wireless-sync*.conf"
+    ssh {{kindle_host}} "/sbin/initctl reload-configuration"
 
 # Remove the upstart jobs (remounts the root filesystem read-write briefly)
 uninstall-service:
-    -ssh kindle "/sbin/initctl stop kindle-wireless-sync"
-    ssh kindle "trap '/usr/sbin/mntroot ro' EXIT; /usr/sbin/mntroot rw && rm -f /etc/upstart/kindle-wireless-sync.conf /etc/upstart/kindle-wireless-sync-autostart.conf"
-    ssh kindle "/sbin/initctl reload-configuration"
+    -ssh {{kindle_host}} "/sbin/initctl stop kindle-wireless-sync"
+    ssh {{kindle_host}} "trap '/usr/sbin/mntroot ro' EXIT; /usr/sbin/mntroot rw && rm -f /etc/upstart/kindle-wireless-sync.conf /etc/upstart/kindle-wireless-sync-autostart.conf"
+    ssh {{kindle_host}} "/sbin/initctl reload-configuration"
 
 # Service control on the Kindle
 start:
-    ssh kindle "/sbin/initctl start kindle-wireless-sync"
+    ssh {{kindle_host}} "/sbin/initctl start kindle-wireless-sync"
 
 stop:
-    ssh kindle "/sbin/initctl stop kindle-wireless-sync"
+    ssh {{kindle_host}} "/sbin/initctl stop kindle-wireless-sync"
 
 restart:
-    ssh kindle "/sbin/initctl restart kindle-wireless-sync"
+    ssh {{kindle_host}} "/sbin/initctl restart kindle-wireless-sync"
 
 status:
-    ssh kindle "/sbin/initctl status kindle-wireless-sync; {{kindle_dir}}/kindle-wireless-sync status --state {{kindle_dir}}/state; [ -f {{kindle_dir}}/autostart ] && echo 'autostart: on' || echo 'autostart: off'"
+    ssh {{kindle_host}} "/sbin/initctl status kindle-wireless-sync; {{kindle_dir}}/kindle-wireless-sync status --state {{kindle_dir}}/state; [ -f {{kindle_dir}}/autostart ] && echo 'autostart: on' || echo 'autostart: off'"
 
 logs:
-    ssh kindle "tail -f /var/log/kindle-wireless-sync.log"
+    ssh {{kindle_host}} "tail -f /var/log/kindle-wireless-sync.log"
 
 autostart-on:
-    ssh kindle "touch {{kindle_dir}}/autostart && rm -f {{kindle_dir}}/boot_attempts"
+    ssh {{kindle_host}} "touch {{kindle_dir}}/autostart && rm -f {{kindle_dir}}/boot_attempts"
 
 autostart-off:
-    ssh kindle "rm -f {{kindle_dir}}/autostart"
+    ssh {{kindle_host}} "rm -f {{kindle_dir}}/autostart"
 
 # Keep the Kindle awake for long tests (Wi-Fi drops with the screensaver).
 # A reboot also turns the screensaver back on.
 screensaver-off:
-    ssh kindle "lipc-set-prop -i com.lab126.powerd preventScreenSaver 1 && lipc-get-prop com.lab126.powerd preventScreenSaver"
+    ssh {{kindle_host}} "lipc-set-prop -i com.lab126.powerd preventScreenSaver 1 && lipc-get-prop com.lab126.powerd preventScreenSaver"
 
 screensaver-on:
-    ssh kindle "lipc-set-prop -i com.lab126.powerd preventScreenSaver 0 && lipc-get-prop com.lab126.powerd preventScreenSaver"
+    ssh {{kindle_host}} "lipc-set-prop -i com.lab126.powerd preventScreenSaver 0 && lipc-get-prop com.lab126.powerd preventScreenSaver"
 
 # Build the library-tile scriptlet with its icon embedded
 scriptlet:
@@ -122,12 +125,12 @@ scriptlet:
 
 # Deploy the WAF app and scriptlet, register the app, restart the service
 deploy-ui: deploy deploy-scripts scriptlet
-    ssh kindle "mkdir -p {{kindle_dir}}/ui"
-    scp -q package/ui/* kindle:{{kindle_dir}}/ui/
-    scp -q package/register-app.sh kindle:{{kindle_dir}}/
-    scp -q target/package/WirelessSync.sh kindle:/mnt/us/documents/WirelessSync.sh
-    ssh kindle "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"
-    -ssh kindle "/sbin/initctl restart kindle-wireless-sync || /sbin/initctl start kindle-wireless-sync"
+    ssh {{kindle_host}} "mkdir -p {{kindle_dir}}/ui"
+    scp -O -q package/ui/* {{kindle_host}}:{{kindle_dir}}/ui/
+    scp -O -q package/register-app.sh {{kindle_host}}:{{kindle_dir}}/
+    scp -O -q target/package/WirelessSync.sh {{kindle_host}}:/mnt/us/documents/WirelessSync.sh
+    ssh {{kindle_host}} "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"
+    -ssh {{kindle_host}} "/sbin/initctl restart kindle-wireless-sync || /sbin/initctl start kindle-wireless-sync"
 
 # Build the KPM package: target/package/kindle-wireless-sync.kpkg (ADR 0012)
 package: build-kindle-package scriptlet
@@ -144,25 +147,25 @@ publish-release *flags:
 
 # Install the package with the device's own KPM, as a user would
 kpm-install: package
-    scp -q target/package/kindle-wireless-sync.kpkg kindle:/tmp/kindle-wireless-sync.kpkg
-    ssh kindle "/var/local/kmc/bin/kpm -y install file:///tmp/kindle-wireless-sync.kpkg; rc=\$?; rm -f /tmp/kindle-wireless-sync.kpkg; exit \$rc"
+    scp -O -q target/package/kindle-wireless-sync.kpkg {{kindle_host}}:/tmp/kindle-wireless-sync.kpkg
+    ssh {{kindle_host}} "/var/local/kmc/bin/kpm -y install file:///tmp/kindle-wireless-sync.kpkg; rc=\$?; rm -f /tmp/kindle-wireless-sync.kpkg; exit \$rc"
 
 # Uninstall the package with the device's own KPM
 kpm-uninstall:
-    ssh kindle "/var/local/kmc/bin/kpm -y uninstall kindle-wireless-sync"
+    ssh {{kindle_host}} "/var/local/kmc/bin/kpm -y uninstall kindle-wireless-sync"
 
 # Open the settings app on the Kindle
 open-ui:
-    ssh kindle "lipc-set-prop com.lab126.appmgrd start app://com.kindlewirelesssync.app"
+    ssh {{kindle_host}} "lipc-set-prop com.lab126.appmgrd start app://com.kindlewirelesssync.app"
 
 # Deploy, then run one session on the Kindle in the foreground
 device-connect *args: deploy
-    ssh -t kindle "RUST_LOG=${RUST_LOG:-debug} {{kindle_dir}}/kindle-wireless-sync connect --books {{kindle_books}} --state {{kindle_dir}}/state --thumbnails /mnt/us/system/thumbnails --catalog /var/local/cc.db {{args}}"
+    ssh -t {{kindle_host}} "RUST_LOG=${RUST_LOG:-debug} {{kindle_dir}}/kindle-wireless-sync connect --books {{kindle_books}} --state {{kindle_dir}}/state --thumbnails /mnt/us/system/thumbnails --catalog /var/local/cc.db {{args}}"
 
 # Run discovery from the Kindle
 device-discover: deploy
-    ssh kindle "{{kindle_dir}}/kindle-wireless-sync discover"
+    ssh {{kindle_host}} "{{kindle_dir}}/kindle-wireless-sync discover"
 
 # Dev: native series grouping on the Kindle: status (default), enable or disable. Not packaged.
 series-grouping action="status":
-    ssh kindle "sh -s -- {{action}}" < tools/series-grouping.sh
+    ssh {{kindle_host}} "sh -s -- {{action}}" < tools/series-grouping.sh
