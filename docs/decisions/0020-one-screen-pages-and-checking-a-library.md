@@ -52,9 +52,20 @@ reason and lays out with floats.
   (`OpenFailed('')`, "Don't bother with a message").
 - **The cheap part already exists.** `daemon::probe`, used by Find
   libraries, reads Calibre's first message (library name, UUID and whether a
-  password challenge is set), then disconnects. It doesn't complete the
-  handshake, so it counts towards Calibre's limit of 5 incomplete
-  connections from one address. A completed handshake resets that count.
+  password challenge is set), then disconnects.
+- **Calibre locks out an address after 5 failed connections.**
+  - **What counts.** `detect_managed_devices` counts every connection
+    from an address (`connection_attempts[peer]`), and `open()` resets the
+    count when a handshake succeeds. So each Find libraries probe and each
+    wrong password counts.
+  - **What happens at 5.** Calibre closes every new connection from that
+    address before sending anything (`MAX_UNSUCCESSFUL_CONNECTS`). One
+    can't succeed to reset the count.
+  - **What clears it.** Only stopping and starting Calibre's wireless
+    device connection, or restarting Calibre (`_startup_on_demand` empties
+    the counts).
+  - **What doesn't.** The count is keyed on the address, so no device ID or
+    restart on the Kindle's side helps.
 - **A check can't use the Kindle's own device ID.** Calibre keeps a
   metadata cache per device ID (`device_store_uuid`):
   - With `cacheUsesLpaths`, `books()` deletes cache entries for every book
@@ -138,13 +149,19 @@ unlinking is **Forget library**; the command line keeps `unlink`.
 A check is a short connection that links nothing and changes nothing on
 the Kindle.
 
-1. **Who answers.** It runs the existing `daemon::probe` first: the
-   library's name and UUID, and whether Calibre wants a password. If
-   Calibre wants one and none was given, the check ends here with
+1. **Who answers.** The check needs the library's name and UUID, and
+   whether Calibre wants a password.
+   - **A library from Find** skips this step: Find libraries records the
+     same things, including (new) whether a password challenge was set.
+     That avoids a second failed connection counting towards the lockout.
+   - **A library entered by address** runs the existing `daemon::probe`
+     first.
+
+   If Calibre wants a password and none was given, the check ends here with
    "Password needed", before any full connection.
 2. **A full connection under a separate device ID.** The check connects as
    a device with its own ID: generated once, kept in the state directory,
-   and reused by every check. It never uses the Kindle's real ID, names no
+   and reused by every check (developer, 2026-10-18). It never uses the Kindle's real ID, names no
    read-sync columns, and lists no books. It doesn't store the driveinfo
    Calibre sends (`SET_CALIBRE_DEVICE_INFO`). It reports the same device name
    as the real sessions.
@@ -168,6 +185,15 @@ The result lives in the daemon's memory, like found libraries (ADR 0018):
 the checked library's UUID, name, address, the password that worked, and
 its columns.
 
+**A lockout gets its own message.** When Calibre closes a connection before
+sending anything, the check, Find libraries and the service's own session
+report it as a probable lockout, not as "unreachable" or "not a Calibre
+connection". The message names the fix: "Calibre may have stopped
+accepting this Kindle after too many failed attempts. In Calibre, stop and
+start the wireless device connection (Connect/share), then try again." The
+exact wording comes with the build. This path must be tested with the
+harness before release (Consequences).
+
 ### Linking with settings
 - **Link** links the checked library with the settings chosen: `writable`,
   `read_column` and `last_read_column`. Replacing another library still
@@ -178,8 +204,23 @@ its columns.
 - **Changing settings later** (Library settings, Save) writes them and ends
   the session at the next quiet keep-alive, so the next session names the
   new columns (ADR 0017's reconnect).
-- `columns.json` keeps each column's heading as well as its type, so
-  Library settings can list them by name.
+- **The library's columns move into `config.json`** (developer,
+  2026-10-18), on the linked library's entry, with their headings:
+  `"columns": {"#kindle_read": {"name": "Kindle read", "datatype":
+  "bool"}, …}`. `columns.json` goes.
+  - **Linking** writes the checked library's columns along with the
+    choices.
+  - **Sessions** update them from `SET_LIBRARY_INFO` through
+    `config::update`, the locked read-modify-write every writer uses (ADR
+    0011, amendment).
+  - **Forget and replace** drop them with the library, so the reset no
+    longer has a file to clear.
+  - **Library settings** reads the names and the choices from one place.
+
+  ADR 0017 put them in a separate file, keyed by library UUID, when the
+  allowlist could hold several libraries. With one linked library, they're
+  a fact about that library. The cost: a little information learned from
+  Calibre in a file people may edit by hand.
 - **The command line** keeps `link HOST [PORT] [--writable]` and gains
   `--read-column` and `--last-read-column`, defaulting to ADR 0017's names.
   It doesn't run the full check.
@@ -220,8 +261,11 @@ count towards the crash-loop guard (ADR 0010).
 - **Check under the Kindle's own device ID**, listing no books: Calibre
   would empty its cache for this Kindle. Listing the real books instead:
   the stale-cache problem ADR 0018 avoids. Both rejected.
-- **A new device ID for every check:** an empty cache file per check in
-  Calibre's cache folder. A fixed check ID leaves one.
+- **A new device ID for every check, or for every service start:** an
+  empty cache file each time in Calibre's cache folder, where a fixed check
+  ID leaves one. A new ID per service start was suggested as a way out of a
+  lockout, but Calibre keys the lockout on the address, so it wouldn't
+  help.
 - **Leave right after `SET_LIBRARY_INFO`:** Calibre shows an error dialog.
 - **Read columns some other way** (Calibre's content server, a plugin):
   the user's computer runs stock Calibre only (`docs/PLAN.md`).
@@ -235,14 +279,23 @@ count towards the crash-loop guard (ADR 0010).
   - "Disconnect temporarily": too long; plain Disconnect.
 
 ## Consequences
-- **Work:** a check mode for sessions, the daemon's handling of a check
-  next to its own session, the API changes, headings in `columns.json`, the
-  command-line options, and a new app built from the prototype's
-  `app/` files without the mock.
+- **Work:**
+  - A check mode for sessions, and the daemon running a check alongside
+    its own session.
+  - Find libraries recording whether a password is needed.
+  - The lockout message.
+  - The API changes.
+  - The columns moving into `config.json`.
+  - The command-line options.
+  - A new app built from the prototype's `app/` files, without the mock.
 - **To test with the harness:**
   - How short the check's quiet wait can be.
   - What Calibre shows during a check: a device, and no dialog.
   - A check with the wrong password, and with none.
+  - **The lockout path:** five failed connections (wrong passwords, or
+    Find libraries without linking), then the message on the next check,
+    Find and session, and that stopping and starting Calibre's wireless
+    connection clears it.
   - A check while the service is connected to the same Calibre.
   - Calibre starting a job during a check, say a send.
   - The check's cache file being reused.
@@ -252,8 +305,9 @@ count towards the crash-loop guard (ADR 0010).
   - How much of each form the keyboard covers.
 - **Risks:**
   - A check adds a device to Calibre's view, briefly.
-  - Each incomplete connection (Find libraries, "Password needed") counts
-    towards Calibre's limit of 5 from one address. A completed check
-    resets the count.
+  - Each failed connection (a Find libraries probe, a wrong password)
+    counts towards Calibre's lockout of 5 from one address, and the library
+    list searches every time it opens. A completed check resets the count.
+    The message above tells the user how to clear a lockout.
 - **Docs:** the README's app section, the changelog, and "Amended by 0020"
   notes in ADRs 0004, 0011, 0017 and 0018 once this is accepted.
