@@ -24,7 +24,8 @@ usage:
               [--api-port PORT]
   kindle-wireless-sync find --state DIR [--probe ADDR]...
   kindle-wireless-sync link --state DIR [HOST [PORT]] [--uuid UUID] [--replace]
-              [--password PW] [--writable | --read-only]
+              [--password PW] [--writable [--read-column COL] [--last-read-column COL]
+              | --read-only]
   kindle-wireless-sync unlink --state DIR
   kindle-wireless-sync status --state DIR
   kindle-wireless-sync series --books DIR --catalog DB --remove-all
@@ -35,9 +36,12 @@ find        \"Find libraries\": broadcast, then connect once to each server to
 link        link this Kindle to the library at HOST:PORT (port 9090 if not
             given), which must answer now. --uuid refuses any other library.
             --replace confirms replacing a different linked library: the
-            books stay, but each book's metadata from that library goes.
-            --writable lets this Kindle send read status and last-read date
-            to the library (ADR 0017), --read-only stops it. Without HOST,
+            books and their series stay, but the rest of each book's
+            metadata from that library goes. --writable lets this Kindle
+            send read status and last-read date to the library (ADR 0017),
+            into a Yes/No and a Date column (#kindle_read and
+            #kindle_last_read unless --read-column and --last-read-column
+            name others; \"\" for none). --read-only stops it. Without HOST,
             changes the linked library's --password or --writable setting
 unlink      stop syncing with the linked library; books stay
 status      show the daemon status and the linked library
@@ -287,6 +291,8 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
     let (mut state, mut uuid, mut password): (Option<PathBuf>, Option<String>, Option<String>) =
         (None, None, None);
     let mut writable: Option<bool> = None;
+    let mut read_column: Option<String> = None;
+    let mut last_read_column: Option<String> = None;
     let mut replace = false;
     let mut positional: Vec<String> = Vec::new();
     while let Some(arg) = args.next()? {
@@ -296,12 +302,19 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
             Long("password") => password = Some(args.value()?.string()?),
             Long("writable") if writable.is_none() => writable = Some(true),
             Long("read-only") if writable.is_none() => writable = Some(false),
+            Long("read-column") => read_column = Some(args.value()?.string()?),
+            Long("last-read-column") => last_read_column = Some(args.value()?.string()?),
             Long("replace") => replace = true,
             Value(v) if positional.len() < 2 => positional.push(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }
     let state = required(state, "--state")?;
+    if (read_column.is_some() || last_read_column.is_some()) && writable != Some(true) {
+        return Err(
+            format!("--read-column and --last-read-column go with --writable\n{USAGE}").into(),
+        );
+    }
     let linked_uuid = match positional.as_slice() {
         [] => {
             if uuid.is_some() || replace {
@@ -356,7 +369,8 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
                 Err(LinkError::NeedsReplace { linked, answered }) => {
                     println!(
                         "this Kindle is linked to {:?} ({}). Linking {:?} ({}) replaces it: \
-                         the books stay, but each book's metadata from {:?} goes. \
+                         the books and their series stay, but the rest of each book's \
+                         metadata from {:?} goes. \
                          Rerun with --replace to do that.",
                         linked.name,
                         linked.uuid,
@@ -384,15 +398,25 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
         }
     };
     if let Some(w) = writable {
-        // The app will let users pick the columns; for now every caller
-        // stores the fixed names (ADR 0017).
+        // The columns default to ADR 0017's names; an empty name syncs none.
+        let pick = |given: Option<String>, default: &str| match given {
+            Some(c) if c.is_empty() => None,
+            Some(c) => Some(c),
+            None => Some(default.to_owned()),
+        };
+        let columns = Columns {
+            read: pick(read_column, DEFAULT_READ_COLUMN),
+            last_read: pick(last_read_column, DEFAULT_LAST_READ_COLUMN),
+        };
+        let named = |c: &Option<String>| c.clone().unwrap_or_else(|| "(none)".into());
+        let (read, last_read) = (named(&columns.read), named(&columns.last_read));
         config::update(&state, |c| {
-            c.set_writable(&linked_uuid, w.then(Columns::defaults))
+            c.set_writable(&linked_uuid, w.then_some(columns))
         })?;
         if w {
             println!(
-                "writable: read status and last-read date go to the library's \
-                 {DEFAULT_READ_COLUMN} and {DEFAULT_LAST_READ_COLUMN} columns, once you create them"
+                "writable: read status goes to the library's {read} column and last-read date \
+                 to {last_read}, once they exist"
             );
         } else {
             println!("read-only: this Kindle won't change the library");
