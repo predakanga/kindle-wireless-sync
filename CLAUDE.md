@@ -183,6 +183,20 @@ first. Instance `pw6-5201-jb` matches the reference device: a Paperwhite
 KPM is present. The developer's own `pw12` instance is theirs; leave it
 alone.
 
+**When the emulator misbehaves** (Wi-Fi stuck at PENDING, DNS failures,
+timeouts, odd network results), check these two first and tell the
+developer what you find. Either one alone breaks QEMU's DNS proxies on the
+developer's Mac (2026-10-17):
+1. **Is the real Kindle plugged in?** `ifconfig | grep 'inet 192.168.15'`
+   on the Mac. Its USB network overlaps the emulator's 192.168.15.0/24, and
+   the Wi-Fi-side proxy (10.0.2.3) times out.
+2. **Is Tailscale managing DNS?** `grep nameserver /etc/resolv.conf` shows
+   `100.100.100.100`. Both proxies fail at once.
+
+Confirm with `nslookup example.com 10.0.2.3` (and `192.168.15.3`) in the
+guest, compared with `1.1.1.1`. Ask the developer to unplug the Kindle or
+quit Tailscale; don't change either yourself.
+
 - Start it in the background from `../eink-emulator`:
   `./eink run pw6-5201-jb --headless --serial-socket --qmp-socket
   --ssh-port 4022 --wifi-ssh-port 4023`. SSH host `kindle-emu`; every
@@ -195,13 +209,6 @@ alone.
   lipc-hash-prop com.lab126.wifid createProfile`, then `lipc-set-prop
   com.lab126.wifid cmConnect Kindle-QEMU`. `wifid` reaches CONNECTED only
   once its DNS probe passes, and the daemon waits for CONNECTED.
-- **QEMU's DNS proxies break on the developer's Mac** (2026-10-17). They
-  break when the real Kindle is plugged in: its USB network (`en7`) is on
-  the same 192.168.15.0/24 as the emulator's, and the Wi-Fi proxy
-  (10.0.2.3) times out. They also break while Tailscale manages DNS: both
-  proxies fail at once. Either one is enough. Check with `nslookup
-  example.com 10.0.2.3` in the guest, and ask the developer to unplug the
-  Kindle or quit Tailscale.
 - The guest reaches the Mac at 10.0.2.2 over Wi-Fi and 192.168.15.201 over
   USB. UDP broadcast doesn't cross QEMU's network, so `find` can't see
   Calibre. Link with `/add-server` (or `add-server`) by address.
