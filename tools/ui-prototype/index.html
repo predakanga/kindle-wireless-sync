@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Wireless Sync UI prototype</title>
+<style>
+    :root { --ink: #1d1d1f; --muted: #6b6b70; --line: #d6d6db; --panel: #f6f6f8; --warn: #b3261e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           color: var(--ink); background: #e9e9ec; }
+    .wrap { display: flex; gap: 24px; padding: 20px; align-items: flex-start; }
+    .device { flex: none; background: #2b2b2e; padding: 28px 22px 40px; border-radius: 28px; }
+    .screen { position: relative; background: #fff; overflow: hidden; }
+    .screen-inner { position: absolute; left: 0; top: 0; width: 1272px; height: 1696px; transform-origin: 0 0; }
+    .chrome { height: 213px; border-bottom: 3px solid #bbb; font: 40px sans-serif; color: #000; position: relative; }
+    .chrome .clock { position: absolute; left: 30px; top: 28px; }
+    .chrome .batt { position: absolute; right: 36px; top: 28px; }
+    .chrome .notch { position: absolute; left: 576px; top: 22px; width: 120px; height: 10px; border-radius: 5px; background: #000; }
+    .chrome .close { position: absolute; right: 44px; top: 128px; font-size: 64px; line-height: 1; }
+    iframe { display: block; width: 1272px; height: 1483px; border: 0; background: #fff; }
+    .panel { flex: 1; min-width: 360px; max-width: 560px; display: grid; gap: 14px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .card h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+    button { font: inherit; padding: 5px 10px; border: 1px solid #b9b9c0; border-radius: 6px; background: #fff; cursor: pointer; }
+    button:hover { background: #f0f0f3; }
+    .lib { border-top: 1px solid var(--line); padding: 8px 0; }
+    .lib:first-of-type { border-top: 0; }
+    .lib .name { font-weight: 600; }
+    .lib .addr { color: var(--muted); font-size: 12px; }
+    .lib label, .opts label { margin-right: 12px; white-space: nowrap; }
+    .lib input[type=text] { width: 90px; font: inherit; padding: 1px 4px; }
+    .cols { font-size: 12px; margin-top: 4px; }
+    .opt { margin: 6px 0; }
+    .opt .k { display: inline-block; width: 150px; color: var(--muted); }
+    .readout { font-size: 15px; }
+    .readout b { font-variant-numeric: tabular-nums; }
+    .over { color: var(--warn); font-weight: 700; }
+    .log { font: 12px/1.45 ui-monospace, Menlo, monospace; max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 0; }
+    .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="device">
+        <div class="screen" id="screen">
+            <div class="screen-inner" id="screenInner">
+                <div class="chrome"><span class="clock">21:56</span><span class="notch"></span>
+                    <span class="batt">Wi-Fi 100%</span><span class="close">×</span></div>
+                <iframe id="app" src="app/index.html" title="Wireless Sync app"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="card">
+            <h2>Screen</h2>
+            <div class="readout">Page: <b id="rPage">–</b> · Fits: <b id="rFit">–</b></div>
+            <p class="note">Paperwhite 12th gen, 1272×1696; the app gets about 1272×1483 below the Kindle's
+                bars (measured from a screenshot). Overflow means the page would need scrolling.</p>
+            <div class="opt"><span class="k">Zoom</span>
+                <label><input type="radio" name="zoom" value="0.35" /> 35%</label>
+                <label><input type="radio" name="zoom" value="0.45" checked /> 45%</label>
+                <label><input type="radio" name="zoom" value="0.6" /> 60%</label></div>
+            <button id="reopen">Close and reopen the app</button>
+        </div>
+
+        <div class="card">
+            <h2>Scenario</h2>
+            <div class="presets" id="presets"></div>
+        </div>
+
+        <div class="card">
+            <h2>Calibre on the network</h2>
+            <div id="libs"></div>
+            <div class="opt"><label><input type="checkbox" id="wifi" checked /> Kindle on Wi-Fi</label></div>
+        </div>
+
+        <div class="card opts">
+            <h2>Design variants</h2>
+            <div class="opt"><span class="k">Changing library</span>
+                <label><input type="radio" name="changeFlow" value="choose" checked /> Change library button</label>
+                <label><input type="radio" name="changeFlow" value="unlink" /> Unlink first</label></div>
+            <div class="opt"><span class="k">Confirm a replace</span>
+                <label><input type="radio" name="replaceConfirm" value="dialog" checked /> Dialog after Link</label>
+                <label><input type="radio" name="replaceConfirm" value="inline" /> Warning on the page</label></div>
+            <div class="opt"><span class="k">Service controls</span>
+                <label><input type="radio" name="serviceControls" value="none" checked /> None</label>
+                <label><input type="radio" name="serviceControls" value="bottom" /> Stop/Restart at the bottom</label></div>
+            <div class="opt"><span class="k">Checking a library</span>
+                <label><input type="radio" name="probeMs" value="2500" checked /> Quick (2.5 s)</label>
+                <label><input type="radio" name="probeMs" value="12000" /> Realistic (12 s)</label></div>
+            <div class="opt"><label><input type="checkbox" id="keyboard" checked /> Show the keyboard's space when a field has focus</label></div>
+        </div>
+
+        <div class="card">
+            <h2>API calls from the app</h2>
+            <pre class="log" id="log"></pre>
+        </div>
+    </div>
+</div>
+
+<script src="app/mock.js"></script>
+<script>
+"use strict";
+const frame = document.getElementById("app");
+let mock = null;
+mock = new KWSMock(() => { if (mock) { renderPanel(); poke(); } });
+
+function poke() { frame.contentWindow && frame.contentWindow.postMessage({ kws: "poke" }, "*"); }
+
+window.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.kws === "req") {
+        mock.request(d.method, d.path, d.body, (data, err) =>
+            frame.contentWindow.postMessage({ kws: "res", id: d.id, data, err }, "*"));
+    } else if (d.kws === "metrics") {
+        document.getElementById("rPage").textContent = d.page;
+        const fit = document.getElementById("rFit");
+        fit.textContent = d.overflow > 0 ? `no, ${Math.round(d.overflow)}px too tall` : `yes, ${Math.round(-d.overflow)}px spare`;
+        fit.className = d.overflow > 0 ? "over" : "";
+    }
+});
+
+function setZoom(z) {
+    const s = document.getElementById("screen");
+    s.style.width = 1272 * z + "px";
+    s.style.height = 1696 * z + "px";
+    document.getElementById("screenInner").style.transform = `scale(${z})`;
+}
+document.querySelectorAll("input[name=zoom]").forEach((r) =>
+    r.addEventListener("change", () => setZoom(parseFloat(r.value))));
+setZoom(0.45);
+
+document.getElementById("reopen").addEventListener("click", () => {
+    // The tile starts the service if it isn't running (WirelessSync.sh), then opens the app.
+    if (!mock.svc.running) { mock.svc.running = true; mock.reconcile(); mock.note("service started by the tile"); }
+    frame.src = "app/index.html";
+});
+
+const presets = document.getElementById("presets");
+for (const [key, label] of Object.entries(KWSMock.PRESETS)) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.addEventListener("click", () => { mock.preset(key); frame.src = "app/index.html"; });
+    presets.appendChild(b);
+}
+
+for (const key of ["changeFlow", "replaceConfirm", "serviceControls"]) {
+    document.querySelectorAll(`input[name=${key}]`).forEach((r) =>
+        r.addEventListener("change", () => { mock.variants[key] = r.value; mock.onChange(); }));
+}
+document.querySelectorAll("input[name=probeMs]").forEach((r) =>
+    r.addEventListener("change", () => { mock.options.probeMs = parseInt(r.value, 10); }));
+document.getElementById("keyboard").addEventListener("change", (e) => { mock.options.keyboard = e.target.checked; mock.onChange(); });
+document.getElementById("wifi").addEventListener("change", (e) => { mock.wifi = e.target.checked; mock.reconcile(); mock.note("Wi-Fi " + (e.target.checked ? "on" : "off")); });
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+function renderPanel() {
+    document.getElementById("wifi").checked = mock.wifi;
+    document.getElementById("log").textContent = mock.log.join("\n");
+    const libs = document.getElementById("libs");
+    if (libs.contains(document.activeElement) && document.activeElement.type === "text") return; // don't eat typing
+    const catalog = KWSMock.COLUMN_CATALOG;
+    libs.innerHTML = mock.net.map((l, i) => {
+        const cols = [...catalog.bool.map((c) => [c, "Yes/No"]), ...catalog.datetime.map((c) => [c, "Date"])]
+            .map(([c, type]) => `<label title="${type}"><input type="checkbox" data-i="${i}" data-col="${c.lookup}"
+                ${l.columns.includes(c.lookup) ? "checked" : ""}/> ${esc(c.name)} <small>(${type})</small></label>`).join(" ");
+        return `<div class="lib">
+            <div class="name">${esc(l.name)} <span class="addr">${esc(l.hostname)} · ${esc(l.host)}:${l.port}</span></div>
+            <label><input type="checkbox" data-i="${i}" data-k="running" ${l.running ? "checked" : ""}/> Wireless connection on</label>
+            <label><input type="checkbox" data-i="${i}" data-k="discoverable" ${l.discoverable ? "checked" : ""}/> Findable</label>
+            <label><input type="checkbox" data-i="${i}" data-k="busy" ${l.busy ? "checked" : ""}/> Busy</label>
+            <label>Password <input type="text" data-i="${i}" data-k="password" value="${esc(l.password)}" placeholder="none"/></label>
+            <div class="cols">Columns: ${cols}</div></div>`;
+    }).join("");
+}
+
+document.getElementById("libs").addEventListener("change", (e) => {
+    const t = e.target, l = mock.net[+t.dataset.i];
+    if (!l) return;
+    if (t.dataset.col) {
+        l.columns = t.checked ? [...l.columns, t.dataset.col] : l.columns.filter((c) => c !== t.dataset.col);
+    } else if (t.dataset.k === "password") {
+        l.password = t.value;
+    } else {
+        l[t.dataset.k] = t.checked;
+    }
+    mock.reconcile();
+    mock.note(`${l.name}: ${t.dataset.col || t.dataset.k} → ${t.type === "checkbox" ? t.checked : JSON.stringify(t.value)}`);
+});
+
+renderPanel();
+</script>
+</body>
+</html>

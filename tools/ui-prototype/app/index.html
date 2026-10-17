@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Wireless Sync</title>
+    <link rel="stylesheet" href="style.css" />
+    <!-- Scale everything from the root font size; the Kindle's CSS pixels vary by model. -->
+    <script>document.documentElement.style.fontSize = (window.innerWidth || 1072) / 40 + "px";</script>
+</head>
+<body>
+    <!-- Prototype of a one-screen-per-page app (see ../README.md). -->
+    <div id="page"></div>
+    <div id="bottom" class="bottom"></div>
+    <div id="dialog" class="overlay hidden"></div>
+    <div id="keyboard" class="keyboard hidden">On-screen keyboard<br /><small>(approximate size)</small></div>
+    <div id="message" class="message"></div>
+
+    <script src="mock.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

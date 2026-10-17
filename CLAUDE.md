@@ -44,6 +44,7 @@ just start | stop | restart | status | logs | autostart-on | autostart-off
 just screensaver-off | screensaver-on   # keep the Kindle awake for long tests (Wi-Fi drops with it)
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
+just ui-prototype         # dev: open the clickable UI prototype (tools/ui-prototype) in a browser
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)

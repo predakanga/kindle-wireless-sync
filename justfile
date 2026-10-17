@@ -134,6 +134,10 @@ deploy-ui: deploy deploy-scripts scriptlet
     ssh {{kindle_host}} "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"
     -ssh {{kindle_host}} "/sbin/initctl restart kindle-wireless-sync || /sbin/initctl start kindle-wireless-sync"
 
+# Open the clickable UI prototype in the browser (no Kindle needed)
+ui-prototype:
+    open tools/ui-prototype/index.html
+
 # Build the KPM package: target/package/kindle-wireless-sync.kpkg (ADR 0012)
 package: build-kindle-package scriptlet
     sh tools/package.sh target/{{kindle_target}}/release/kindle-wireless-sync \
