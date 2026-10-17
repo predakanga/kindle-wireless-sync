@@ -195,9 +195,12 @@ sync works end to end with only stock Calibre.
 
 **Built (2026-10-17, unreleased): ADR 0018.** One linked library replaces
 the allowlist, in the config, the command line (`link`, `unlink`), the API
-(`/link`, `/unlink`) and the app. Next: test it on the emulated Kindle with
-the Calibre harness, then on the device, before the next release, which
-will also carry read sync (ADR 0017, unreleased).
+(`/link`, `/unlink`) and the app. The daemon and API were tested on the
+emulated Kindle with the Calibre harness (ADR 0018, implementation notes).
+That test found and fixed a gap: reset records kept the old library's
+date, so Calibre never resent their metadata. Next: check the app on the
+device (it wouldn't open on the emulator), then release. The release will
+also carry read sync (ADR 0017, unreleased).
 
 ### Phase 5: Stretch goals
 
