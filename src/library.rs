@@ -653,6 +653,65 @@ impl Library {
         let len = file.metadata()?.len();
         Ok((file, len))
     }
+
+    /// Before a session with the linked library: if our state belongs to a
+    /// different library, forget that library (ADR 0018). The library is the
+    /// `last_library_uuid` Calibre stores in our driveinfo. Returns whether
+    /// it reset.
+    pub fn reset_if_relinked(&mut self, linked_uuid: &str) -> io::Result<bool> {
+        if self.driveinfo.as_object().is_none_or(Map::is_empty) {
+            return Ok(false);
+        }
+        match self.driveinfo["last_library_uuid"].as_str() {
+            Some(u) if u == linked_uuid => Ok(false),
+            Some(u) if !u.is_empty() => {
+                log::info!("linked to a different library ({linked_uuid}, was {u}): resetting");
+                self.forget_library()?;
+                Ok(true)
+            }
+            _ => {
+                log::warn!("driveinfo.json names no library; not resetting");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Forgets everything that came from the previous library: each book's
+    /// metadata except its identity, read-sync state, the libraries' columns,
+    /// and Calibre's device identity, so Calibre sees a new device with an
+    /// empty metadata cache. The driveinfo goes last: an interrupted reset
+    /// runs again.
+    fn forget_library(&mut self) -> io::Result<()> {
+        for record in &mut self.books {
+            *record = identity(record);
+        }
+        self.save()?;
+        self.columns = json!({});
+        remove_if_exists(fs::remove_file(self.state_dir.join(COLUMNS_FILE)))?;
+        self.mark_series_dirty();
+        remove_if_exists(fs::remove_file(self.state_dir.join(DRIVEINFO_FILE)))?;
+        self.driveinfo = json!({});
+        Ok(())
+    }
+}
+
+/// The parts of a book record that aren't the library's (ADR 0018): what the
+/// next library matches on, and our private data minus read-sync state.
+/// Records built by adoption (ADR 0013) have the same shape.
+fn identity(record: &Value) -> Value {
+    const KEPT: [&str; 6] = ["lpath", "size", "last_modified", "uuid", "title", "authors"];
+    let mut out = Map::new();
+    for key in KEPT {
+        if let Some(v) = record.get(key) {
+            out.insert(key.into(), v.clone());
+        }
+    }
+    out.insert("thumbnail".into(), Value::Null);
+    if let Some(mut private) = record.get(PRIVATE_KEY).cloned() {
+        readsync::forget(&mut private);
+        out.insert(PRIVATE_KEY.into(), private);
+    }
+    Value::Object(out)
 }
 
 fn record_lpath(record: &Value) -> Option<&str> {
@@ -1055,6 +1114,74 @@ mod tests {
         let mut inc = lib.begin_incoming(&rel, data.len() as u64).unwrap();
         inc.writer().write_all(data).unwrap();
         lib.commit_incoming(inc, meta).unwrap();
+    }
+
+    #[test]
+    fn linking_a_different_library_keeps_only_book_identities() {
+        let (tmp, mut lib) = setup();
+        let state = tmp.path().join("state");
+        receive(
+            &mut lib,
+            "A/Book.txt",
+            b"book",
+            json!({"uuid": "u1", "title": "Book", "authors": ["A"], "size": 4,
+                   "last_modified": "2026-10-17T00:00:00+00:00", "series": "Saga",
+                   "series_index": 1, "tags": ["x"], "user_metadata": {"#kindle_read": {}}}),
+        );
+        lib.books[0]["_kws"] =
+            json!({"cde_key": "k", "cde_type": "PDOC", "read_sync": {"read": true}});
+        lib.save().unwrap();
+        lib.record_columns(
+            "lib-a",
+            Map::from_iter([("#kindle_read".into(), json!("bool"))]),
+        )
+        .unwrap();
+        lib.set_driveinfo(
+            json!({"device_store_uuid": "dev-1", "device_name": "K", "last_library_uuid": "lib-a"}),
+        )
+        .unwrap();
+        let before = lib.book("A/Book.txt").unwrap().clone();
+
+        assert!(!lib.reset_if_relinked("lib-a").unwrap(), "same library");
+        assert_eq!(lib.book("A/Book.txt").unwrap(), &before);
+
+        assert!(lib.reset_if_relinked("lib-b").unwrap());
+        let expected = json!({"lpath": "A/Book.txt", "size": 4,
+            "last_modified": "2026-10-17T00:00:00+00:00", "uuid": "u1", "title": "Book",
+            "authors": ["A"], "thumbnail": null, "_kws": {"cde_key": "k", "cde_type": "PDOC"}});
+        assert_eq!(lib.book("A/Book.txt").unwrap(), &expected);
+        assert!(lib.calibre_metadata(0).unwrap().get("series").is_none());
+        assert!(lib.known_columns("lib-a").is_empty());
+        assert!(!state.join(COLUMNS_FILE).exists());
+        assert!(!state.join(DRIVEINFO_FILE).exists());
+        assert_eq!(lib.driveinfo(), &json!({}));
+
+        // The reset was saved, and with no driveinfo there's nothing to redo.
+        let mut lib = Library::open(&tmp.path().join("books"), &state).unwrap();
+        assert_eq!(lib.book("A/Book.txt").unwrap(), &expected);
+        assert!(!lib.reset_if_relinked("lib-b").unwrap());
+    }
+
+    #[test]
+    fn no_reset_unless_driveinfo_names_another_library() {
+        let (_tmp, mut lib) = setup();
+        receive(
+            &mut lib,
+            "Book.txt",
+            b"book",
+            json!({"uuid": "u1", "tags": ["x"]}),
+        );
+        assert!(!lib.reset_if_relinked("lib-b").unwrap(), "fresh install");
+        for info in [
+            json!({"device_store_uuid": "dev-1"}),
+            json!({"device_store_uuid": "dev-1", "last_library_uuid": null}),
+            json!({"device_store_uuid": "dev-1", "last_library_uuid": ""}),
+        ] {
+            lib.set_driveinfo(info).unwrap();
+            assert!(!lib.reset_if_relinked("lib-b").unwrap());
+        }
+        assert_eq!(lib.book("Book.txt").unwrap()["tags"], json!(["x"]));
+        assert_eq!(lib.driveinfo()["device_store_uuid"], "dev-1");
     }
 
     #[test]

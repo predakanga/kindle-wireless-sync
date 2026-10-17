@@ -169,6 +169,14 @@ pub fn report(
     out
 }
 
+/// Drops a book's read-sync state from its private `_kws` object, when the
+/// Kindle is linked to a different library (ADR 0018).
+pub fn forget(private: &mut Value) {
+    if let Some(obj) = private.as_object_mut() {
+        obj.remove(STATE_KEY);
+    }
+}
+
 /// The Kindle's value if it changed since we last reported it, or if Calibre
 /// hasn't taken it yet; otherwise Calibre's own value.
 ///
