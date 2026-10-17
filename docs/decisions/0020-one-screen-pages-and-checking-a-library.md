@@ -373,8 +373,26 @@ dev-only `check` command that runs the same code as the app's check
   password hit the lockout. Without the probe, no password, two wrong
   passwords and then the right one all behaved: `password_needed`,
   `password_rejected` twice, then `ok`, with no dialog.
+- **The app, end to end on the Mac.** The service ran on the Mac with
+  scratch folders, the app in headless Chrome (loaded from a file, as on the
+  Kindle), against the harness Calibre. Find (by broadcast), the check
+  (11 s), the setup page with the library's real columns and the default
+  ones picked, Link (connected 8 s later), Library settings, Disconnect and
+  Connect, the series switch and Forget library all worked, with no
+  warnings in the service's log and no dialogs in Calibre.
+- **The series switch** reaches the running service: the pass reads a
+  shared flag, so turning series off or on in the app takes effect without
+  a restart.
+- **Restart and Stop** run `initctl restart|stop -n` on the service's job,
+  a moment after replying. The job's name comes from `UPSTART_JOB`, or is
+  `kindle-wireless-sync` where `/sbin/initctl` exists. Not tried on the
+  device yet.
+- **`/link` with `uuid` or `host`** (linking without a check) still works,
+  for now; the new app doesn't use it.
 - **Not tested yet:**
   - A send started in Calibre during a check. The check ends with an
     error, which Calibre reports as a failed job.
   - A check while the service is connected to the same Calibre. A unit
     test covers it with a fake Calibre; it needs a real device.
+  - Anything on the Kindle: the fit and text size, the ⚙ character, the
+    keyboard over the forms, Restart and Stop.

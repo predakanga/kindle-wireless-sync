@@ -209,8 +209,13 @@ becomes pages that each fit one screen, and linking first checks the
 library (password, columns) so read sync can be set up with the user's own
 columns before connecting. A clickable prototype settled the design
 (`tools/ui-prototype`, `just ui-prototype`). Replacing a library now keeps
-series (ADR 0018, amended). Next: build ADR 0020, then
-release 0.3.0, which also carries read sync (ADR 0017) and ADR 0018.
+series (ADR 0018, amended).
+
+**Built (2026-10-18, unreleased): ADR 0020.** The check, the API, the new
+app and the command-line options. Tested with unit tests, the harness
+Calibre, and end to end on the Mac (ADR 0020, implementation notes). Next:
+the emulated Kindle, then the device, then release 0.3.0, which also
+carries read sync (ADR 0017) and ADR 0018.
 
 ### Phase 5: Stretch goals
 

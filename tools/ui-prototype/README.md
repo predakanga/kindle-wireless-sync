@@ -18,6 +18,9 @@ The app (`app/`) is ES5 with no flexbox, like the real one, so it can be
 copied to the Kindle to check the fit there. Opened on its own, it runs its
 own fake service, starting with nothing linked.
 
-The API it calls is a proposal: `/probe` connects to a library, checks the
-password and reads its columns, then disconnects; `/link` links the probed
-library with the chosen settings; `/settings` changes them later.
+The API it calls was a proposal: `/probe` connects to a library, checks
+the password and reads its columns, then disconnects; `/link` links the
+probed library with the chosen settings; `/settings` changes them later.
+The real app, built from this one, is `package/ui` (ADR 0020). The real API
+differs in details: columns come as a map of lookup name to `{name,
+datatype}`, and `/find` answers once the search is done.
