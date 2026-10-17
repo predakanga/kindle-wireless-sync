@@ -122,6 +122,8 @@
             && s.state !== "waiting_for_wifi" && s.state !== "not_linked";
         el("btnConnect").disabled = !canConnect;
         el("btnPause").innerHTML = s.paused ? "Resume" : "Pause";
+        // Nothing to pause until a library is linked; Resume always works.
+        el("btnPause").disabled = !s.paused && s.state === "not_linked";
         el("chkAutostart").checked = !!s.autostart;
         show("guardWarning", !!s.autostart_disabled_by_guard && !s.autostart);
         if (s.config_error) showMessage("Settings file problem: " + s.config_error);
