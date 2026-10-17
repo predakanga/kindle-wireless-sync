@@ -1,6 +1,6 @@
 # 0019: Drive Calibre through a development-only plugin
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-17
 
 ## Context
