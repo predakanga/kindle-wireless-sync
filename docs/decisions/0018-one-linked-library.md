@@ -260,11 +260,12 @@ emulated Kindle and the Calibre harness both answer it: yes.
   user confirms, the app sends the same request again with `"replace":
   true` and the answering library's `uuid`. A by-address link is probed
   again, so a different library answering by then is refused, not linked.
-- **`/link` that replaces a library cuts the open session** (as `/unlink`
-  and `/password` do), so the old library gets no more syncs. A `link` or
-  `unlink` from the command line only changes the config. The daemon
-  follows it at its next connection, and an open session continues until
-  it ends.
+- **Replacing or unlinking a library cuts the open session**, so the old
+  library gets no more syncs. `/link` and `/unlink` do it directly, as
+  `/password` does. `link --replace` and `unlink` on the command line run
+  as a separate process, so they ask the daemon through the API's
+  `/reconnect` (developer, 2026-10-17). If no daemon is listening, there's
+  no session to cut.
 - **`find` on the command line** prints a ready-made `link` command for
   each library it found, with `--uuid`.
 - **Found libraries are listed without the linked one**, and a library

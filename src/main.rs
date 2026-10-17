@@ -325,10 +325,13 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
                         Link::Updated => {
                             println!("updated the linked library {lib}: {host}:{port}")
                         }
-                        Link::Replaced(old) => println!(
-                            "linked library {lib} at {host}:{port}, replacing {:?} ({})",
-                            old.name, old.uuid
-                        ),
+                        Link::Replaced(old) => {
+                            println!(
+                                "linked library {lib} at {host}:{port}, replacing {:?} ({})",
+                                old.name, old.uuid
+                            );
+                            end_session();
+                        }
                         _ => println!("linked library {lib} at {host}:{port}"),
                     }
                     info.library_uuid
@@ -381,6 +384,18 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
     Ok(ExitCode::SUCCESS)
 }
 
+/// After the link changed: the running service may still be in a session
+/// with the old library, so ask it to end that session now (ADR 0018).
+fn end_session() {
+    match api::request_reconnect(api::DEFAULT_PORT) {
+        Ok(true) => println!("the service ended its session and is reconnecting"),
+        Ok(false) => {}
+        Err(e) => println!(
+            "could not reach the service ({e}); it will use the new link from its next connection"
+        ),
+    }
+}
+
 fn unlink_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
     let mut state: Option<PathBuf> = None;
@@ -393,6 +408,7 @@ fn unlink_cmd(mut args: lexopt::Parser) -> CmdResult {
     let state = required(state, "--state")?;
     if config::update(&state, |c| c.unlink())? {
         println!("unlinked; the books stay on the Kindle");
+        end_session();
         Ok(ExitCode::SUCCESS)
     } else {
         println!("no library was linked");

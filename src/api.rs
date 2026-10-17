@@ -8,7 +8,7 @@
 
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -219,6 +219,11 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
             api.handle.connect_now();
             ok()
         }
+        // The command line changed the link (ADR 0018): end the session now.
+        ("POST", "/reconnect") => {
+            api.handle.reconnect();
+            ok()
+        }
         ("POST", "/pause") => {
             api.handle.pause();
             ok()
@@ -271,8 +276,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         }
         (
             _,
-            "/status" | "/connect-now" | "/pause" | "/resume" | "/autostart" | "/find" | "/link"
-            | "/unlink" | "/password",
+            "/status" | "/connect-now" | "/reconnect" | "/pause" | "/resume" | "/autostart"
+            | "/find" | "/link" | "/unlink" | "/password",
         ) => (405, json!({"ok": false, "error": "method not allowed"})),
         _ => (404, json!({"ok": false, "error": "not found"})),
     }
@@ -313,6 +318,30 @@ fn status_json(api: &Api) -> Value {
         })
         .collect();
     out
+}
+
+/// Asks the running daemon, through its API, to end its session and connect
+/// again, so a link changed from the command line takes effect at once.
+/// Returns false if no daemon is listening.
+pub fn request_reconnect(port: u16) -> io::Result<bool> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = match TcpStream::connect_timeout(&addr, READ_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    stream.set_read_timeout(Some(READ_TIMEOUT))?;
+    stream.write_all(
+        b"POST /reconnect HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    )?;
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply)?;
+    let status = reply.lines().next().unwrap_or_default();
+    if status.starts_with("HTTP/1.1 200") {
+        Ok(true)
+    } else {
+        Err(io::Error::other(format!("unexpected reply: {status}")))
+    }
 }
 
 fn set_autostart(home: &Path, enabled: bool) -> io::Result<()> {
@@ -473,7 +502,6 @@ mod tests {
     use crate::daemon::{Daemon, Options};
     use crate::library::Library;
     use crate::session::DeviceConfig;
-    use std::net::SocketAddr;
 
     struct Fixture {
         _tmp: tempfile::TempDir,
@@ -709,6 +737,17 @@ mod tests {
     }
 
     #[test]
+    fn request_reconnect_reaches_a_running_daemon_only() {
+        let f = start();
+        assert!(request_reconnect(f.addr.port()).unwrap());
+        let dead = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(!request_reconnect(dead.port()).unwrap());
+    }
+
+    #[test]
     fn bad_requests() {
         let f = start();
         assert_eq!(get(&f, "/nope", None).0, 404);
@@ -721,6 +760,7 @@ mod tests {
         assert_eq!(post(&f, "/link", &big).0, 413);
         assert_eq!(request(&f, "OPTIONS /status HTTP/1.1\r\n\r\n").0, 204);
         assert_eq!(post(&f, "/connect-now", "").1["ok"], true);
+        assert_eq!(get(&f, "/reconnect", None).0, 405);
         assert_eq!(post(&f, "/find", "").1["servers"], json!([]));
     }
 }
