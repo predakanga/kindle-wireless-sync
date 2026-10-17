@@ -393,6 +393,179 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
     }
 }
 
+/// How a check ended (ADR 0020).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CheckEnd {
+    /// The password, if any, was accepted and Calibre listed the library's
+    /// columns. `device_uuid` is the device ID Calibre gave the check, when
+    /// it had none.
+    Done {
+        info: CalibreInfo,
+        columns: Map<String, Value>,
+        device_uuid: Option<String>,
+    },
+    /// Calibre wants a password and none was given. Nothing was answered.
+    PasswordNeeded(CalibreInfo),
+    PasswordRejected(CalibreInfo),
+    Busy,
+    ProtocolMismatch,
+    /// Calibre closed the connection before sending anything: most likely
+    /// its lockout after too many failed connections from this address.
+    ClosedAtOnce,
+    /// Calibre closed the connection before listing the library's columns.
+    Closed,
+}
+
+/// Checks a library without syncing (ADR 0020): connects as a device with
+/// its own ID (`device_uuid`, or none so Calibre assigns one), names no
+/// sync columns, lists no books and stores nothing Calibre sends. Ends at
+/// the first keep-alive after `quiet` without other requests, which
+/// Calibre takes without an error.
+pub fn check<R: BufRead, W: Write>(
+    conn: &mut Connection<R, W>,
+    cfg: &DeviceConfig,
+    device_uuid: Option<&str>,
+    password: Option<&str>,
+    free_space: u64,
+    quiet: Duration,
+) -> io::Result<CheckEnd> {
+    let mut info: Option<CalibreInfo> = None;
+    let mut columns: Option<Map<String, Value>> = None;
+    let mut assigned: Option<String> = None;
+    let mut listed = false;
+    let mut last_busy = Instant::now();
+    let mut heard = false;
+    loop {
+        let Some(msg) = conn.recv()? else {
+            return Ok(match (heard, info, columns) {
+                (false, _, _) => CheckEnd::ClosedAtOnce,
+                (true, Some(info), Some(columns)) => CheckEnd::Done {
+                    info,
+                    columns,
+                    device_uuid: assigned,
+                },
+                _ => CheckEnd::Closed,
+            });
+        };
+        heard = true;
+        let Some(op) = msg.opcode() else {
+            log::warn!("check: ignoring unknown opcode {}", msg.code);
+            continue;
+        };
+        let p = &msg.payload;
+        let keep_alive = op == Opcode::Noop && p.as_object().is_none_or(Map::is_empty);
+        if !keep_alive {
+            last_busy = Instant::now();
+        }
+        match op {
+            Opcode::GetInitializationInfo => {
+                let answered = CalibreInfo::from_init_payload(p);
+                let version_ok = p["serverProtocolVersion"].as_u64() == Some(PROTOCOL_VERSION);
+                if version_ok && password.is_none() && !str_field(p, "passwordChallenge").is_empty()
+                {
+                    return Ok(CheckEnd::PasswordNeeded(answered));
+                }
+                conn.send(
+                    Opcode::Ok,
+                    init_info(cfg, p, version_ok, password, &Columns::default()),
+                )?;
+                if !version_ok {
+                    return Ok(CheckEnd::ProtocolMismatch);
+                }
+                info = Some(answered);
+            }
+            Opcode::GetDeviceInformation => {
+                let mut device_info = json!({"device_name": cfg.device_name});
+                if let Some(id) = device_uuid {
+                    device_info["device_store_uuid"] = json!(id);
+                }
+                conn.send(
+                    Opcode::Ok,
+                    json!({"device_info": device_info, "version": VERSION, "device_version": VERSION}),
+                )?;
+            }
+            Opcode::SetCalibreDeviceInfo => {
+                // Only the ID Calibre assigned is kept, by the caller.
+                if device_uuid.is_none() {
+                    assigned = p["device_store_uuid"].as_str().map(str::to_owned);
+                }
+                conn.send(Opcode::Ok, json!({}))?;
+            }
+            Opcode::SetCalibreDeviceName => conn.send(Opcode::Ok, json!({}))?,
+            Opcode::TotalSpace => {
+                conn.send(Opcode::Ok, json!({"total_space_on_device": free_space}))?;
+            }
+            Opcode::FreeSpace => {
+                conn.send(Opcode::Ok, json!({"free_space_on_device": free_space}))?;
+            }
+            Opcode::SetLibraryInfo => {
+                conn.send(Opcode::Ok, json!({}))?;
+                columns = Some(readsync::custom_columns(&p["fieldMetadata"]));
+            }
+            Opcode::GetBookCount => {
+                conn.send(
+                    Opcode::Ok,
+                    json!({"count": 0, "willStream": true, "willScan": true}),
+                )?;
+                listed = true;
+            }
+            Opcode::Noop => {
+                if p.get("ejecting").and_then(Value::as_bool) == Some(true) {
+                    conn.send(Opcode::Ok, json!({}))?;
+                    return Ok(match (info, columns) {
+                        (Some(info), Some(columns)) => CheckEnd::Done {
+                            info,
+                            columns,
+                            device_uuid: assigned,
+                        },
+                        _ => CheckEnd::Closed,
+                    });
+                } else if p.get("priKey").is_some() {
+                    conn.send(Opcode::Ok, json!({}))?;
+                } else if p.get("count").is_some() {
+                    // Announces how many priKey requests follow; no reply.
+                } else {
+                    conn.send(Opcode::Ok, json!({}))?;
+                    if listed && last_busy.elapsed() >= quiet {
+                        if let (Some(info), Some(columns)) = (info.take(), columns.take()) {
+                            return Ok(CheckEnd::Done {
+                                info,
+                                columns,
+                                device_uuid: assigned,
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::DisplayMessage => {
+                conn.send(Opcode::Ok, json!({}))?;
+                match (p["messageKind"].as_u64(), info.take()) {
+                    (Some(1), Some(info)) => return Ok(CheckEnd::PasswordRejected(info)),
+                    (_, i) => {
+                        info = i;
+                        log::info!("calibre says: {}", p["message"]);
+                    }
+                }
+            }
+            Opcode::CalibreBusy => return Ok(CheckEnd::Busy),
+            Opcode::SendBooklists | Opcode::SendBookMetadata => {}
+            // A job started during the check, say a send: we hold no books
+            // and take none, so end here. Calibre reports the job failed.
+            Opcode::SendBook | Opcode::DeleteBook | Opcode::GetBookFileSegment => {
+                return Err(protocol_error(format!(
+                    "calibre started {op} during a check"
+                )));
+            }
+            Opcode::Ok
+            | Opcode::Error
+            | Opcode::BookDone
+            | Opcode::GetBookMetadata
+            | Opcode::GetCollections
+            | Opcode::UpdateCollections => log::warn!("check: ignoring unexpected {op}"),
+        }
+    }
+}
+
 fn init_info(
     cfg: &DeviceConfig,
     p: &Value,
@@ -1088,6 +1261,131 @@ mod tests {
         let o = run_script(&mut lib, &DeviceConfig::default(), script);
         assert_eq!(o.replies[2], (Opcode::Ok, json!({"fileLength": 7})));
         assert_eq!(o.raw_after, b"CONTENT");
+    }
+
+    /// Runs a check against a script, with no quiet wait.
+    fn run_check(
+        script: Script,
+        id: Option<&str>,
+        password: Option<&str>,
+    ) -> (CheckEnd, Vec<(Opcode, Value)>) {
+        let mut out = Vec::new();
+        let end = {
+            let mut conn = Connection::new(Cursor::new(script.0), &mut out);
+            check(
+                &mut conn,
+                &DeviceConfig::default(),
+                id,
+                password,
+                1000,
+                Duration::ZERO,
+            )
+            .unwrap()
+        };
+        let mut cur = Cursor::new(out);
+        let mut replies = Vec::new();
+        while let Ok(Some(m)) = read_message(&mut cur) {
+            replies.push((m.opcode().unwrap(), m.payload));
+        }
+        (end, replies)
+    }
+
+    /// A full check as Calibre runs it, up to its first keep-alive.
+    fn check_script(device_uuid: &str) -> Script {
+        let (op, info) = library_info(json!({
+            "#kindle_read": {"is_custom": true, "datatype": "bool", "name": "Kindle read"},
+        }));
+        Script::new()
+            .handshake()
+            .msg(Opcode::GetDeviceInformation, json!({}))
+            .msg(
+                Opcode::SetCalibreDeviceInfo,
+                json!({"device_store_uuid": device_uuid, "device_name": "Kindle",
+                       "last_library_uuid": "lib-1"}),
+            )
+            .msg(Opcode::FreeSpace, json!({}))
+            .msg(op, info)
+            .msg(Opcode::GetBookCount, json!({"willUseCachedMetadata": true}))
+            .msg(Opcode::Noop, json!({"count": 0}))
+            .msg(Opcode::Noop, json!({}))
+            .msg(Opcode::Noop, json!({}))
+    }
+
+    #[test]
+    fn a_check_learns_the_columns_lists_no_books_and_leaves_at_a_keep_alive() {
+        let (end, replies) = run_check(check_script("assigned-1"), None, None);
+        let CheckEnd::Done {
+            info,
+            columns,
+            device_uuid,
+        } = end
+        else {
+            panic!("{end:?}");
+        };
+        assert_eq!(info.library_uuid, "lib-1");
+        assert_eq!(columns["#kindle_read"]["name"], "Kindle read");
+        // No ID was given, so Calibre's is returned for next time.
+        assert_eq!(device_uuid.as_deref(), Some("assigned-1"));
+        // Init, device info, driveinfo, free space, library info, book
+        // count, then one keep-alive: the second is never answered.
+        assert_eq!(replies.len(), 7);
+        assert!(replies[0].1.get("isReadSyncCol").is_none());
+        assert!(replies[1].1["device_info"]
+            .get("device_store_uuid")
+            .is_none());
+        assert_eq!(replies[1].1["device_info"]["device_name"], "Kindle");
+        assert_eq!(replies[5].1["count"], 0);
+
+        // With an ID, it's the one sent, and Calibre's echo isn't returned.
+        let (end, replies) = run_check(check_script("check-1"), Some("check-1"), None);
+        assert!(matches!(
+            end,
+            CheckEnd::Done {
+                device_uuid: None,
+                ..
+            }
+        ));
+        assert_eq!(replies[1].1["device_info"]["device_store_uuid"], "check-1");
+    }
+
+    #[test]
+    fn a_check_reports_passwords_lockouts_and_busy() {
+        let challenge = || {
+            Script::new().msg(
+                Opcode::GetInitializationInfo,
+                json!({"serverProtocolVersion": 1, "passwordChallenge": "2026-10-18T00:00:00",
+                       "currentLibraryUUID": "lib-1", "currentLibraryName": "Calibre Library"}),
+            )
+        };
+        let (end, replies) = run_check(challenge(), None, None);
+        assert!(matches!(end, CheckEnd::PasswordNeeded(ref i) if i.library_uuid == "lib-1"));
+        assert!(replies.is_empty(), "nothing answered without a password");
+
+        let (end, replies) = run_check(
+            challenge().msg(Opcode::DisplayMessage, json!({"messageKind": 1})),
+            None,
+            Some("wrong"),
+        );
+        assert!(matches!(end, CheckEnd::PasswordRejected(_)));
+        assert_ne!(replies[0].1["passwordHash"], "");
+
+        assert_eq!(
+            run_check(Script::new(), None, None).0,
+            CheckEnd::ClosedAtOnce
+        );
+        assert_eq!(
+            run_check(Script::new().handshake(), None, None).0,
+            CheckEnd::Closed
+        );
+        assert_eq!(
+            run_check(
+                Script::new().msg(Opcode::CalibreBusy, json!({})),
+                None,
+                None
+            )
+            .0,
+            CheckEnd::Busy
+        );
     }
 
     #[test]
