@@ -47,6 +47,8 @@ just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
 just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
+just calibre launch|status|wireless-start|wait-device|device-books|dialogs|exec|quit ...
+                          # dev: an isolated Calibre in dev-calibre/, driven by a plugin (ADR 0019)
 just release X.Y.Z        # prepare a release: bump, date the changelog, commit (no push)
 just publish-release [-y] # tag the prepared version and push main + tag (publishes; ask first)
 ```

@@ -11,8 +11,10 @@ Usage: harness.py COMMAND [ARGS]
   wireless-stop
   wait-device [--timeout S]     wait for a connected device with no jobs left
   device-books                  the device's book list as Calibre sees it
-  dialogs [--dismiss]           visible dialogs (error dialogs included)
-  exec CODE | exec -            run Python in the GUI (gui, db, dm in scope); prints `result`
+  dialogs [--accept|--dismiss]  visible dialogs (error dialogs included); answer Yes or No
+  exec [--no-wait] CODE|-       run Python in the GUI (gui, db, dm in scope); prints `result`.
+                                Use --no-wait for code that can ask a question, such as
+                                gui.sync_to_device(None, False, send_ids=[...])
 
 Output is JSON. The exit status is 1 when a command fails, and for
 wait-device when it times out or a dialog opens.
@@ -118,15 +120,27 @@ def launch(library, timeout):
     raise Failed(f'the harness did not come up within {timeout} s; see {LOG}')
 
 
+# Calibre adds device jobs through queued signals, so a job that was just
+# requested may not be listed yet. Idle only counts once it has lasted this long.
+SETTLE = 2
+
+
 def wait_device(timeout):
     deadline = time.monotonic() + timeout
+    idle_since = None
     while True:
         status = call('status')
-        if status['dialogs']:
-            raise Failed('a dialog opened while waiting:\n' + json.dumps(status['dialogs'], indent=2))
+        if status['dialogs'] or status['exec_errors']:
+            raise Failed('a dialog opened or exec code failed while waiting:\n'
+                         + json.dumps({k: status[k] for k in ('dialogs', 'exec_errors')}, indent=2))
         device = status['device']
         if device and not device['ejected'] and not status['jobs']:
-            return status
+            now = time.monotonic()
+            idle_since = idle_since or now
+            if now - idle_since >= SETTLE:
+                return status
+        else:
+            idle_since = None
         if time.monotonic() >= deadline:
             raise Failed(f'no idle device after {timeout} s; last status:\n' + json.dumps(status, indent=2))
         time.sleep(1)
@@ -146,8 +160,12 @@ def main():
     sub.add_parser('wireless-stop')
     sub.add_parser('wait-device').add_argument('--timeout', type=float, default=120)
     sub.add_parser('device-books')
-    sub.add_parser('dialogs').add_argument('--dismiss', action='store_true')
-    sub.add_parser('exec').add_argument('code', help="Python code, or - to read it from stdin")
+    c = sub.add_parser('dialogs').add_mutually_exclusive_group()
+    c.add_argument('--accept', action='store_true')
+    c.add_argument('--dismiss', action='store_true')
+    c = sub.add_parser('exec')
+    c.add_argument('--no-wait', action='store_true')
+    c.add_argument('code', help="Python code, or - to read it from stdin")
     a = p.parse_args()
 
     try:
@@ -161,9 +179,9 @@ def main():
         elif a.command == 'wait-device':
             result = wait_device(a.timeout)
         elif a.command == 'dialogs':
-            result = call('dialogs', dismiss=a.dismiss)
+            result = call('dialogs', accept=a.accept, dismiss=a.dismiss)
         elif a.command == 'exec':
-            result = call('exec', code=sys.stdin.read() if a.code == '-' else a.code)
+            result = call('exec', code=sys.stdin.read() if a.code == '-' else a.code, wait=not a.no_wait)
         else:
             result = call(a.command)
     except Failed as e:

@@ -63,15 +63,18 @@ it commands.
 - **Commands:** `status` (library, wireless server, device, jobs, open
   dialogs), `wireless-start` (optional port and password) and
   `wireless-stop`, `device-books` (Calibre's view of the device list),
-  `dialogs` (optionally dismissing them), `quit`, and `exec`. The client
-  adds `launch` and `wait-device`. `wait-device` waits until a device is
-  connected and no jobs are left. `dialogs` lists every visible dialog with
-  its text and details. It is how a test asserts that Calibre showed no
-  error.
+  `dialogs` (optionally answering them: `--accept` for OK/Yes, `--dismiss`
+  for Cancel/No), `quit`, and `exec`. The client adds `launch` and
+  `wait-device`. `wait-device` waits until a device is connected and no
+  jobs have been left for 2 s. It fails as soon as a dialog opens. `dialogs`
+  lists every visible dialog with its text and details. It is how a test
+  asserts that Calibre showed no error.
 - **`exec`** runs Python on the GUI thread with `gui`, `db` (the current
   library's `new_api`) and `dm` (the device manager) in scope, and returns
   `result`. It's for exploring. A snippet that tests come to rely on
-  becomes a named command.
+  becomes a named command. `exec --no-wait` runs the code after replying.
+  This is for code that can ask a question, such as `gui.sync_to_device`,
+  which asks before auto-converting.
 - The plugin is **not a user requirement and not shipped**: it is not in
   the `.kpkg`, the release or the README's install steps.
 
@@ -107,3 +110,24 @@ it commands.
   `just check` or CI.
 - A Calibre plugin for users (Later item 5) is a separate decision. This
   one doesn't count as that plugin.
+
+## Implementation notes (2026-10-17)
+First run against Calibre 9.16, with `just connect` as the device:
+- Launching takes about 3 s. On first launch Calibre adds its Quick Start
+  Guide (an EPUB) to the new library.
+- **Questions are modal.** `sync_to_device` asks "Auto convert the
+  following books before uploading?" with `exec()`. A plain `exec` blocks
+  until the question is answered, and the request times out. The modal
+  loop still handles our queued calls, so `dialogs` can see and answer the
+  question. Hence `exec --no-wait`, `dialogs --accept`, and a timeout
+  message that names the open dialog.
+- **Jobs appear late.** Calibre adds device jobs through queued signals,
+  so they aren't listed straight after `sync_to_device` returns. That's
+  why `wait-device` requires 2 s of idleness.
+- **Dropping the device mid-job, reproducibly:** freeze the device
+  (`kill -STOP`), start a send with `exec --no-wait`, wait for `status` to
+  show the upload job running, then `kill -9` the device. Calibre showed
+  its "Error communicating with device" dialog (a `ControlError` from
+  `_receive_from_client` in the details), which is the failure ADR 0017
+  hit. Polling without freezing missed the job, because a small upload
+  finishes between polls.

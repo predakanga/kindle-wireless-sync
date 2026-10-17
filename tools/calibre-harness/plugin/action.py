@@ -58,14 +58,27 @@ class _GuiDispatcher(QObject):
         finally:
             c.done.set()
 
-    def run(self, fn):
+    def run(self, fn, timeout=GUI_TIMEOUT):
         c = _Call(fn)
         self.call.emit(c)
-        if not c.done.wait(GUI_TIMEOUT):
-            raise HarnessError(f'the GUI thread did not answer within {GUI_TIMEOUT} s')
+        if not c.done.wait(timeout):
+            raise HarnessError(self._timeout_message(timeout))
         if c.error is not None:
             raise HarnessError(c.error)
         return c.result
+
+    def _timeout_message(self, timeout):
+        # A modal dialog (exec()) runs a nested event loop, so the GUI thread
+        # can still list dialogs while the timed-out command waits on one.
+        try:
+            titles = self.run(lambda: [d['title'] for _, d in _visible_dialogs()], timeout=5)
+        except HarnessError:
+            titles = []
+        if titles:
+            return (f'the command is still running after {timeout} s, probably waiting on a dialog: '
+                    f'{titles}. Answer it with `dialogs --accept` or `--dismiss`; use `exec --no-wait` '
+                    'for code that can ask questions')
+        return f'the GUI thread did not answer within {timeout} s'
 
 
 def _to_json(value):
@@ -110,6 +123,8 @@ class HarnessAction(InterfaceAction):
             return
         self.dispatcher = _GuiDispatcher()
         self.token = secrets.token_hex(16)
+        # Errors from `exec --no-wait` code, shown in `status`.
+        self.exec_errors = []
         self.commands = {
             'status': self.status,
             'wireless-start': self.wireless_start,
@@ -206,6 +221,7 @@ class HarnessAction(InterfaceAction):
             'device': device,
             'jobs': [{'description': j.description, 'running': j.is_running} for j in jobs],
             'dialogs': [d for _, d in _visible_dialogs()],
+            'exec_errors': list(self.exec_errors),
         }
 
     def wireless_start(self, port=None, password=None):
@@ -250,19 +266,40 @@ class HarnessAction(InterfaceAction):
             })
         return out
 
-    def dialogs(self, dismiss=False):
-        """Visible dialogs. With dismiss, each is rejected (Cancel/No/Close) after listing."""
+    def dialogs(self, dismiss=False, accept=False):
+        """Visible dialogs. After listing, accept answers each with OK/Yes, dismiss with Cancel/No/Close."""
+        if dismiss and accept:
+            raise HarnessError('pass accept or dismiss, not both')
         found = _visible_dialogs()
-        if dismiss:
-            for w, _ in found:
+        for w, _ in found:
+            if accept:
+                w.accept()
+            elif dismiss:
                 w.reject()
         return [d for _, d in found]
 
-    def exec_code(self, code):
-        """Run Python with gui, db (new_api) and dm in scope; return the value of `result`."""
+    def exec_code(self, code, wait=True):
+        """Run Python with gui, db (new_api) and dm in scope; return the value of `result`.
+
+        Without wait, the code runs after the reply, so a question it asks
+        (a modal dialog) doesn't hold the request. Its errors go to `status`.
+        """
+        compiled = compile(code, '<harness>', 'exec')
         ns = {'gui': self.gui, 'db': self.gui.current_db.new_api, 'dm': self.gui.device_manager, 'result': None}
-        exec(compile(code, '<harness>', 'exec'), ns)
-        return ns['result']
+        if wait:
+            exec(compiled, ns)
+            return ns['result']
+
+        def run():
+            try:
+                exec(compiled, ns)
+            except Exception:
+                err = traceback.format_exc()
+                print('KWS harness exec --no-wait failed:', err, flush=True)
+                self.exec_errors.append(err)
+
+        QTimer.singleShot(0, run)
+        return None
 
     def quit(self, force=False):
         if self.gui.job_manager.has_device_jobs(queued_also=True) and not force:
