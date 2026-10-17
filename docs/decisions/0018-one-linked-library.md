@@ -75,9 +75,12 @@ its output can be copied into `link`. `link` replaces both `allow` and
 **Linking a different library resets what belonged to the old one.** It's a
 deliberate act, so the app asks first, and says that books stay on the
 Kindle. The daemon then:
-- clears `driveinfo.json`, so the new library's Calibre sees a new device
+- deletes `driveinfo.json`, so the new library's Calibre sees a new device
   and starts its metadata cache afresh (checked; see "Clearing
-  `driveinfo.json` makes a new device");
+  `driveinfo.json` makes a new device"). The whole file goes, not just the
+  device UUID. The only other field that survives a connection is Calibre's
+  `device_name`, which the next session sets again to the Kindle's current
+  name (developer, 2026-10-17);
 - clears `columns.json` and every book's read-sync state, and resets
   `writable` to `false` (a fresh link starts read-only, as ADR 0017
   requires);
