@@ -287,6 +287,15 @@ emulated Kindle and the Calibre harness both answer it: yes.
   - Linking without `replace` changes nothing and returns `needs_replace`.
   - Confirming resets before the session: new device UUID, new Calibre
     cache, and the book still matched by UUID, with no error dialogs.
-  - The app itself didn't open on the emulator. mesquite refused it with
-    "Unsupported content path", before loading any of our files, so the
-    app is still to be checked on the device.
+  - The app first didn't open on the emulator: the install had left its
+    files readable only by root (ADR 0012, "Hooks inherit the caller's
+    umask"). With that fixed, the app's replace flow worked end to end. A
+    library answering at the linked address was listed as found. Link
+    asked first, and confirming reset the state and connected without
+    restarting the service. Calibre then resent the book's metadata.
+  - That flow found a bug, now fixed. The address was still on the
+    daemon's skip list for libraries that aren't linked, so the newly
+    linked library wasn't tried until Wi-Fi cycled. Linking another
+    library now clears the list.
+  - `unlink` on the command line, during an idle session, cut the session
+    through `/reconnect`. Calibre showed no error dialog.

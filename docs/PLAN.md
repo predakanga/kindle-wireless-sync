@@ -198,8 +198,9 @@ the allowlist, in the config, the command line (`link`, `unlink`), the API
 (`/link`, `/unlink`) and the app. The daemon and API were tested on the
 emulated Kindle with the Calibre harness (ADR 0018, implementation notes).
 That test found and fixed a gap: reset records kept the old library's
-date, so Calibre never resent their metadata. Next: check the app on the
-device (it wouldn't open on the emulator), then release. The release will
+date, so Calibre never resent their metadata. The app works on the emulator
+too, once a packaging bug was fixed (its files were readable only by root;
+ADR 0012). Next: a check on the device, then release. The release will
 also carry read sync (ADR 0017, unreleased).
 
 ### Phase 5: Stretch goals
