@@ -200,8 +200,17 @@ emulated Kindle with the Calibre harness (ADR 0018, implementation notes).
 That test found and fixed a gap: reset records kept the old library's
 date, so Calibre never resent their metadata. The app works on the emulator
 too, once a packaging bug was fixed (its files were readable only by root;
-ADR 0012). Next: a check on the device, then release. The release will
-also carry read sync (ADR 0017, unreleased).
+ADR 0012). Checked on the device (2026-10-17): a KPM upgrade from 0.2.0,
+linking the same library again without a reset, and the app; that found
+and fixed an upgrade leaving the old app open (ADR 0012).
+
+**UI review (2026-10-17 and 2026-10-18): ADR 0020, Proposed.** The app
+becomes pages that each fit one screen, and linking first checks the
+library (password, columns) so read sync can be set up with the user's own
+columns before connecting. A clickable prototype settled the design
+(`tools/ui-prototype`, `just ui-prototype`). Replacing a library now keeps
+series (ADR 0018, amended). Next: build ADR 0020 once accepted, then
+release 0.3.0, which also carries read sync (ADR 0017) and ADR 0018.
 
 ### Phase 5: Stretch goals
 
