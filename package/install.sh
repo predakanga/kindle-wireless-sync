@@ -5,6 +5,12 @@
 # Every step is safe to repeat: if this fails, KPM keeps no record of the
 # install, and the fix is to install again.
 set -e
+# KPM runs this with the umask of the shell that ran `kpm`, which can be 077
+# (some SSH servers). mesquite runs the app as the framework user, so with
+# 077 the app's files are unreadable and it won't open ("Unsupported content
+# path"). Set the modes we need instead: everything readable except state/,
+# which holds library passwords. The chmods also repair earlier installs.
+umask 022
 
 PKG=$(cd "$(dirname "$0")" && pwd)
 DIR=/var/local/kindle-wireless-sync
@@ -31,12 +37,16 @@ running=0
 
 echo "Installing to $DIR"
 mkdir -p "$DIR/state"
+chmod 755 "$DIR"
+chmod 700 "$DIR/state"
 put "$PKG/kindle-wireless-sync" "$DIR/kindle-wireless-sync" 755
 for f in service.sh autostart.sh register-app.sh; do
     put "$PKG/$f" "$DIR/$f" 755
 done
 rm -rf "$DIR/ui.new"
 cp -r "$PKG/ui" "$DIR/ui.new"
+chmod 755 "$DIR/ui.new"
+chmod 644 "$DIR/ui.new"/*
 rm -rf "$DIR/ui"
 mv "$DIR/ui.new" "$DIR/ui"
 # The crash-loop counter belongs to the old binary (ADR 0010). The autostart

@@ -133,3 +133,23 @@ All on the PW12 with KPM 0.2.2:
 `upgrade` argument (`7471a4e`), which ours ignores. If `install.sh` fails,
 KPM runs `uninstall.sh` *without* `upgrade` (`67233d9`), so a failed upgrade
 removes the app and its settings, but not the books.
+
+## Hooks inherit the caller's umask (2026-10-17)
+KPM runs `install.sh` with the umask of the shell that ran `kpm`. On the
+emulated Kindle that shell came from the emulator's own dropbear, which
+runs with umask `0077`, so `mkdir -p` and `cp -r` left the app directory
+and its files `0700`, owned by root. The firmware's mesquite runs apps as
+the framework user (uid 9000), so it couldn't read them. The app failed
+with "The selected application could not be started"; the log shows
+`JunoApplicationManager … error=Unsupported content path for application
+content`. appreg.db was correct. The firmware's own default is gentler
+(`/etc/profile` sets `umask 002`, appmgrd runs with `0002`), so whether a
+real device sees this depends on how the user reached a shell.
+
+`install.sh` now sets `umask 022` and the modes it needs explicitly:
+`755` for `/var/local/kindle-wireless-sync` and `ui/`, `644` for the app's
+files, and `700` for `state/`, which holds library passwords. The `chmod`s
+also repair an earlier install on upgrade. Tested on the emulator: with the
+0.2.0 install's `0700` modes, running the new `install.sh` over the
+umask-`0077` SSH (as KPM runs its hooks) fixed the modes, and the app
+opened.

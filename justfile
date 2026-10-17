@@ -127,6 +127,8 @@ scriptlet:
 deploy-ui: deploy deploy-scripts scriptlet
     ssh {{kindle_host}} "mkdir -p {{kindle_dir}}/ui"
     scp -O -q package/ui/* {{kindle_host}}:{{kindle_dir}}/ui/
+    # mesquite runs as the framework user: the app must be readable (see install.sh).
+    ssh {{kindle_host}} "chmod 755 {{kindle_dir}} {{kindle_dir}}/ui && chmod 644 {{kindle_dir}}/ui/*"
     scp -O -q package/register-app.sh {{kindle_host}}:{{kindle_dir}}/
     scp -O -q target/package/WirelessSync.sh {{kindle_host}}:/mnt/us/documents/WirelessSync.sh
     ssh {{kindle_host}} "chmod 755 {{kindle_dir}}/register-app.sh && sh {{kindle_dir}}/register-app.sh register && rm -rf /var/local/mesquite/com.kindlewirelesssync.app"

@@ -22,6 +22,12 @@ one.
   and forgets what the old library knew about them. **After upgrading, link
   your library again.**
 
+### Fixed
+- The **Wireless Sync** app could fail to open ("The selected application
+  could not be started") when the package was installed from a shell with
+  a restrictive umask, because its files were readable only by root.
+  Installing or upgrading now sets the files' permissions itself.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added
