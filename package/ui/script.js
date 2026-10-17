@@ -13,9 +13,10 @@
 
     var lastStatusText = null;
     var status = null;
-    var busy = false;          // a slow action (find, add) is running
-    var confirmForget = null;  // uuid awaiting a second tap on Forget
+    var busy = false;          // a slow action (find, link) is running
+    var confirmUnlink = false; // awaiting a second tap on Unlink
     var editingPassword = null; // uuid whose password form is open
+    var pendingReplace = null; // a link that would replace the linked library (ADR 0018)
     var messageTimer = null;
 
     // ---- HTTP ----
@@ -96,7 +97,7 @@
 
     var STATE_TITLES = {
         waiting_for_wifi: "Waiting for Wi-Fi",
-        no_libraries: "No library set up",
+        not_linked: "No library linked",
         searching: "Looking for Calibre",
         not_found: "Not connected",
         connected: "Connected",
@@ -118,7 +119,7 @@
         el("statusState").innerHTML = esc(STATE_TITLES[s.state] || s.state);
         el("statusDetail").innerHTML = esc(s.detail || "");
         var canConnect = !s.paused && s.state !== "connected" && s.state !== "searching"
-            && s.state !== "waiting_for_wifi" && s.state !== "no_libraries";
+            && s.state !== "waiting_for_wifi" && s.state !== "not_linked";
         el("btnConnect").disabled = !canConnect;
         el("btnPause").innerHTML = s.paused ? "Resume" : "Pause";
         el("chkAutostart").checked = !!s.autostart;
@@ -126,52 +127,61 @@
         if (s.config_error) showMessage("Settings file problem: " + s.config_error);
     }
 
-    function renderAllowed(list) {
-        if (!list || !list.length) {
-            el("allowedList").innerHTML = '<div class="empty">No libraries yet. Use Find libraries below.</div>';
+    function renderLinked(a) {
+        if (!a) {
+            el("linked").innerHTML = '<div class="empty">No library linked yet. Use Find libraries below, or link one by address.</div>';
             return;
         }
-        var html = "";
-        for (var i = 0; i < list.length; i++) {
-            var a = list[i];
-            var u = esc(a.uuid);
-            html += '<div class="item">'
-                + '<div class="item-head"><span class="item-name">' + esc(a.name || a.uuid) + '</span>'
-                + '<button class="btn btn-small" data-act="password" data-uuid="' + u + '">Password</button>'
-                + '<button class="btn btn-small' + (confirmForget === a.uuid ? ' btn-danger' : '') + '" data-act="forget" data-uuid="' + u + '">'
-                + (confirmForget === a.uuid ? 'Tap to confirm' : 'Forget') + '</button></div>'
-                + '<div class="item-sub">' + esc(address(a)) + (a.has_password ? " · password set" : "") + '</div>';
-            if (editingPassword === a.uuid) {
-                html += '<div class="item-form">'
-                    + '<input type="password" id="pw-' + u + '" placeholder="Calibre password (empty to clear)" />'
-                    + '<div class="row" style="margin-top:0.5rem">'
-                    + '<button class="btn" data-act="savepw" data-uuid="' + u + '">Save</button>'
-                    + '<button class="btn" data-act="cancelpw">Cancel</button></div></div>';
-            }
-            html += '</div>';
+        var u = esc(a.uuid);
+        var html = '<div class="item">'
+            + '<div class="item-head"><span class="item-name">' + esc(a.name || a.uuid) + '</span>'
+            + '<button class="btn btn-small" data-act="password" data-uuid="' + u + '">Password</button>'
+            + '<button class="btn btn-small' + (confirmUnlink ? ' btn-danger' : '') + '" data-act="unlink" data-uuid="' + u + '">'
+            + (confirmUnlink ? 'Tap to confirm' : 'Unlink') + '</button></div>'
+            + '<div class="item-sub">' + esc(address(a)) + (a.has_password ? " · password set" : "")
+            + (a.writable ? " · sends read status" : "") + '</div>';
+        if (editingPassword === a.uuid) {
+            html += '<div class="item-form">'
+                + '<input type="password" id="pw-' + u + '" placeholder="Calibre password (empty to clear)" />'
+                + '<div class="row" style="margin-top:0.5rem">'
+                + '<button class="btn" data-act="savepw" data-uuid="' + u + '">Save</button>'
+                + '<button class="btn" data-act="cancelpw">Cancel</button></div></div>';
         }
-        el("allowedList").innerHTML = html;
+        el("linked").innerHTML = html + '</div>';
     }
 
-    function renderSeen(list) {
-        show("seenHeading", !!(list && list.length));
+    function renderFound(list) {
+        show("foundHeading", !!(list && list.length));
         var html = "";
         for (var i = 0; list && i < list.length; i++) {
-            var s = list[i];
-            html += '<div class="item"><div class="item-head"><span class="item-name">' + esc(s.name || s.uuid) + '</span>'
-                + '<button class="btn btn-small" data-act="allow" data-uuid="' + esc(s.uuid) + '">Allow</button></div>'
-                + '<div class="item-sub">' + esc((s.hostname ? s.hostname + " · " : "") + address(s)) + '</div></div>';
+            var f = list[i];
+            html += '<div class="item"><div class="item-head"><span class="item-name">' + esc(f.name || f.uuid) + '</span>'
+                + '<button class="btn btn-small" data-act="link" data-uuid="' + esc(f.uuid) + '">Link</button></div>'
+                + '<div class="item-sub">' + esc((f.hostname ? f.hostname + " · " : "") + address(f)) + '</div></div>';
         }
-        el("seenList").innerHTML = html;
+        el("foundList").innerHTML = html;
+    }
+
+    function renderReplace() {
+        show("replaceBox", !!pendingReplace);
+        if (!pendingReplace) return;
+        var r = pendingReplace;
+        el("replaceBox").innerHTML = 'This Kindle is linked to <b>' + esc(r.linked) + '</b>. Linking <b>'
+            + esc(r.name) + '</b> replaces it. The books stay on the Kindle, but their details from '
+            + esc(r.linked) + ' (series, read status) are forgotten until ' + esc(r.name) + ' sends its own.'
+            + '<div class="row" style="margin-top:0.5rem">'
+            + '<button class="btn btn-danger" data-act="confirmreplace">Link ' + esc(r.name) + '</button>'
+            + '<button class="btn" data-act="cancelreplace">Cancel</button></div>';
     }
 
     function render(s) {
         status = s;
         renderStatus(s);
+        renderReplace();
         // Don't redraw lists under an open password form: it would eat input.
         if (!editingPassword) {
-            renderAllowed(s.allowed);
-            renderSeen(s.seen);
+            renderLinked(s.library);
+            renderFound(s.found);
         }
     }
 
@@ -195,25 +205,65 @@
 
     // ---- actions ----
 
+    /// POST /link. If it would replace the linked library, ask first; the
+    /// confirmation resends it with replace, pinned to the same library.
+    function link(body, done) {
+        request("POST", "/link", body, function (data, err) {
+            if (err) { showMessage(err); }
+            else if (data.needs_replace) {
+                var again = {};
+                for (var k in body) if (body.hasOwnProperty(k)) again[k] = body[k];
+                again.uuid = data.library.uuid;
+                again.replace = true;
+                pendingReplace = {
+                    body: again,
+                    linked: data.linked.name || data.linked.uuid,
+                    name: data.library.name || data.library.uuid
+                };
+                renderReplace();
+                // Linking by address asks from the card below: bring the question into view.
+                try { el("replaceBox").scrollIntoView(); } catch (e) { /* not essential */ }
+            }
+            else if (!data.ok) { showMessage(data.error || "That didn't work."); }
+            else { showMessage("Linked to " + (data.library.name || data.library.uuid) + ". Connecting…"); }
+            if (done) done(data, err);
+            refresh(true);
+        });
+    }
+
     function onListClick(e) {
         var t = e.target;
         while (t && t !== document && !(t.getAttribute && t.getAttribute("data-act"))) t = t.parentNode;
         if (!t || t === document) return;
         var what = t.getAttribute("data-act");
         var uuid = t.getAttribute("data-uuid");
-        if (what === "allow") {
-            act("/allow", { uuid: uuid }, "Library allowed. Connecting…");
-        } else if (what === "forget") {
-            if (confirmForget !== uuid) {
-                confirmForget = uuid;
+        if (what === "link") {
+            pendingReplace = null;
+            link({ uuid: uuid });
+        } else if (what === "confirmreplace") {
+            var body = pendingReplace.body;
+            pendingReplace = null;
+            renderReplace();
+            if (!body.host) { link(body); return; }
+            // By address: this probes Calibre again, which can take a while.
+            if (busy) return;
+            var label = { id: "btnAdd", busy: "Connecting…", idle: "Link" };
+            setBusy(true, label);
+            link(body, function () { setBusy(false, label); });
+        } else if (what === "cancelreplace") {
+            pendingReplace = null;
+            renderReplace();
+        } else if (what === "unlink") {
+            if (!confirmUnlink) {
+                confirmUnlink = true;
                 render(status);
                 return;
             }
-            confirmForget = null;
-            act("/forget", { uuid: uuid }, "Library forgotten.");
+            confirmUnlink = false;
+            act("/unlink", { uuid: uuid }, "Library unlinked. The books stay on the Kindle.");
         } else if (what === "password") {
             editingPassword = editingPassword === uuid ? null : uuid;
-            renderAllowed(status.allowed);
+            renderLinked(status.library);
             var input = el("pw-" + uuid);
             if (input) input.focus();
         } else if (what === "savepw") {
@@ -242,8 +292,8 @@
                     : s.error));
             }
         }
-        var text = found ? ("Found " + found + " new librar" + (found === 1 ? "y" : "ies") + ". Tap Allow to use it.")
-                         : "No new libraries found.";
+        var text = found ? ("Found " + found + " other librar" + (found === 1 ? "y" : "ies") + ". Tap Link to use it.")
+                         : "No other libraries found.";
         return notes.length ? text + " " + notes.join(" ") : text;
     }
 
@@ -270,23 +320,21 @@
             if (busy) return;
             var host = el("inHost").value.replace(/^\s+|\s+$/g, "");
             var port = parseInt(el("inPort").value, 10);
-            var label = { id: "btnAdd", busy: "Connecting…", idle: "Add server" };
+            var label = { id: "btnAdd", busy: "Connecting…", idle: "Link" };
+            pendingReplace = null;
             setBusy(true, label);
-            request("POST", "/add-server", { host: host, port: port, password: el("inPassword").value || null },
-                function (data, err) {
+            link({ host: host, port: port, password: el("inPassword").value || null },
+                function (data) {
                     setBusy(false, label);
-                    if (err) { showMessage(err); }
-                    else if (!data.ok) { showMessage(data.error); }
-                    else {
-                        showMessage("Added " + data.library.name + ". Connecting…");
+                    if (data && (data.ok || data.needs_replace)) {
                         el("inHost").value = "";
                         el("inPassword").value = "";
                     }
-                    refresh(true);
                 });
         };
-        el("allowedList").onclick = onListClick;
-        el("seenList").onclick = onListClick;
+        el("linked").onclick = onListClick;
+        el("foundList").onclick = onListClick;
+        el("replaceBox").onclick = onListClick;
         bindKeyboard();
     }
 
