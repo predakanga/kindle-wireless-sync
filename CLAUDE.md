@@ -40,7 +40,7 @@ just connect --allow <library-uuid> [--transcript transcripts/x.jsonl]
 just deploy               # build (with dev-tools) and copy to the Kindle
 just device-connect --allow <uuid>   # dev: one foreground session on the Kindle
 just install-service      # install the upstart jobs (briefly remounts / read-write)
-just start | stop | status | logs | autostart-on | autostart-off
+just start | stop | restart | status | logs | autostart-on | autostart-off
 just screensaver-off | screensaver-on   # keep the Kindle awake for long tests (Wi-Fi drops with it)
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
@@ -167,6 +167,16 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
 - Wi-Fi goes down with the screensaver. For long device tests, run
   `just screensaver-off`, and `just screensaver-on` afterwards (a reboot also
   turns it back on).
+- **Quitting Calibre ejects the Kindle**, and the daemon then waits (ADR
+  0008). To reconnect from SSH, run `curl -s -X POST
+  http://127.0.0.1:8325/connect-now` on the Kindle. Connect now does nothing
+  while a session is open: for a fresh book list, run `just restart`.
+- To run the daemon by hand (for example with `RUST_LOG=debug`), stop the
+  service, then start the binary with the arguments from `service.sh`.
+- **Library menus change size.** A book's ⋮ menu gains items ("Search this
+  book" appears once the book has been opened), so "Mark as read/unread"
+  moves. Take a screenshot before tapping. The first tile's ⋮ button is at
+  about (29%, 51%).
 - The device has no `python3`. KPM is `/var/local/kmc/bin/kpm` (0.2.2).
   Its source is github.com/KindleModding/KPM (0.2.2 is `07495e0` to
   `94608b3^`). github.com/gingrspacecadet/kpm is a different tool with the
@@ -221,7 +231,14 @@ quit Tailscale; don't change either yourself.
   the whole command line. `$var:x` is a zsh modifier, so write `${var}:x`.
 - **`pkill -f PATTERN` over SSH matches its own `sh -c` command line** and
   kills the session. Use a self-excluding pattern:
-  `pgrep -f "[k]indle-wireless-sync daemon"`, then `kill`.
+  `pgrep -f "[k]indle-wireless-sync daemon"`, then `kill`. Never kill and
+  start the daemon in one SSH command: the new command line contains
+  "kindle-wireless-sync daemon", so the pattern matches the shell. Use two
+  SSH calls.
+- `RUST_LOG=debug` truncates long protocol messages with "…".
+- **Calibre swallows sync errors.** `set_books_in_library` wraps
+  `synchronize_with_db` in `except Exception: return True`, so a book can be
+  skipped with nothing logged.
 - **Don't hide deploy output** (`| tail -1 >/dev/null`). It once hid that a
   stale binary was deployed.
 - `cargo fmt` reformats code that search-and-replace edits rely on. Re-read
@@ -235,6 +252,23 @@ quit Tailscale; don't change either yourself.
   incomplete handshakes until one succeeds.
 - Calibre CLI tools are in `/Applications/calibre.app/Contents/MacOS/` (not
   on PATH). Test books are in `~/Calibre Library/`.
+
+## Debugging Calibre
+
+For the isolated test Calibre, prefer the harness
+(`tools/calibre-harness/README.md`). For the developer's own Calibre:
+- Ask the developer to quit Calibre, then run
+  `/Applications/calibre.app/Contents/MacOS/calibre-debug -g` in the
+  background, with output to a file in the scratchpad.
+- The driver's `SMART_DEV` lines reach the file only when Calibre exits
+  (`PYTHONUNBUFFERED` doesn't help). Quit it with `osascript -e 'quit app
+  "calibre"'` (it reports "User cancelled" but quits), then read the log.
+- Calibre's per-device metadata cache is
+  `~/Library/Caches/calibre/wireless_device_<device_store_uuid>_metadata_cache.json`:
+  length-prefixed JSON records (an 8-byte length line, then the record).
+- Read Calibre's database read-only: `sqlite3 -readonly "$HOME/Calibre
+  Library/metadata.db"`. Custom columns are listed in `custom_columns`, with
+  values in `custom_column_N`.
 
 ## Key references
 
