@@ -90,6 +90,29 @@ Kindle. The daemon then:
 Re-linking the same library (same UUID), for example after its address or
 password changed, resets nothing.
 
+**The daemon runs the reset, before its next session** (developer,
+2026-10-17). It holds `books.json` in memory, and `link` can run as a
+separate process, so linking only changes `config.json`. A new link starts
+with `writable` off, because it's a new `library` object. The library the
+Kindle's state belongs to is the `last_library_uuid` in `driveinfo.json`.
+Calibre writes it on every connection (`_update_driveinfo_record`). Before
+each session, the daemon compares it with the linked library:
+- **No `driveinfo.json`:** nothing to reset. This is a fresh install, or a
+  Kindle just after a reset.
+- **It matches the linked library:** no reset.
+- **It names a different library:** reset. `driveinfo.json` is deleted
+  last, so an interrupted reset runs again.
+- **It's empty:** no reset, and a warning in the log. Resetting here could
+  repeat before every session if a Calibre version always left it empty.
+  Each repeat would make a new device and rebuild every series. Calibre
+  9.16.0 fills it from the library its GUI loaded
+  (`set_current_library_information` in `gui2/device.py`), before any
+  device connects.
+
+The alternative was a marker file of our own. It would avoid depending on
+Calibre's field, but it's one more state file, and existing installs would
+still need the `driveinfo.json` check the first time.
+
 **Unlinking** stops the daemon connecting anywhere. Books, records and
 series stay as they are, so linking the same library again picks up where it
 left off.
