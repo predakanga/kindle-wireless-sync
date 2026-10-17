@@ -46,3 +46,4 @@ What this commits us to, and any follow-up work or risks.
 - [0016: Calibre series as the Kindle's native series grouping](0016-calibre-series-as-native-series.md)
 - [0017: Send read status and last-read date from the Kindle to Calibre](0017-read-status-sync.md)
 - [0018: Link the Kindle to one Calibre library](0018-one-linked-library.md)
+- [0019: Drive Calibre through a development-only plugin](0019-calibre-test-harness.md)
