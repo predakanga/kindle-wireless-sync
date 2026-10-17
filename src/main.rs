@@ -220,6 +220,13 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
                     discovery::discover(DISCOVERY_TIMEOUT, &discovery::default_targets())
                         .unwrap_or_default()
                 }),
+                // Upstart names the job in its processes' environment; on a
+                // Kindle without it, the job's known name (ADR 0004).
+                job: std::env::var("UPSTART_JOB").ok().or_else(|| {
+                    std::path::Path::new("/sbin/initctl")
+                        .exists()
+                        .then(|| "kindle-wireless-sync".to_owned())
+                }),
             };
             std::thread::spawn(move || api::serve(listener, api));
             log::info!("api listening on 127.0.0.1:{api_port}");

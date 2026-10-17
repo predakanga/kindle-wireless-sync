@@ -32,6 +32,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const AUTOSTART: &str = "autostart";
 const AUTOSTART_DISABLED: &str = "autostart_disabled";
 const BOOT_ATTEMPTS: &str = "boot_attempts";
+const INITCTL: &str = "/sbin/initctl";
 
 pub struct Api {
     pub handle: Handle,
@@ -39,6 +40,9 @@ pub struct Api {
     /// Where the autostart sentinel and guard files live.
     pub home_dir: PathBuf,
     pub discover: Box<dyn Fn() -> Vec<CalibreServer> + Send + Sync>,
+    /// The upstart job this service runs as, for Restart and Stop in the
+    /// app (ADR 0020); `None` when it isn't running under upstart.
+    pub job: Option<String>,
 }
 
 /// Serves requests until the listener fails.
@@ -253,6 +257,10 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         }
         ("POST", "/link") => link(api, &body),
         ("POST", "/settings") => settings(api, &body),
+        ("POST", "/service") => match body.get("action").and_then(Value::as_str) {
+            Some(action @ ("restart" | "stop")) => service(api, action),
+            _ => bad_request("expected {\"action\": \"restart\"|\"stop\"}"),
+        },
         ("POST", "/series") => match body.get("enabled").and_then(Value::as_bool) {
             Some(enabled) => match config::update(&api.state_dir, |c| c.series = enabled) {
                 Ok(()) => {
@@ -299,8 +307,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         (
             _,
             "/status" | "/connect-now" | "/reconnect" | "/pause" | "/resume" | "/autostart"
-            | "/find" | "/probe" | "/probe/cancel" | "/link" | "/settings" | "/series" | "/unlink"
-            | "/password",
+            | "/find" | "/probe" | "/probe/cancel" | "/link" | "/settings" | "/series" | "/service"
+            | "/unlink" | "/password",
         ) => (405, json!({"ok": false, "error": "method not allowed"})),
         _ => (404, json!({"ok": false, "error": "not found"})),
     }
@@ -523,6 +531,31 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
         Err(LinkError::Unreachable(e)) => fail(e.to_string()),
         Err(LinkError::Settings(e)) => fail(format!("Cannot save settings: {e}")),
     }
+}
+
+/// `/service`: restarts or stops this service's upstart job (ADR 0020).
+/// The request goes to upstart a moment after the reply, with `-n` so it
+/// returns once upstart has it: stopping the job ends this process, and
+/// the app gets its answer first. Neither counts towards the crash-loop
+/// guard, which counts boots (ADR 0010).
+fn service(api: &Api, action: &str) -> (u16, Value) {
+    let Some(job) = api.job.clone() else {
+        return fail("Not running as a service.");
+    };
+    let action = action.to_owned();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        log::info!("api: {action} requested");
+        match std::process::Command::new(INITCTL)
+            .args([action.as_str(), "-n", job.as_str()])
+            .status()
+        {
+            Ok(s) if s.success() => {}
+            Ok(s) => log::warn!("initctl {action} {job}: {s}"),
+            Err(e) => log::warn!("cannot run initctl: {e}"),
+        }
+    });
+    ok()
 }
 
 /// A host and port from a request body, checked.
@@ -751,6 +784,7 @@ mod tests {
             state_dir: state.clone(),
             home_dir: home.clone(),
             discover: Box::new(Vec::new),
+            job: None,
         };
         std::thread::spawn(move || serve(listener, api));
         Fixture {
@@ -1087,5 +1121,8 @@ mod tests {
         assert_eq!(post(&f, "/connect-now", "").1["ok"], true);
         assert_eq!(get(&f, "/reconnect", None).0, 405);
         assert_eq!(post(&f, "/find", "").1["servers"], json!([]));
+        assert_eq!(post(&f, "/service", r#"{"action": "nap"}"#).0, 400);
+        let (_, v) = post(&f, "/service", r#"{"action": "restart"}"#);
+        assert_eq!(v["error"], "Not running as a service.");
     }
 }
