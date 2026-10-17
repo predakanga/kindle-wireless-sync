@@ -369,7 +369,8 @@
             + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>';
         html += sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
-            + '<div class="hint">The service will start again next time you open this app or reboot.</div>';
+            + '<div class="hint">The service will start again next time you open this app'
+            + (s.autostart ? ' or restart the Kindle.' : '.') + '</div>';
         return html + '<div class="footer">Wireless Sync ' + esc(s.version || "") + '</div>';
     };
 
