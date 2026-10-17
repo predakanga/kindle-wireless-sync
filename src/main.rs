@@ -479,7 +479,7 @@ mod dev {
 
     use kws::discovery::{self, CalibreServer};
     use kws::protocol::Connection;
-    use kws::session::{self, Admission, DeviceConfig, SessionEnd};
+    use kws::session::{self, Admission, CalibreInfo, DeviceConfig, SessionEnd};
 
     use super::{open_library, required, CmdResult, DISCOVERY_TIMEOUT, READ_TIMEOUT};
 
@@ -550,11 +550,12 @@ mod dev {
             conn = conn.with_transcript(Box::new(File::create(path)?));
         }
 
-        let end = session::run(&mut conn, &mut lib, &cfg, &mut |info| {
+        let end = session::run(&mut conn, &mut lib, &cfg, &mut |info: &CalibreInfo| {
             if allow_any || allowed.contains(&info.library_uuid) {
                 Admission::Accept {
                     password: password.clone(),
                     columns: None,
+                    known_columns: Default::default(),
                 }
             } else {
                 Admission::Reject

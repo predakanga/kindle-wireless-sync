@@ -76,7 +76,31 @@ pub enum Admission {
     Accept {
         password: Option<String>,
         columns: Option<Columns>,
+        /// The library's custom columns as last seen ([`Admit::columns_seen`]).
+        /// The handshake names only sync columns listed here, because it
+        /// comes before Calibre sends the list.
+        known_columns: Map<String, Value>,
     },
+}
+
+/// What a session asks of whoever runs it: whether to talk to the library
+/// Calibre announces, and somewhere to keep the library's columns for the
+/// next handshake. A closure answering the first is enough when nothing
+/// needs keeping.
+pub trait Admit {
+    fn admit(&mut self, info: &CalibreInfo) -> Admission;
+
+    /// The library's custom columns, from `SET_LIBRARY_INFO`, when they
+    /// differ from the known ones ([`readsync::custom_columns`]).
+    fn columns_seen(&mut self, _columns: &Map<String, Value>) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<F: FnMut(&CalibreInfo) -> Admission> Admit for F {
+    fn admit(&mut self, info: &CalibreInfo) -> Admission {
+        self(info)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,7 +131,7 @@ pub fn run<R: BufRead, W: Write>(
     conn: &mut Connection<R, W>,
     lib: &mut Library,
     cfg: &DeviceConfig,
-    admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
+    admit: &mut dyn Admit,
 ) -> io::Result<SessionEnd> {
     run_with_quiet(conn, lib, cfg, admit, QUIET_BEFORE_RECONNECT)
 }
@@ -117,11 +141,12 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
     conn: &mut Connection<R, W>,
     lib: &mut Library,
     cfg: &DeviceConfig,
-    admit: &mut dyn FnMut(&CalibreInfo) -> Admission,
+    admit: &mut dyn Admit,
     quiet: Duration,
 ) -> io::Result<SessionEnd> {
     let mut adopted = false;
-    let mut library_uuid = String::new();
+    // The library's columns as last seen; replaced when Calibre lists others.
+    let mut known = Map::new();
     // The sync columns this library should have, and those we named in the
     // handshake because we've seen them in the library (ADR 0017).
     let mut wanted: Option<Columns> = None;
@@ -151,14 +176,20 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                 let info = CalibreInfo::from_init_payload(p);
                 let version_ok = p["serverProtocolVersion"].as_u64() == Some(PROTOCOL_VERSION);
                 let admission = if version_ok {
-                    admit(&info)
+                    admit.admit(&info)
                 } else {
                     Admission::Accept {
                         password: None,
                         columns: None,
+                        known_columns: Map::new(),
                     }
                 };
-                let Admission::Accept { password, columns } = admission else {
+                let Admission::Accept {
+                    password,
+                    columns,
+                    known_columns,
+                } = admission
+                else {
                     log::warn!(
                         "library {:?} ({}) is not allowed",
                         info.library_name,
@@ -171,11 +202,11 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     info.calibre_version,
                     info.library_name
                 );
-                library_uuid = info.library_uuid.clone();
                 named = columns
                     .as_ref()
-                    .map(|c| c.available_in(&lib.known_columns(&library_uuid)))
+                    .map(|c| c.available_in(&known_columns))
                     .unwrap_or_default();
+                known = known_columns;
                 wanted = columns;
                 conn.send(
                     Opcode::Ok,
@@ -226,8 +257,14 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                 conn.send(Opcode::Ok, json!({}))?;
                 let custom = readsync::custom_columns(&p["fieldMetadata"]);
                 let available = wanted.as_ref().map(|w| w.available_in(&custom));
-                match lib.record_columns(&library_uuid, custom) {
+                let recorded = if custom == known {
+                    Ok(())
+                } else {
+                    admit.columns_seen(&custom)
+                };
+                match recorded {
                     Ok(()) => {
+                        known = custom;
                         if available.is_some_and(|a| a != named) {
                             log::info!(
                                 "the library's sync columns changed; reconnecting when calibre is idle"
@@ -579,19 +616,46 @@ mod tests {
         script: Script,
         password: Option<&str>,
     ) -> Outcome {
-        run_script_with(lib, cfg, script, password, None)
+        run_script_with(lib, cfg, script, password, None, &mut Map::new())
     }
 
     /// Admits library "lib-1" with `password` and sync `columns`, and
-    /// reconnects at the first keep-alive.
+    /// reconnects at the first keep-alive. `known` stands in for the
+    /// columns kept in `config.json`: the session reads and updates it.
     fn run_script_with(
         lib: &mut Library,
         cfg: &DeviceConfig,
         script: Script,
         password: Option<&str>,
         columns: Option<Columns>,
+        known: &mut Map<String, Value>,
     ) -> Outcome {
-        run_script_quiet(lib, cfg, script, password, columns, Duration::ZERO)
+        run_script_quiet(lib, cfg, script, password, columns, known, Duration::ZERO)
+    }
+
+    struct TestAdmit<'a> {
+        password: Option<&'a str>,
+        columns: Option<Columns>,
+        known: &'a mut Map<String, Value>,
+    }
+
+    impl Admit for TestAdmit<'_> {
+        fn admit(&mut self, info: &CalibreInfo) -> Admission {
+            if info.library_uuid == "lib-1" {
+                Admission::Accept {
+                    password: self.password.map(str::to_owned),
+                    columns: self.columns.clone(),
+                    known_columns: self.known.clone(),
+                }
+            } else {
+                Admission::Reject
+            }
+        }
+
+        fn columns_seen(&mut self, columns: &Map<String, Value>) -> io::Result<()> {
+            *self.known = columns.clone();
+            Ok(())
+        }
     }
 
     /// [`run_script_with`], waiting `quiet` before a reconnect.
@@ -601,20 +665,16 @@ mod tests {
         script: Script,
         password: Option<&str>,
         columns: Option<Columns>,
+        known: &mut Map<String, Value>,
         quiet: Duration,
     ) -> Outcome {
         let mut out = Vec::new();
         let end = {
             let mut conn = Connection::new(Cursor::new(script.0), &mut out);
-            let mut admit = |info: &CalibreInfo| {
-                if info.library_uuid == "lib-1" {
-                    Admission::Accept {
-                        password: password.map(str::to_owned),
-                        columns: columns.clone(),
-                    }
-                } else {
-                    Admission::Reject
-                }
+            let mut admit = TestAdmit {
+                password,
+                columns,
+                known,
             };
             run_with_quiet(&mut conn, lib, cfg, &mut admit, quiet).unwrap()
         };
@@ -717,6 +777,7 @@ mod tests {
     #[test]
     fn read_sync_columns_appearing_reconnect_then_get_named() {
         let (_tmp, mut lib) = setup();
+        let mut known = Map::new();
         let cfg = DeviceConfig::default();
         let (op, info) = library_info(sync_columns());
         let script = || {
@@ -735,27 +796,42 @@ mod tests {
             script(),
             None,
             Some(Columns::defaults()),
+            &mut known,
             Duration::from_secs(3600),
         );
         assert_eq!(o.end, SessionEnd::Ejected);
-        lib.record_columns("lib-1", Map::new()).unwrap();
+        known.clear();
 
         // First connection: not seen yet, so not named; seeing them ends it
         // at the keep-alive, after replying to it.
-        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        let o = run_script_with(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            Some(Columns::defaults()),
+            &mut known,
+        );
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
         assert_eq!(o.replies.last().unwrap().1, json!({}));
-        assert_eq!(lib.known_columns("lib-1")["#kindle_read"], "bool");
+        assert_eq!(known["#kindle_read"]["datatype"], "bool");
 
         // The reconnect names them, and the same list doesn't end it again.
-        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        let o = run_script_with(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            Some(Columns::defaults()),
+            &mut known,
+        );
         assert_eq!(o.end, SessionEnd::Ejected);
         assert_eq!(o.replies[0].1["isReadSyncCol"], "#kindle_read");
         assert_eq!(o.replies[0].1["isReadDateSyncCol"], "#kindle_last_read");
 
         // A library that isn't writable never names them or reconnects.
-        let o = run_script_with(&mut lib, &cfg, script(), None, None);
+        let o = run_script_with(&mut lib, &cfg, script(), None, None, &mut known);
         assert_eq!(o.end, SessionEnd::Ejected);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
     }
@@ -764,8 +840,7 @@ mod tests {
     fn read_sync_stops_quietly_when_columns_are_removed() {
         let (_tmp, mut lib) = setup();
         let cfg = DeviceConfig::default();
-        lib.record_columns("lib-1", readsync::custom_columns(&sync_columns()))
-            .unwrap();
+        let mut known = readsync::custom_columns(&sync_columns());
         // The user deleted one column; the other changed type.
         let (op, info) = library_info(json!({
             "#kindle_last_read": {"is_custom": true, "datatype": "text"},
@@ -778,7 +853,14 @@ mod tests {
                 .msg(Opcode::Noop, json!({}))
                 .msg(Opcode::Noop, json!({"ejecting": true}))
         };
-        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        let o = run_script_with(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            Some(Columns::defaults()),
+            &mut known,
+        );
         assert_eq!(
             o.replies[0].1["isReadSyncCol"], "#kindle_read",
             "named from the old record"
@@ -788,7 +870,14 @@ mod tests {
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
         assert_eq!(o.replies.last().unwrap().1, json!({}));
 
-        let o = run_script_with(&mut lib, &cfg, script(), None, Some(Columns::defaults()));
+        let o = run_script_with(
+            &mut lib,
+            &cfg,
+            script(),
+            None,
+            Some(Columns::defaults()),
+            &mut known,
+        );
         assert_eq!(o.end, SessionEnd::Ejected);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
         assert!(o.replies[0].1.get("isReadDateSyncCol").is_none());
@@ -807,15 +896,21 @@ mod tests {
             send_book(Script::new().handshake(), "a.azw3", b"x"),
         );
         assert_eq!(o.end, SessionEnd::Closed);
-        lib.record_columns("lib-1", readsync::custom_columns(&sync_columns()))
-            .unwrap();
+        let mut known = readsync::custom_columns(&sync_columns());
         let (op, info) = library_info(sync_columns());
         let script = Script::new()
             .handshake()
             .msg(op, info)
             .msg(Opcode::GetBookCount, json!({"willUseCachedMetadata": true}))
             .msg(Opcode::Noop, json!({"priKey": 0}));
-        let o = run_script_with(&mut lib, &cfg, script, None, Some(Columns::defaults()));
+        let o = run_script_with(
+            &mut lib,
+            &cfg,
+            script,
+            None,
+            Some(Columns::defaults()),
+            &mut known,
+        );
         // After the handshake and library info: OK for the count, then the
         // cached entry, then the full metadata.
         let entry = &o.replies[3].1;

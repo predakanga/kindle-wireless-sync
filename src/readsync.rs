@@ -45,11 +45,11 @@ impl Columns {
     }
 
     /// The ones that exist in a library, with the type Calibre requires.
-    /// `custom` maps lookup names to Calibre datatypes.
+    /// `custom` is a library's columns, as [`custom_columns`] lists them.
     pub fn available_in(&self, custom: &Map<String, Value>) -> Columns {
         let has = |name: &Option<String>, datatype: &str| {
             name.clone()
-                .filter(|n| custom.get(n).and_then(Value::as_str) == Some(datatype))
+                .filter(|n| custom.get(n).and_then(|c| c["datatype"].as_str()) == Some(datatype))
         };
         Columns {
             read: has(&self.read, "bool"),
@@ -58,15 +58,20 @@ impl Columns {
     }
 }
 
-/// A library's custom columns and their datatypes, from the `fieldMetadata`
-/// of Calibre's `SET_LIBRARY_INFO`.
+/// A library's custom columns, from the `fieldMetadata` of Calibre's
+/// `SET_LIBRARY_INFO`: lookup name to `{"name": heading, "datatype": type}`
+/// (ADR 0020). The heading falls back to the lookup name.
 pub fn custom_columns(field_metadata: &Value) -> Map<String, Value> {
     field_metadata
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(name, fm)| name.starts_with('#') && fm["is_custom"] == json!(true))
-        .filter_map(|(name, fm)| Some((name.clone(), json!(fm["datatype"].as_str()?))))
+        .filter(|(lookup, fm)| lookup.starts_with('#') && fm["is_custom"] == json!(true))
+        .filter_map(|(lookup, fm)| {
+            let datatype = fm["datatype"].as_str()?;
+            let name = fm["name"].as_str().unwrap_or(lookup);
+            Some((lookup.clone(), json!({"name": name, "datatype": datatype})))
+        })
         .collect()
 }
 
@@ -250,12 +255,17 @@ mod tests {
     #[test]
     fn picks_typed_custom_columns() {
         let fm = json!({
-            "#kindle_read": {"is_custom": true, "datatype": "bool"},
+            "#kindle_read": {"is_custom": true, "datatype": "bool", "name": "Kindle read"},
             "#kindle_last_read": {"is_custom": true, "datatype": "text"},
             "title": {"is_custom": false, "datatype": "text"},
         });
         let custom = custom_columns(&fm);
         assert_eq!(custom.len(), 2);
+        assert_eq!(
+            custom["#kindle_read"],
+            json!({"name": "Kindle read", "datatype": "bool"})
+        );
+        assert_eq!(custom["#kindle_last_read"]["name"], "#kindle_last_read");
         let avail = Columns::defaults().available_in(&custom);
         assert_eq!(avail.read.as_deref(), Some("#kindle_read"));
         assert_eq!(avail.last_read, None, "wrong type");

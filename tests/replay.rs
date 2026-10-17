@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 use kws::library::Library;
 use kws::protocol::{read_message, write_message, Connection, Opcode};
-use kws::session::{self, Admission, DeviceConfig, SessionEnd};
+use kws::session::{self, Admission, CalibreInfo, DeviceConfig, SessionEnd};
 use serde_json::{json, Value};
 
 fn opcode_named(name: &str) -> Opcode {
@@ -97,11 +97,12 @@ fn replays_calibre_9_16_sessions() {
         let end = {
             let mut conn = Connection::new(Cursor::new(s.input), &mut out);
             let uuid = s.library_uuid.clone();
-            session::run(&mut conn, &mut lib, &cfg, &mut |info| {
+            session::run(&mut conn, &mut lib, &cfg, &mut |info: &CalibreInfo| {
                 if info.library_uuid == uuid {
                     Admission::Accept {
                         password: None,
                         columns: None,
+                        known_columns: Default::default(),
                     }
                 } else {
                     Admission::Reject

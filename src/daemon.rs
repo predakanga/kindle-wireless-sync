@@ -16,13 +16,13 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde_json::json;
+use serde_json::{json, Map, Value};
 
 use crate::config::{self, Config, Link, LinkedLibrary};
 use crate::discovery::CalibreServer;
 use crate::library::Library;
 use crate::protocol::{read_message, Connection, Opcode};
-use crate::session::{self, Admission, CalibreInfo, DeviceConfig, SessionEnd};
+use crate::session::{self, Admission, Admit, CalibreInfo, DeviceConfig, SessionEnd};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -631,24 +631,17 @@ impl Daemon {
         *self.shared.active.lock().unwrap() = Some(stream.try_clone()?);
         let mut conn = Connection::new(BufReader::new(stream.try_clone()?), BufWriter::new(stream));
 
-        let shared = self.shared.clone();
-        let mut answered: Option<CalibreInfo> = None;
-        let mut admitted = false;
-        let end = session::run(&mut conn, &mut self.lib, &self.opts.device, &mut |info| {
-            answered = Some(info.clone());
-            if info.library_uuid != library.uuid {
-                return Admission::Reject;
-            }
-            admitted = true;
-            shared.set(
-                State::Connected,
-                format!("Connected to {}.", info.library_name),
-            );
-            Admission::Accept {
-                password: library.password.clone(),
-                columns: library.sync_columns(),
-            }
-        });
+        let mut admit = LinkedAdmit {
+            library,
+            shared: &self.shared,
+            state_dir: &self.opts.state_dir,
+            answered: None,
+            admitted: false,
+        };
+        let end = session::run(&mut conn, &mut self.lib, &self.opts.device, &mut admit);
+        let LinkedAdmit {
+            answered, admitted, ..
+        } = admit;
         *self.shared.active.lock().unwrap() = None;
 
         if admitted {
@@ -684,6 +677,40 @@ impl Daemon {
         if let Err(e) = result {
             log::warn!("cannot update settings: {e}");
         }
+    }
+}
+
+/// Admits only the linked library, and keeps its columns in `config.json`
+/// (ADR 0020).
+struct LinkedAdmit<'a> {
+    library: &'a LinkedLibrary,
+    shared: &'a Shared,
+    state_dir: &'a Path,
+    answered: Option<CalibreInfo>,
+    admitted: bool,
+}
+
+impl Admit for LinkedAdmit<'_> {
+    fn admit(&mut self, info: &CalibreInfo) -> Admission {
+        self.answered = Some(info.clone());
+        if info.library_uuid != self.library.uuid {
+            return Admission::Reject;
+        }
+        self.admitted = true;
+        self.shared.set(
+            State::Connected,
+            format!("Connected to {}.", info.library_name),
+        );
+        Admission::Accept {
+            password: self.library.password.clone(),
+            columns: self.library.sync_columns(),
+            known_columns: self.library.columns.clone(),
+        }
+    }
+
+    fn columns_seen(&mut self, columns: &Map<String, Value>) -> io::Result<()> {
+        let uuid = &self.library.uuid;
+        config::update(self.state_dir, |c| c.set_columns(uuid, columns.clone())).map(|_| ())
     }
 }
 
@@ -898,6 +925,11 @@ mod tests {
                     n.lock().unwrap().push(name.to_owned());
                 }
                 if eject {
+                    // The library's columns, as Calibre lists them (ADR 0020).
+                    let fm = json!({"fieldMetadata": {"#kindle_read":
+                        {"is_custom": true, "datatype": "bool", "name": "Kindle read"}}});
+                    let _ = write_message(&mut stream, Opcode::SetLibraryInfo, &fm);
+                    let _ = read_message(&mut reader);
                     let _ = write_message(&mut stream, Opcode::Noop, &json!({"ejecting": true}));
                     let _ = read_message(&mut reader);
                 } else {
@@ -1166,6 +1198,10 @@ mod tests {
             serde_json::from_slice(&fs::read(state.join("books.json")).unwrap()).unwrap();
         assert_eq!(books[0]["uuid"], "u1");
         assert!(books[0].get("tags").is_none());
+        // The session kept the library's columns with the link.
+        let config = Config::load(state).unwrap();
+        let columns = &config.linked("lib-1").unwrap().columns;
+        assert_eq!(columns["#kindle_read"]["name"], "Kindle read");
     }
 
     #[test]

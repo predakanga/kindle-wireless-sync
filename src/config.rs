@@ -8,7 +8,7 @@ use std::io;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::readsync::Columns;
 
@@ -66,6 +66,10 @@ pub struct LinkedLibrary {
     /// Lookup names of the sync columns, used while `writable` is on.
     pub read_column: Option<String>,
     pub last_read_column: Option<String>,
+    /// The library's custom columns as last seen, from a check or a session:
+    /// lookup name to `{"name", "datatype"}` (ADR 0020). Learned from
+    /// Calibre, not set by the user.
+    pub columns: Map<String, Value>,
 }
 
 impl LinkedLibrary {
@@ -144,6 +148,11 @@ impl Config {
                 writable: l.get("writable").and_then(Value::as_bool).unwrap_or(false),
                 read_column: opt_s(l, "read_column"),
                 last_read_column: opt_s(l, "last_read_column"),
+                columns: l
+                    .get("columns")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .filter(|l| !l.uuid.is_empty());
         Ok(Config {
@@ -159,7 +168,7 @@ impl Config {
                 "uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
                 "hostname": a.hostname, "password": a.password,
                 "writable": a.writable, "read_column": a.read_column,
-                "last_read_column": a.last_read_column,
+                "last_read_column": a.last_read_column, "columns": a.columns,
             })),
             "series": self.series,
         });
@@ -177,9 +186,9 @@ impl Config {
     }
 
     /// Links a library, or updates the linked one's address and name. For the
-    /// same library this keeps the stored password unless a new one is given,
-    /// and always keeps the sync settings: only [`Config::set_writable`]
-    /// changes those. A different library replaces the linked one only with
+    /// same library this keeps the stored password and columns unless new
+    /// ones are given, and always keeps the sync settings: only
+    /// [`Config::set_writable`] changes those. A different library replaces the linked one only with
     /// `replace`, and starts from `lib` alone (read-only unless it says
     /// otherwise, ADR 0017).
     pub fn link(&mut self, lib: LinkedLibrary, replace: bool) -> Link {
@@ -187,9 +196,15 @@ impl Config {
             Some(a) if a.uuid == lib.uuid => {
                 let password = lib.password.clone().or_else(|| a.password.take());
                 let hostname = lib.hostname.clone().or_else(|| a.hostname.take());
+                let columns = if lib.columns.is_empty() {
+                    std::mem::take(&mut a.columns)
+                } else {
+                    lib.columns.clone()
+                };
                 *a = LinkedLibrary {
                     password,
                     hostname,
+                    columns,
                     writable: a.writable,
                     read_column: a.read_column.take(),
                     last_read_column: a.last_read_column.take(),
@@ -221,6 +236,18 @@ impl Config {
                     a.read_column = c.read;
                     a.last_read_column = c.last_read;
                 }
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Records the linked library's columns, as a session saw them. Returns
+    /// false if that library isn't the linked one.
+    pub fn set_columns(&mut self, uuid: &str, columns: Map<String, Value>) -> bool {
+        match self.library.as_mut().filter(|a| a.uuid == uuid) {
+            Some(a) => {
+                a.columns = columns;
                 true
             }
             None => false,
@@ -302,6 +329,41 @@ mod tests {
         let a = c.linked("lib-1").unwrap();
         assert_eq!(a.sync_columns(), None);
         assert_eq!(a.read_column.as_deref(), Some("#kindle_read"));
+    }
+
+    #[test]
+    fn columns_round_trip_survive_address_updates_and_go_with_the_library() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cols = Map::from_iter([(
+            "#kindle_read".into(),
+            json!({"name": "Kindle read", "datatype": "bool"}),
+        )]);
+        let mut c = Config::load(tmp.path()).unwrap();
+        c.link(
+            LinkedLibrary {
+                columns: cols.clone(),
+                ..lib("lib-1")
+            },
+            false,
+        );
+        c.save().unwrap();
+        let mut c = Config::load(tmp.path()).unwrap();
+        assert_eq!(c.linked("lib-1").unwrap().columns, cols);
+
+        // A session updating the address knows nothing of columns.
+        assert_eq!(c.link(lib("lib-1"), false), Link::Updated);
+        assert_eq!(c.linked("lib-1").unwrap().columns, cols);
+
+        assert!(c.set_columns("lib-1", Map::new()));
+        assert!(c.linked("lib-1").unwrap().columns.is_empty());
+        assert!(
+            !c.set_columns("lib-2", cols.clone()),
+            "not the linked library"
+        );
+
+        c.set_columns("lib-1", cols);
+        c.link(lib("lib-2"), true);
+        assert!(c.library.unwrap().columns.is_empty());
     }
 
     #[test]

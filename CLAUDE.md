@@ -107,7 +107,8 @@ track individual bytes.
   Calibre's keep-alive NOOPs or in the daemon's idle waits.
 - `readsync`: read status and last-read date to Calibre (ADR 0017). The
   session names the sync columns in its handshake once `SET_LIBRARY_INFO`
-  has shown they exist (recorded in `columns.json`). When they change, it
+  has shown they exist (kept with the linked library in `config.json`, ADR
+  0020). When they change, it
   ends with `SessionEnd::ColumnsChanged` at the first keep-alive after 10 s
   of idleness, and the daemon reconnects. Dropping the connection while
   Calibre is mid-job makes it show an error dialog.

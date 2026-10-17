@@ -6,7 +6,7 @@
 //! is renamed into place; replacements are copied over the existing file in
 //! place, because the scanner ignores a rename over an indexed file.
 //!
-//! Our state (`books.json`, `driveinfo.json`, `columns.json`) lives in a
+//! Our state (`books.json`, `driveinfo.json`) lives in a
 //! separate state directory and holds Calibre's metadata for each book we received, keyed by
 //! `lpath`. Each record also carries our private `_kws` object (the book's
 //! Kindle content key), which is stripped before metadata goes to Calibre.
@@ -32,8 +32,9 @@ use crate::series;
 
 const BOOKS_FILE: &str = "books.json";
 const DRIVEINFO_FILE: &str = "driveinfo.json";
-/// Each Calibre library's custom columns, by library UUID (ADR 0017).
-const COLUMNS_FILE: &str = "columns.json";
+/// Where libraries' columns were kept before they moved into `config.json`
+/// (ADR 0020). Removed when found.
+const OLD_COLUMNS_FILE: &str = "columns.json";
 const TEMP_PREFIX: &str = ".kws-";
 const TEMP_SUFFIX: &str = ".part";
 /// Space to leave free on top of an incoming book.
@@ -55,7 +56,6 @@ pub struct Library {
     series: Option<SeriesSync>,
     /// The Kindle's catalog, for reading read states (ADR 0017).
     catalog: Option<Catalog>,
-    columns: Value,
 }
 
 /// How long to wait after the last book change before updating series
@@ -121,10 +121,10 @@ impl Library {
             adopt_memo: adopt::Memo::default(),
             series: None,
             catalog: None,
-            columns: load_json(&state_dir.join(COLUMNS_FILE))?
-                .filter(Value::is_object)
-                .unwrap_or_else(|| json!({})),
         };
+        if let Err(e) = remove_if_exists(fs::remove_file(state_dir.join(OLD_COLUMNS_FILE))) {
+            log::warn!("cannot remove {OLD_COLUMNS_FILE}: {e}");
+        }
         remove_stale_temps(&lib.books_dir, 4);
         let before = lib.books.len();
         let books_dir = lib.books_dir.clone();
@@ -188,28 +188,6 @@ impl Library {
     /// it, we report Calibre's own values back.
     pub fn set_catalog(&mut self, catalog: Catalog) {
         self.catalog = Some(catalog);
-    }
-
-    /// A library's custom columns as we last saw them (lookup name to
-    /// datatype), or an empty map.
-    pub fn known_columns(&self, library_uuid: &str) -> Map<String, Value> {
-        self.columns[library_uuid]
-            .as_object()
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Records a library's custom columns, from `SET_LIBRARY_INFO`.
-    pub fn record_columns(
-        &mut self,
-        library_uuid: &str,
-        columns: Map<String, Value>,
-    ) -> io::Result<()> {
-        if self.known_columns(library_uuid) == columns {
-            return Ok(());
-        }
-        self.columns[library_uuid] = Value::Object(columns);
-        write_json_atomic(&self.state_dir.join(COLUMNS_FILE), &self.columns)
     }
 
     /// The read-status fields to add to each book in the book list, in the
@@ -677,8 +655,8 @@ impl Library {
     }
 
     /// Forgets everything that came from the previous library: each book's
-    /// metadata except its identity, read-sync state, the libraries' columns,
-    /// and Calibre's device identity, so Calibre sees a new device with an
+    /// metadata except its identity and series, read-sync state, and
+    /// Calibre's device identity, so Calibre sees a new device with an
     /// empty metadata cache. The driveinfo goes last: an interrupted reset
     /// runs again.
     fn forget_library(&mut self) -> io::Result<()> {
@@ -691,8 +669,6 @@ impl Library {
             *record = identity(record, modified);
         }
         self.save()?;
-        self.columns = json!({});
-        remove_if_exists(fs::remove_file(self.state_dir.join(COLUMNS_FILE)))?;
         self.mark_series_dirty();
         remove_if_exists(fs::remove_file(self.state_dir.join(DRIVEINFO_FILE)))?;
         self.driveinfo = json!({});
@@ -1139,6 +1115,16 @@ mod tests {
     }
 
     #[test]
+    fn the_old_columns_file_is_removed() {
+        let (tmp, lib) = setup();
+        let state = tmp.path().join("state");
+        drop(lib);
+        fs::write(state.join(OLD_COLUMNS_FILE), b"{}").unwrap();
+        Library::open(&tmp.path().join("books"), &state).unwrap();
+        assert!(!state.join(OLD_COLUMNS_FILE).exists());
+    }
+
+    #[test]
     fn linking_a_different_library_keeps_only_book_identities_and_series() {
         let (tmp, mut lib) = setup();
         let state = tmp.path().join("state");
@@ -1153,11 +1139,6 @@ mod tests {
         lib.books[0]["_kws"] =
             json!({"cde_key": "k", "cde_type": "PDOC", "read_sync": {"read": true}});
         lib.save().unwrap();
-        lib.record_columns(
-            "lib-a",
-            Map::from_iter([("#kindle_read".into(), json!("bool"))]),
-        )
-        .unwrap();
         lib.set_driveinfo(
             json!({"device_store_uuid": "dev-1", "device_name": "K", "last_library_uuid": "lib-a"}),
         )
@@ -1180,8 +1161,6 @@ mod tests {
         assert_ne!(expected["last_modified"], before["last_modified"]);
         assert_eq!(lib.book("A/Book.txt").unwrap(), &expected);
         assert_eq!(lib.calibre_metadata(0).unwrap()["series"], "Saga");
-        assert!(lib.known_columns("lib-a").is_empty());
-        assert!(!state.join(COLUMNS_FILE).exists());
         assert!(!state.join(DRIVEINFO_FILE).exists());
         assert_eq!(lib.driveinfo(), &json!({}));
 
