@@ -11,8 +11,8 @@ for the UI review before 0.3.0. No Kindle, service or Calibre needed: run
 - **Right:** a fake service and fake Calibre libraries (`app/mock.js`).
   Presets set up common situations; each library can be switched off,
   hidden from Find, made busy, given a password or given columns.
-- **Design variants** switch between alternatives still being decided:
-  for now, a dialog or a warning on the page before replacing a library.
+- **Options** set how long a library check takes, and whether to show the
+  space the on-screen keyboard takes.
 
 The app (`app/`) is ES5 with no flexbox, like the real one, so it can be
 copied to the Kindle to check the fit there. Opened on its own, it runs its

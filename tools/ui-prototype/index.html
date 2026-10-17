@@ -78,10 +78,7 @@
         </div>
 
         <div class="card opts">
-            <h2>Design variants</h2>
-            <div class="opt"><span class="k">Confirm a replace</span>
-                <label><input type="radio" name="replaceConfirm" value="dialog" checked /> Dialog after Link</label>
-                <label><input type="radio" name="replaceConfirm" value="inline" /> Warning on the page</label></div>
+            <h2>Options</h2>
             <div class="opt"><span class="k">Checking a library</span>
                 <label><input type="radio" name="probeMs" value="2500" checked /> Quick (2.5 s)</label>
                 <label><input type="radio" name="probeMs" value="12000" /> Realistic (12 s)</label></div>
@@ -141,10 +138,6 @@ for (const [key, label] of Object.entries(KWSMock.PRESETS)) {
     presets.appendChild(b);
 }
 
-for (const key of ["replaceConfirm"]) {
-    document.querySelectorAll(`input[name=${key}]`).forEach((r) =>
-        r.addEventListener("change", () => { mock.variants[key] = r.value; mock.onChange(); }));
-}
 document.querySelectorAll("input[name=probeMs]").forEach((r) =>
     r.addEventListener("change", () => { mock.options.probeMs = parseInt(r.value, 10); }));
 document.getElementById("keyboard").addEventListener("change", (e) => { mock.options.keyboard = e.target.checked; mock.onChange(); });

@@ -59,7 +59,7 @@
         this.onChange = onChange || function () {};
         this.log = [];
         this.timers = {};
-        this.variants = { replaceConfirm: "dialog" };
+        this.variants = {};
         this.options = { probeMs: 2500, keyboard: true };
         this.preset("fresh");
     }

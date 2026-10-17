@@ -97,10 +97,6 @@
         messageTimer = setTimeout(function () { m.className = "message"; }, MESSAGE_MS);
     }
 
-    function variant(key) {
-        return status && status.prototype && status.prototype.variants ? status.prototype.variants[key] : null;
-    }
-
     function address(lib) { return lib.host + ":" + lib.port; }
     function where(lib) { return (lib.hostname ? lib.hostname + " · " : "") + address(lib); }
 
@@ -213,7 +209,7 @@
             html += '<div class="hint">Is Calibre open, with Connect/share → Start wireless device connection on?</div>';
         }
         html += '</div>'
-            + btnRow([button(trying ? "Disconnect temporarily" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),
+            + btnRow([button(trying ? "Disconnect" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),
                       button("Library settings", "go", { arg: "settings" })])
             + btnRow([button("Change library", "change"), button("Forget library", "unlink")]);
         return html;
@@ -222,14 +218,13 @@
     PAGES.choose = function (s) {
         var html = s.library ? header("Choose a library", "back:home")
             : header("Wireless Sync", null, true) + '<h1>Choose a Calibre library</h1>';
-        if (s.wifi === false) {
-            html += '<div class="warning"><b>Wi-Fi is off.</b> Turn it on to find Calibre libraries.</div>';
-        }
         html += '<div class="hint">In Calibre, choose <b>Connect/share → Start wireless device connection</b>. '
             + 'Then tap the library to use.</div>'
             + sectionLabel("Found on the network", s.finding ? "Searching…" : "");
         var found = s.found || [];
-        if (!found.length) {
+        if (s.wifi === false) {
+            html += '<div class="warning"><b>Wi-Fi is off.</b> Turn it on to find Calibre libraries.</div>';
+        } else if (!found.length) {
             html += '<div class="empty">' + (s.finding ? "Looking for Calibre…" : "No libraries found.") + '</div>';
         } else {
             html += '<div class="rows">';
@@ -291,27 +286,19 @@
     }
 
     function readSyncForm(columns) {
-        var html = toggleRow("Update read status in Calibre", form.writable, "writable", true);
-        if (!form.writable) {
-            return html + '<div class="hint">When enabled, books\' completion and last-read date are synced to '
-                + 'Calibre, in columns you choose.</div>';
-        }
-        return html + '<div class="rows" style="border-top:none">'
+        var html = toggleRow("Update read status in Calibre", form.writable, "writable", true)
+            + '<div class="hint">When enabled, books\' completion and last-read date are synced to Calibre.</div>';
+        if (!form.writable) return html;
+        return html + '<div class="rows">'
             + pickerRow("Read", "bool", columns) + pickerRow("Last read", "datetime", columns) + '</div>';
     }
 
     PAGES.setup = function (s) {
         var lib = s.probe.library;
-        var replacing = s.library && s.library.uuid !== lib.uuid;
-        var inline = replacing && variant("replaceConfirm") === "inline";
-        var html = header("Link " + lib.name, "cancelprobe")
-            + '<div class="sub">' + esc(where(lib)) + '</div>';
-        if (inline) {
-            html += '<div class="warning">This replaces <b>' + esc(s.library.name) + '</b>. '
-                + forgetText(s.library.name, lib.name) + '</div>';
-        }
-        return html + readSyncForm(form.columns)
-            + wide(inline ? "Replace and link" : "Link", "link", { cls: "btn-strong" });
+        return header("Link " + lib.name, "cancelprobe")
+            + '<div class="sub">' + esc(where(lib)) + '</div>'
+            + readSyncForm(form.columns)
+            + wide("Link", "link", { cls: "btn-strong" });
     };
 
     PAGES.picker = function (s) {
@@ -382,7 +369,7 @@
             + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>';
         html += sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
-            + '<div class="hint">Once stopped, it starts again the next time you open Wireless Sync.</div>';
+            + '<div class="hint">The service will start again next time you open this app or reboot.</div>';
         return html + '<div class="footer">Wireless Sync ' + esc(s.version || "") + '</div>';
     };
 
@@ -574,7 +561,8 @@
             page = form.ctx;
             redraw();
         },
-        link: function () { doLink(variant("replaceConfirm") === "inline"); },
+        // Replacing another library asks first, in a dialog.
+        link: function () { doLink(false); },
         doreplace: function () { dialog = null; renderDialog(); doLink(true); },
         closedialog: function () { dialog = null; renderDialog(); report(); },
         save: function () {
