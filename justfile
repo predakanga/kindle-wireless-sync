@@ -47,6 +47,10 @@ connect *args:
     mkdir -p dev-device/books dev-device/state
     RUST_LOG=debug cargo run --features dev-tools -- connect --books dev-device/books --state dev-device/state {{args}}
 
+# Drive an isolated Calibre with the test harness plugin (ADR 0019), e.g. `just calibre launch`
+calibre *args:
+    python3 tools/calibre-harness/harness.py {{args}}
+
 # Show the packaged Kindle binary size
 size-kindle: build-kindle-package
     @ls -l target/{{kindle_target}}/release/kindle-wireless-sync | awk '{print $5 " bytes"}'
