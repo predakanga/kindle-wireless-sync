@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The long-running client (ADR 0004, ADR 0008).
 //!
-//! Waits for Wi-Fi, connects only to allowed Calibre libraries, runs
-//! sessions, and keeps a status for the UI. After Calibre ejects us it stays
-//! disconnected until Wi-Fi cycles or "Connect now". New libraries are only
-//! contacted by the explicit [`find_libraries`] and [`add_server`] actions.
+//! Waits for Wi-Fi, connects only to the linked Calibre library (ADR 0018),
+//! runs sessions, and keeps a status for the UI. After Calibre ejects us it
+//! stays disconnected until Wi-Fi cycles or "Connect now". Other libraries
+//! are only contacted by the explicit [`find_libraries`] and
+//! [`link_address`] actions, and what they find is kept in memory.
 
 use std::collections::HashSet;
 use std::fs;
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use crate::config::{self, AllowedLibrary, Config};
+use crate::config::{self, Config, Link, LinkedLibrary};
 use crate::discovery::CalibreServer;
 use crate::library::Library;
 use crate::protocol::{read_message, Connection, Opcode};
@@ -25,15 +26,15 @@ use crate::session::{self, Admission, CalibreInfo, DeviceConfig, SessionEnd};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(10);
-/// How often to re-read the config while no library is allowed, so a
-/// library allowed from another process is picked up.
+/// How often to re-read the config while no library is linked, so a
+/// library linked from another process is picked up.
 const NO_LIBRARY_RECHECK: Duration = Duration::from_secs(30);
 pub const STATUS_FILE: &str = "status.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     WaitingForWifi,
-    NoLibraries,
+    NotLinked,
     Searching,
     NotFound,
     Connected,
@@ -48,7 +49,7 @@ impl State {
     pub fn as_str(self) -> &'static str {
         match self {
             State::WaitingForWifi => "waiting_for_wifi",
-            State::NoLibraries => "no_libraries",
+            State::NotLinked => "not_linked",
             State::Searching => "searching",
             State::NotFound => "not_found",
             State::Connected => "connected",
@@ -83,6 +84,9 @@ struct Shared {
     /// The socket of the running session, so it can be cut when Wi-Fi drops.
     active: Mutex<Option<TcpStream>>,
     status_file: PathBuf,
+    /// Libraries found by "Find libraries", or answering at the linked
+    /// library's address, that aren't linked. Kept in memory only (ADR 0018).
+    found: Mutex<Vec<FoundLibrary>>,
 }
 
 impl Shared {
@@ -115,6 +119,34 @@ impl Shared {
             let _ = stream.shutdown(Shutdown::Both);
         }
     }
+
+    fn record_found(&self, lib: FoundLibrary) {
+        let mut found = self.found.lock().unwrap();
+        found.retain(|f| f.uuid != lib.uuid);
+        found.push(lib);
+    }
+}
+
+/// A Calibre library that answered, but isn't linked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FoundLibrary {
+    pub uuid: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub hostname: String,
+}
+
+impl FoundLibrary {
+    pub fn new(info: &CalibreInfo, host: String, port: u16, hostname: String) -> FoundLibrary {
+        FoundLibrary {
+            uuid: info.library_uuid.clone(),
+            name: info.library_name.clone(),
+            host,
+            port,
+            hostname,
+        }
+    }
 }
 
 /// Controls a running daemon from other threads.
@@ -139,7 +171,7 @@ impl Handle {
     }
 
     /// Ends the current session (if any) and connects again at once, so a
-    /// changed allowlist or password takes effect.
+    /// changed link or password takes effect.
     pub fn reconnect(&self) {
         self.shared.interrupt();
         let _ = self.tx.send(Control::ConnectNow);
@@ -163,6 +195,20 @@ impl Handle {
 
     pub fn status(&self) -> Status {
         self.shared.status.lock().unwrap().clone()
+    }
+
+    /// Libraries found since the daemon started, oldest first.
+    pub fn found(&self) -> Vec<FoundLibrary> {
+        self.shared.found.lock().unwrap().clone()
+    }
+
+    pub fn record_found(&self, lib: FoundLibrary) {
+        self.shared.record_found(lib);
+    }
+
+    /// Drops a library from the found list, once it's linked.
+    pub fn forget_found(&self, uuid: &str) {
+        self.shared.found.lock().unwrap().retain(|f| f.uuid != uuid);
     }
 }
 
@@ -231,6 +277,7 @@ impl Daemon {
             }),
             active: Mutex::new(None),
             status_file: opts.state_dir.join(STATUS_FILE),
+            found: Mutex::new(Vec::new()),
         });
         let handle = Handle {
             tx,
@@ -299,7 +346,8 @@ impl Daemon {
         // Reset whenever Wi-Fi cycles (ADR 0008).
         let mut ejected = false;
         let mut skip: HashSet<SocketAddr> = HashSet::new();
-        let mut bad_password: HashSet<String> = HashSet::new();
+        // The library that rejected our password, until the user acts.
+        let mut bad_password: Option<String> = None;
         let mut attempt = 0usize;
 
         loop {
@@ -310,13 +358,13 @@ impl Daemon {
                         if up && !self.net_up {
                             ejected = false;
                             skip.clear();
-                            bad_password.clear();
+                            bad_password = None;
                         }
                         self.net_up = up;
                     }
                     Wake::ConnectNow => {
                         ejected = false;
-                        bad_password.clear();
+                        bad_password = None;
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -331,7 +379,7 @@ impl Daemon {
                         self.net_up = true;
                         ejected = false;
                         skip.clear();
-                        bad_password.clear();
+                        bad_password = None;
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -348,7 +396,7 @@ impl Daemon {
                     Wake::Network(false) => self.net_up = false,
                     Wake::ConnectNow => {
                         ejected = false;
-                        bad_password.clear();
+                        bad_password = None;
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -369,10 +417,10 @@ impl Daemon {
                     continue;
                 }
             };
-            if config.allowed.is_empty() {
+            let Some(library) = config.library else {
                 self.set(
-                    State::NoLibraries,
-                    "No Calibre library is allowed yet. Use Find libraries or Add server.",
+                    State::NotLinked,
+                    "No Calibre library is linked yet. Use Find libraries or Add server.",
                 );
                 match self.wait(Some(NO_LIBRARY_RECHECK)) {
                     Wake::Network(false) => self.net_up = false,
@@ -380,19 +428,14 @@ impl Daemon {
                     _ => {}
                 }
                 continue;
-            }
-            let allowed: Vec<&AllowedLibrary> = config
-                .allowed
-                .iter()
-                .filter(|a| !bad_password.contains(&a.uuid))
-                .collect();
-            if allowed.is_empty() {
-                // Every allowed library rejected our password; wait for the
-                // user (Connect now after fixing it) or a Wi-Fi cycle.
+            };
+            if bad_password.as_deref() == Some(library.uuid.as_str()) {
+                // The library rejected our password; wait for the user
+                // (Connect now after fixing it) or a Wi-Fi cycle.
                 match self.wait(None) {
                     Wake::Network(false) => self.net_up = false,
                     Wake::ConnectNow => {
-                        bad_password.clear();
+                        bad_password = None;
                         attempt = 0;
                     }
                     Wake::Shutdown => break,
@@ -401,23 +444,34 @@ impl Daemon {
                 continue;
             }
 
-            let names: Vec<&str> = allowed.iter().map(|a| display_name(a)).collect();
-            self.set(
-                State::Searching,
-                format!("Looking for {}.", names.join(", ")),
-            );
+            // Our state may still belong to a library linked before.
+            if let Err(e) = self.lib.reset_if_relinked(&library.uuid) {
+                self.set(
+                    State::Error,
+                    format!("Cannot reset for the newly linked library: {e}"),
+                );
+                match self.wait(Some(NO_LIBRARY_RECHECK)) {
+                    Wake::Network(false) => self.net_up = false,
+                    Wake::Shutdown => break,
+                    _ => {}
+                }
+                continue;
+            }
+
+            let name = library.display_name().to_owned();
+            self.set(State::Searching, format!("Looking for {name}."));
             let found = (self.opts.discover)();
-            let candidates = candidates(&allowed, &found, &skip);
+            let candidates = candidates(&library, &found, &skip);
 
             let mut outcome = Outcome::NotFound;
             for cand in candidates {
-                match self.try_session(&cand, &config, &bad_password) {
+                match self.try_session(&cand, &library) {
                     Err(e) => log::debug!("cannot reach {}: {e}", cand.addr),
                     Ok((end, info)) => {
                         let name = info
                             .as_ref()
                             .map(|i| i.library_name.clone())
-                            .unwrap_or_default();
+                            .unwrap_or_else(|| name.clone());
                         match end {
                             Ok(SessionEnd::Ejected) => {
                                 outcome = Outcome::Ejected;
@@ -425,17 +479,20 @@ impl Daemon {
                             }
                             Ok(SessionEnd::LibraryRejected(info)) => {
                                 log::warn!(
-                                    "{} now serves library {:?}, which is not allowed",
+                                    "{} now serves library {:?}, which is not linked",
                                     cand.addr,
                                     info.library_name
                                 );
-                                self.record_seen(&info, &cand);
+                                self.shared.record_found(FoundLibrary::new(
+                                    &info,
+                                    cand.addr.ip().to_string(),
+                                    cand.addr.port(),
+                                    cand.hostname.clone(),
+                                ));
                                 skip.insert(cand.addr);
                             }
                             Ok(SessionEnd::PasswordRejected) => {
-                                if let Some(i) = &info {
-                                    bad_password.insert(i.library_uuid.clone());
-                                }
+                                bad_password = info.as_ref().map(|i| i.library_uuid.clone());
                                 outcome = Outcome::PasswordRejected(name);
                                 break;
                             }
@@ -471,7 +528,7 @@ impl Daemon {
                     }
                     Control::Network(true) => self.net_up = true,
                     Control::ConnectNow => {
-                        bad_password.clear();
+                        bad_password = None;
                         attempt = 0;
                         connect_now = true;
                     }
@@ -494,7 +551,7 @@ impl Daemon {
                     // Down and back up already: a Wi-Fi cycle.
                     ejected = false;
                     skip.clear();
-                    bad_password.clear();
+                    bad_password = None;
                     attempt = 0;
                 }
                 continue;
@@ -503,7 +560,7 @@ impl Daemon {
             let delay = self.opts.backoff[attempt.min(self.opts.backoff.len() - 1)];
             let secs = delay.as_secs();
             match outcome {
-                // Forget, a new password or Connect now cut the session:
+                // Unlink, a new password or Connect now cut the session:
                 // go round again at once, without a "lost" status.
                 Outcome::Lost(_) | Outcome::NotFound | Outcome::Busy if connect_now => continue,
                 Outcome::Reconnect => {
@@ -524,7 +581,7 @@ impl Daemon {
                 }
                 Outcome::NotFound => self.set(
                     State::NotFound,
-                    format!("No allowed Calibre library found. Retrying in {secs}s."),
+                    format!("Calibre library {name} not found. Retrying in {secs}s."),
                 ),
                 Outcome::Busy => self.set(
                     State::NotFound,
@@ -539,7 +596,7 @@ impl Daemon {
             match self.wait(Some(delay)) {
                 Wake::Network(false) => self.net_up = false,
                 Wake::ConnectNow => {
-                    bad_password.clear();
+                    bad_password = None;
                     attempt = 0;
                 }
                 Wake::Shutdown => break,
@@ -556,8 +613,7 @@ impl Daemon {
     fn try_session(
         &mut self,
         cand: &Candidate,
-        config: &Config,
-        bad_password: &HashSet<String>,
+        library: &LinkedLibrary,
     ) -> io::Result<(io::Result<SessionEnd>, Option<CalibreInfo>)> {
         let stream = TcpStream::connect_timeout(&cand.addr, CONNECT_TIMEOUT)?;
         self.opts.device.device_name = (self.opts.device_name)();
@@ -571,19 +627,17 @@ impl Daemon {
         let mut admitted = false;
         let end = session::run(&mut conn, &mut self.lib, &self.opts.device, &mut |info| {
             answered = Some(info.clone());
-            match config.allowed(&info.library_uuid) {
-                Some(a) if !bad_password.contains(&a.uuid) => {
-                    admitted = true;
-                    shared.set(
-                        State::Connected,
-                        format!("Connected to {}.", info.library_name),
-                    );
-                    Admission::Accept {
-                        password: a.password.clone(),
-                        columns: a.sync_columns(),
-                    }
-                }
-                _ => Admission::Reject,
+            if info.library_uuid != library.uuid {
+                return Admission::Reject;
+            }
+            admitted = true;
+            shared.set(
+                State::Connected,
+                format!("Connected to {}.", info.library_name),
+            );
+            Admission::Accept {
+                password: library.password.clone(),
+                columns: library.sync_columns(),
             }
         });
         *self.shared.active.lock().unwrap() = None;
@@ -596,38 +650,26 @@ impl Daemon {
         Ok((end, answered))
     }
 
-    /// Remembers where an allowed library answered. Runs when the session
-    /// ends, so the library may have been forgotten meanwhile: never re-add it.
+    /// Remembers where the linked library answered. Runs when the session
+    /// ends, so the library may have been unlinked meanwhile: never re-link it.
     fn record_connected(&self, info: &CalibreInfo, cand: &Candidate) {
         let result = config::update(&self.opts.state_dir, |c| {
-            let Some(previous) = c.allowed(&info.library_uuid).cloned() else {
+            let Some(previous) = c.linked(&info.library_uuid).cloned() else {
                 return;
             };
-            c.upsert_allowed(AllowedLibrary {
-                uuid: info.library_uuid.clone(),
-                name: info.library_name.clone(),
-                host: Some(cand.addr.ip().to_string()),
-                port: Some(cand.addr.port()),
-                hostname: (!cand.hostname.is_empty())
-                    .then(|| cand.hostname.clone())
-                    .or(previous.hostname),
-                password: None,
-                ..Default::default()
-            });
-        });
-        if let Err(e) = result {
-            log::warn!("cannot update settings: {e}");
-        }
-    }
-
-    fn record_seen(&self, info: &CalibreInfo, cand: &Candidate) {
-        let result = config::update(&self.opts.state_dir, |c| {
-            c.record_seen(
-                &info.library_uuid,
-                &info.library_name,
-                &cand.addr.ip().to_string(),
-                cand.addr.port(),
-                &cand.hostname,
+            c.link(
+                LinkedLibrary {
+                    uuid: info.library_uuid.clone(),
+                    name: info.library_name.clone(),
+                    host: Some(cand.addr.ip().to_string()),
+                    port: Some(cand.addr.port()),
+                    hostname: (!cand.hostname.is_empty())
+                        .then(|| cand.hostname.clone())
+                        .or(previous.hostname),
+                    password: None,
+                    ..Default::default()
+                },
+                false,
             );
         });
         if let Err(e) = result {
@@ -636,18 +678,10 @@ impl Daemon {
     }
 }
 
-fn display_name(a: &AllowedLibrary) -> &str {
-    if a.name.is_empty() {
-        &a.uuid
-    } else {
-        &a.name
-    }
-}
-
 /// Addresses worth connecting to in the background: discovered servers that
-/// match an allowed library, then each allowed library's last address.
+/// match the linked library, then its last address.
 fn candidates(
-    allowed: &[&AllowedLibrary],
+    library: &LinkedLibrary,
     found: &[CalibreServer],
     skip: &HashSet<SocketAddr>,
 ) -> Vec<Candidate> {
@@ -659,24 +693,20 @@ fn candidates(
     };
     for s in found {
         let ip = s.addr.to_string();
-        let matches = allowed.iter().any(|a| {
-            a.hostname.as_deref() == Some(s.hostname.as_str())
-                || a.host.as_deref() == Some(ip.as_str())
-        });
-        if matches {
+        if library.hostname.as_deref() == Some(s.hostname.as_str())
+            || library.host.as_deref() == Some(ip.as_str())
+        {
             push(SocketAddr::new(s.addr, s.port), s.hostname.clone());
         }
     }
-    for a in allowed {
-        if let (Some(host), Some(port)) = (&a.host, a.port) {
-            match (host.as_str(), port).to_socket_addrs() {
-                Ok(mut addrs) => {
-                    if let Some(addr) = addrs.next() {
-                        push(addr, a.hostname.clone().unwrap_or_default());
-                    }
+    if let (Some(host), Some(port)) = (&library.host, library.port) {
+        match (host.as_str(), port).to_socket_addrs() {
+            Ok(mut addrs) => {
+                if let Some(addr) = addrs.next() {
+                    push(addr, library.hostname.clone().unwrap_or_default());
                 }
-                Err(e) => log::debug!("cannot resolve {host}: {e}"),
             }
+            Err(e) => log::debug!("cannot resolve {host}: {e}"),
         }
     }
     out
@@ -704,74 +734,108 @@ pub fn probe(addr: SocketAddr) -> io::Result<CalibreInfo> {
 
 /// What "Find libraries" learned about one discovered server.
 pub enum FindResult {
-    /// Already an allowed library's server; not contacted.
-    Allowed,
+    /// The linked library's server; not contacted.
+    Linked,
     Answered(CalibreInfo),
     Failed(io::Error),
 }
 
-/// "Find libraries": probes each discovered server that is not already an
-/// allowed library's, and records what answers in `seen` (ADR 0008).
+/// "Find libraries": probes each discovered server that isn't the linked
+/// library's (ADR 0008). Remembering what answered is up to the caller: the
+/// daemon keeps it in memory (ADR 0018).
 pub fn find_libraries(
-    state_dir: &Path,
+    config: &Config,
     found: &[CalibreServer],
-) -> io::Result<Vec<(CalibreServer, FindResult)>> {
-    let config = Config::load(state_dir)?;
-    let mut results = Vec::new();
-    for s in found {
-        if config.matches_allowed(&s.hostname, &s.addr.to_string()) {
-            results.push((s.clone(), FindResult::Allowed));
-            continue;
-        }
-        let result = match probe(SocketAddr::new(s.addr, s.port)) {
-            Ok(info) => FindResult::Answered(info),
-            Err(e) => FindResult::Failed(e),
-        };
-        results.push((s.clone(), result));
-    }
-    config::update(state_dir, |c| {
-        for (s, r) in &results {
-            if let FindResult::Answered(info) = r {
-                if c.allowed(&info.library_uuid).is_none() {
-                    c.record_seen(
-                        &info.library_uuid,
-                        &info.library_name,
-                        &s.addr.to_string(),
-                        s.port,
-                        &s.hostname,
-                    );
+) -> Vec<(CalibreServer, FindResult)> {
+    found
+        .iter()
+        .map(|s| {
+            let result = if config.matches_linked(&s.hostname, &s.addr.to_string()) {
+                FindResult::Linked
+            } else {
+                match probe(SocketAddr::new(s.addr, s.port)) {
+                    Ok(info) => FindResult::Answered(info),
+                    Err(e) => FindResult::Failed(e),
                 }
-            }
-        }
-    })?;
-    Ok(results)
+            };
+            (s.clone(), result)
+        })
+        .collect()
 }
 
-/// "Add server": probes `host:port` now. On success the library that answers
-/// is allowed with this address; on failure nothing is stored (ADR 0008).
-pub fn add_server(
+/// Why [`link_address`] didn't link.
+#[derive(Debug)]
+pub enum LinkError {
+    /// Nothing answered as Calibre at that address.
+    Unreachable(io::Error),
+    /// A different library answered than the one asked for.
+    OtherLibrary(CalibreInfo),
+    /// Another library is linked, and replacing it wasn't confirmed.
+    NeedsReplace {
+        linked: Box<LinkedLibrary>,
+        answered: CalibreInfo,
+    },
+    Settings(io::Error),
+}
+
+/// Links the library at `host:port` ("Add server", or `link`): probes it now,
+/// and links the library that answers with this address. With
+/// `expect_uuid`, refuses any other library. On failure nothing is stored
+/// (ADR 0008, ADR 0018).
+pub fn link_address(
     state_dir: &Path,
     host: &str,
     port: u16,
     password: Option<String>,
-) -> io::Result<CalibreInfo> {
+    expect_uuid: Option<&str>,
+    replace: bool,
+) -> Result<(CalibreInfo, Link), LinkError> {
     let addr = (host, port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("cannot resolve {host}")))?;
-    let info = probe(addr)?;
-    config::update(state_dir, |c| {
-        c.upsert_allowed(AllowedLibrary {
-            uuid: info.library_uuid.clone(),
-            name: info.library_name.clone(),
-            host: Some(host.to_owned()),
-            port: Some(port),
-            hostname: None,
-            password,
-            ..Default::default()
+        .to_socket_addrs()
+        .and_then(|mut a| {
+            a.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, format!("cannot resolve {host}"))
+            })
         })
-    })?;
-    Ok(info)
+        .map_err(LinkError::Unreachable)?;
+    let info = probe(addr).map_err(LinkError::Unreachable)?;
+    if expect_uuid.is_some_and(|u| u != info.library_uuid) {
+        return Err(LinkError::OtherLibrary(info));
+    }
+    let lib = LinkedLibrary {
+        uuid: info.library_uuid.clone(),
+        name: info.library_name.clone(),
+        host: Some(host.to_owned()),
+        port: Some(port),
+        hostname: None,
+        password,
+        ..Default::default()
+    };
+    match config::update(state_dir, |c| c.link(lib, replace)) {
+        Err(e) => Err(LinkError::Settings(e)),
+        Ok(Link::Refused(linked)) => Err(LinkError::NeedsReplace {
+            linked: Box::new(linked),
+            answered: info,
+        }),
+        Ok(link) => Ok((info, link)),
+    }
+}
+
+/// Links a library from the found list, at the address it was found at.
+pub fn link_found(state_dir: &Path, found: &FoundLibrary, replace: bool) -> io::Result<Link> {
+    config::update(state_dir, |c| {
+        c.link(
+            LinkedLibrary {
+                uuid: found.uuid.clone(),
+                name: found.name.clone(),
+                host: Some(found.host.clone()),
+                port: Some(found.port),
+                hostname: (!found.hostname.is_empty()).then(|| found.hostname.clone()),
+                ..Default::default()
+            },
+            replace,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -841,11 +905,11 @@ mod tests {
 
     fn start(
         state: &Path,
-        allowed: Option<(&str, SocketAddr)>,
+        linked: Option<(&str, SocketAddr)>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
         start_with(
             state,
-            allowed,
+            linked,
             Duration::from_millis(50),
             Box::new(|| "Test Kindle".into()),
         )
@@ -853,27 +917,30 @@ mod tests {
 
     fn start_with_backoff(
         state: &Path,
-        allowed: Option<(&str, SocketAddr)>,
+        linked: Option<(&str, SocketAddr)>,
         backoff: Duration,
     ) -> (Handle, std::thread::JoinHandle<()>) {
-        start_with(state, allowed, backoff, Box::new(|| "Test Kindle".into()))
+        start_with(state, linked, backoff, Box::new(|| "Test Kindle".into()))
     }
 
     fn start_with(
         state: &Path,
-        allowed: Option<(&str, SocketAddr)>,
+        linked: Option<(&str, SocketAddr)>,
         backoff: Duration,
         device_name: Box<dyn FnMut() -> String + Send>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
         let mut config = Config::load(state).unwrap();
-        if let Some((uuid, addr)) = allowed {
-            config.upsert_allowed(AllowedLibrary {
-                uuid: uuid.into(),
-                name: "Test Library".into(),
-                host: Some(addr.ip().to_string()),
-                port: Some(addr.port()),
-                ..Default::default()
-            });
+        if let Some((uuid, addr)) = linked {
+            config.link(
+                LinkedLibrary {
+                    uuid: uuid.into(),
+                    name: "Test Library".into(),
+                    host: Some(addr.ip().to_string()),
+                    port: Some(addr.port()),
+                    ..Default::default()
+                },
+                false,
+            );
         }
         config.save().unwrap();
         let lib = Library::open(&state.join("books"), state).unwrap();
@@ -982,26 +1049,26 @@ mod tests {
     }
 
     #[test]
-    fn forget_during_a_session_sticks() {
+    fn unlink_during_a_session_sticks() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre_with("lib-1", false);
-        // A backoff longer than wait_until's deadline: the forget must not wait it out.
+        // A backoff longer than wait_until's deadline: the unlink must not wait it out.
         let (h, thread) =
             start_with_backoff(tmp.path(), Some(("lib-1", addr)), Duration::from_secs(60));
 
         wait_until("connected", || h.status().state == State::Connected);
-        // What the API's /forget does.
-        assert!(config::update(tmp.path(), |c| c.forget("lib-1")).unwrap());
+        // What the API's /unlink does.
+        assert!(config::update(tmp.path(), |c| c.unlink()).unwrap());
         h.reconnect();
-        wait_until("no libraries", || h.status().state == State::NoLibraries);
-        assert!(Config::load(tmp.path()).unwrap().allowed.is_empty());
-        assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after forget");
+        wait_until("not linked", || h.status().state == State::NotLinked);
+        assert_eq!(Config::load(tmp.path()).unwrap().library, None);
+        assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after unlink");
         h.shutdown();
         thread.join().unwrap();
     }
 
     #[test]
-    fn other_library_at_allowed_address_is_recorded_and_skipped() {
+    fn other_library_at_linked_address_is_found_and_skipped() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre("someone-else");
         let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
@@ -1013,9 +1080,13 @@ mod tests {
             1,
             "address skipped until wifi cycles"
         );
-        let config = Config::load(tmp.path()).unwrap();
-        assert_eq!(config.seen.len(), 1);
-        assert_eq!(config.seen[0].uuid, "someone-else");
+        let found = h.found();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].uuid, "someone-else");
+        assert_eq!(found[0].port, addr.port());
+        // In memory only.
+        let config = fs::read_to_string(tmp.path().join(config::CONFIG_FILE)).unwrap();
+        assert!(!config.contains("someone-else"));
 
         h.network_changed(false);
         h.network_changed(true);
@@ -1027,24 +1098,64 @@ mod tests {
     }
 
     #[test]
-    fn empty_allowlist_contacts_nobody() {
+    fn nothing_linked_contacts_nobody() {
         let tmp = tempfile::tempdir().unwrap();
         let (h, thread) = start(tmp.path(), None);
-        wait_until("no libraries", || h.status().state == State::NoLibraries);
+        wait_until("not linked", || h.status().state == State::NotLinked);
         assert!(h.status().detail.contains("Find libraries"));
         h.shutdown();
         thread.join().unwrap();
     }
 
     #[test]
-    fn add_server_allows_only_on_success() {
+    fn linking_a_different_library_resets_before_the_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = tmp.path();
+        fs::create_dir_all(state.join("books")).unwrap();
+        fs::write(state.join("books/Book.txt"), b"book").unwrap();
+        fs::write(
+            state.join("books.json"),
+            json!([{"lpath": "Book.txt", "uuid": "u1", "title": "Book", "tags": ["x"]}])
+                .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            state.join("driveinfo.json"),
+            json!({"device_store_uuid": "dev-1", "last_library_uuid": "lib-old"}).to_string(),
+        )
+        .unwrap();
+        let (addr, _count) = fake_calibre("lib-1");
+        let (h, thread) = start(state, Some(("lib-1", addr)));
+        wait_until("eject", || h.status().state == State::Ejected);
+        h.shutdown();
+        thread.join().unwrap();
+
+        assert!(!state.join("driveinfo.json").exists());
+        let books: serde_json::Value =
+            serde_json::from_slice(&fs::read(state.join("books.json")).unwrap()).unwrap();
+        assert_eq!(books[0]["uuid"], "u1");
+        assert!(books[0].get("tags").is_none());
+    }
+
+    #[test]
+    fn link_address_links_only_on_success() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, _count) = fake_calibre("lib-9");
-        let info = add_server(tmp.path(), "127.0.0.1", addr.port(), Some("pw".into())).unwrap();
+        let port = addr.port();
+        let (info, link) = link_address(
+            tmp.path(),
+            "127.0.0.1",
+            port,
+            Some("pw".into()),
+            None,
+            false,
+        )
+        .unwrap();
         assert_eq!(info.library_uuid, "lib-9");
+        assert_eq!(link, Link::New);
         let config = Config::load(tmp.path()).unwrap();
-        let a = config.allowed("lib-9").unwrap();
-        assert_eq!(a.port, Some(addr.port()));
+        let a = config.linked("lib-9").unwrap();
+        assert_eq!(a.port, Some(port));
         assert_eq!(a.password.as_deref(), Some("pw"));
 
         // A port with nothing listening: error, and nothing stored.
@@ -1052,35 +1163,89 @@ mod tests {
             .unwrap()
             .local_addr()
             .unwrap();
-        assert!(add_server(tmp.path(), "127.0.0.1", dead.port(), None).is_err());
-        assert_eq!(Config::load(tmp.path()).unwrap().allowed.len(), 1);
+        assert!(matches!(
+            link_address(tmp.path(), "127.0.0.1", dead.port(), None, None, true),
+            Err(LinkError::Unreachable(_))
+        ));
+        assert!(Config::load(tmp.path()).unwrap().linked("lib-9").is_some());
     }
 
     #[test]
-    fn find_libraries_records_unknown_ones() {
+    fn link_address_checks_the_uuid_and_asks_before_replacing() {
         let tmp = tempfile::tempdir().unwrap();
-        let (addr, _count) = fake_calibre("lib-new");
+        let (a, _) = fake_calibre("lib-a");
+        let (b, _) = fake_calibre("lib-b");
+        link_address(
+            tmp.path(),
+            "127.0.0.1",
+            a.port(),
+            None,
+            Some("lib-a"),
+            false,
+        )
+        .unwrap();
+
+        let r = link_address(tmp.path(), "127.0.0.1", b.port(), None, Some("lib-x"), true);
+        assert!(matches!(r, Err(LinkError::OtherLibrary(i)) if i.library_uuid == "lib-b"));
+
+        let r = link_address(
+            tmp.path(),
+            "127.0.0.1",
+            b.port(),
+            None,
+            Some("lib-b"),
+            false,
+        );
+        assert!(
+            matches!(r, Err(LinkError::NeedsReplace { linked, answered })
+            if linked.uuid == "lib-a" && answered.library_uuid == "lib-b")
+        );
+        assert!(Config::load(tmp.path()).unwrap().linked("lib-a").is_some());
+
+        let (_, link) =
+            link_address(tmp.path(), "127.0.0.1", b.port(), None, Some("lib-b"), true).unwrap();
+        assert!(matches!(link, Link::Replaced(old) if old.uuid == "lib-a"));
+        assert!(Config::load(tmp.path()).unwrap().linked("lib-b").is_some());
+    }
+
+    #[test]
+    fn find_libraries_skips_the_linked_server() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre("lib-new");
         let server = CalibreServer {
             addr: addr.ip(),
             hostname: "pc".into(),
             port: addr.port(),
             content_server_port: None,
         };
-        let results = find_libraries(tmp.path(), std::slice::from_ref(&server)).unwrap();
-        assert!(matches!(&results[0].1, FindResult::Answered(i) if i.library_uuid == "lib-new"));
         let config = Config::load(tmp.path()).unwrap();
-        assert_eq!(config.seen[0].hostname, "pc");
-        assert!(config.allowed.is_empty());
+        let results = find_libraries(&config, std::slice::from_ref(&server));
+        assert!(matches!(&results[0].1, FindResult::Answered(i) if i.library_uuid == "lib-new"));
+        assert!(
+            !tmp.path().join(config::CONFIG_FILE).exists(),
+            "find stores nothing"
+        );
 
-        // Once allowed, find leaves that server alone.
-        config::update(tmp.path(), |c| c.allow_seen("lib-new")).unwrap();
-        let results = find_libraries(tmp.path(), &[server]).unwrap();
-        assert!(matches!(results[0].1, FindResult::Allowed));
+        // Once linked, find leaves that server alone.
+        let found = FoundLibrary::new(
+            &CalibreInfo {
+                library_uuid: "lib-new".into(),
+                ..Default::default()
+            },
+            addr.ip().to_string(),
+            addr.port(),
+            "pc".into(),
+        );
+        assert_eq!(link_found(tmp.path(), &found, false).unwrap(), Link::New);
+        let config = Config::load(tmp.path()).unwrap();
+        let results = find_libraries(&config, &[server]);
+        assert!(matches!(results[0].1, FindResult::Linked));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn candidates_prefer_discovered_matches_then_direct_addresses() {
-        let a = AllowedLibrary {
+    fn candidates_prefer_discovered_matches_then_the_last_address() {
+        let a = LinkedLibrary {
             uuid: "u".into(),
             host: Some("10.0.0.2".into()),
             port: Some(9090),
@@ -1101,10 +1266,10 @@ mod tests {
                 content_server_port: None,
             },
         ];
-        let got = candidates(&[&a], &found, &HashSet::new());
+        let got = candidates(&a, &found, &HashSet::new());
         let addrs: Vec<String> = got.iter().map(|c| c.addr.to_string()).collect();
         assert_eq!(addrs, vec!["10.0.0.7:4242", "10.0.0.2:9090"]);
         let skip: HashSet<SocketAddr> = ["10.0.0.7:4242".parse().unwrap()].into();
-        assert_eq!(candidates(&[&a], &found, &skip).len(), 1);
+        assert_eq!(candidates(&a, &found, &skip).len(), 1);
     }
 }

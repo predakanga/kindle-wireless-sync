@@ -3,7 +3,7 @@
 //!
 //! A deliberately small HTTP/1.1 server: one request per connection, each on
 //! its own thread so status polls stay responsive during the slow `/find`
-//! and `/add-server`. Requests whose `Origin` is a web page are refused, so
+//! and `/link`. Requests whose `Origin` is a web page are refused, so
 //! pages in the Kindle's browser cannot drive the daemon.
 
 use std::fs;
@@ -15,9 +15,11 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::config::Link;
 use crate::config::{self, Config};
-use crate::daemon::{self, FindResult, Handle, State};
+use crate::daemon::{self, FindResult, FoundLibrary, Handle, LinkError, State};
 use crate::discovery::CalibreServer;
+use crate::session::CalibreInfo;
 
 pub const DEFAULT_PORT: u16 = 8325;
 const MAX_HEADER: usize = 16 * 1024;
@@ -233,27 +235,20 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
             None => bad_request("expected {\"enabled\": true|false}"),
         },
         ("POST", "/find") => find(api),
-        ("POST", "/add-server") => add_server(api, &body),
-        ("POST", "/allow") => match uuid() {
-            Some(u) => match config::update(&api.state_dir, |c| c.allow_seen(&u)) {
-                Ok(true) => {
-                    api.handle.connect_now();
-                    ok()
+        ("POST", "/link") => link(api, &body),
+        ("POST", "/unlink") => match uuid() {
+            Some(u) => {
+                let unlinked =
+                    config::update(&api.state_dir, |c| c.linked(&u).is_some() && c.unlink());
+                match unlinked {
+                    Ok(true) => {
+                        api.handle.reconnect();
+                        ok()
+                    }
+                    Ok(false) => fail("That library isn't linked."),
+                    Err(e) => fail(format!("Cannot save settings: {e}")),
                 }
-                Ok(false) => fail("That library isn't in the found list."),
-                Err(e) => fail(format!("Cannot save settings: {e}")),
-            },
-            None => bad_request("expected {\"uuid\": ...}"),
-        },
-        ("POST", "/forget") => match uuid() {
-            Some(u) => match config::update(&api.state_dir, |c| c.forget(&u)) {
-                Ok(true) => {
-                    api.handle.reconnect();
-                    ok()
-                }
-                Ok(false) => fail("That library isn't allowed."),
-                Err(e) => fail(format!("Cannot save settings: {e}")),
-            },
+            }
             None => bad_request("expected {\"uuid\": ...}"),
         },
         ("POST", "/password") => {
@@ -268,7 +263,7 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
                         api.handle.reconnect();
                         ok()
                     }
-                    Ok(false) => fail("That library isn't allowed."),
+                    Ok(false) => fail("That library isn't linked."),
                     Err(e) => fail(format!("Cannot save settings: {e}")),
                 },
                 None => bad_request("expected {\"uuid\": ..., \"password\": ...}"),
@@ -276,8 +271,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         }
         (
             _,
-            "/status" | "/connect-now" | "/pause" | "/resume" | "/autostart" | "/find"
-            | "/add-server" | "/allow" | "/forget" | "/password",
+            "/status" | "/connect-now" | "/pause" | "/resume" | "/autostart" | "/find" | "/link"
+            | "/unlink" | "/password",
         ) => (405, json!({"ok": false, "error": "method not allowed"})),
         _ => (404, json!({"ok": false, "error": "not found"})),
     }
@@ -295,27 +290,28 @@ fn status_json(api: &Api) -> Value {
         "autostart": api.home_dir.join(AUTOSTART).exists(),
         "autostart_disabled_by_guard": api.home_dir.join(AUTOSTART_DISABLED).exists(),
     });
-    match Config::load(&api.state_dir) {
-        Ok(c) => {
-            out["allowed"] = c
-                .allowed
-                .iter()
-                .map(|a| {
-                    json!({"uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
-                           "hostname": a.hostname, "has_password": a.password.is_some()})
-                })
-                .collect();
-            out["seen"] = c
-                .seen
-                .iter()
-                .map(|s| {
-                    json!({"uuid": s.uuid, "name": s.name, "host": s.host, "port": s.port,
-                           "hostname": s.hostname, "last_seen": s.last_seen})
-                })
-                .collect();
+    let linked = match Config::load(&api.state_dir) {
+        Ok(c) => c.library,
+        Err(e) => {
+            out["config_error"] = json!(e.to_string());
+            None
         }
-        Err(e) => out["config_error"] = json!(e.to_string()),
-    }
+    };
+    out["library"] = linked.as_ref().map_or(Value::Null, |a| {
+        json!({"uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
+               "hostname": a.hostname, "has_password": a.password.is_some(),
+               "writable": a.writable})
+    });
+    out["found"] = api
+        .handle
+        .found()
+        .iter()
+        .filter(|f| linked.as_ref().is_none_or(|a| a.uuid != f.uuid))
+        .map(|f| {
+            json!({"uuid": f.uuid, "name": f.name, "host": f.host, "port": f.port,
+                   "hostname": f.hostname})
+        })
+        .collect();
     out
 }
 
@@ -335,17 +331,26 @@ fn set_autostart(home: &Path, enabled: bool) -> io::Result<()> {
 
 fn find(api: &Api) -> (u16, Value) {
     let found = (api.discover)();
-    let results = match daemon::find_libraries(&api.state_dir, &found) {
-        Ok(r) => r,
-        Err(e) => return fail(format!("Cannot save settings: {e}")),
+    let config = match Config::load(&api.state_dir) {
+        Ok(c) => c,
+        Err(e) => return fail(format!("Cannot read settings: {e}")),
     };
-    let servers: Vec<Value> = results
+    let servers: Vec<Value> = daemon::find_libraries(&config, &found)
         .iter()
         .map(|(s, r)| {
             let mut v = json!({"hostname": s.hostname, "host": s.addr.to_string(), "port": s.port});
             match r {
-                FindResult::Allowed => v["status"] = json!("allowed"),
+                FindResult::Answered(info) if config.linked(&info.library_uuid).is_some() => {
+                    v["status"] = json!("linked")
+                }
+                FindResult::Linked => v["status"] = json!("linked"),
                 FindResult::Answered(info) => {
+                    api.handle.record_found(FoundLibrary::new(
+                        info,
+                        s.addr.to_string(),
+                        s.port,
+                        s.hostname.clone(),
+                    ));
                     v["status"] = json!("found");
                     v["library"] = json!({"uuid": info.library_uuid, "name": info.library_name});
                 }
@@ -360,40 +365,111 @@ fn find(api: &Api) -> (u16, Value) {
     (200, json!({"ok": true, "servers": servers}))
 }
 
-fn add_server(api: &Api, body: &Value) -> (u16, Value) {
-    let host = body
-        .get("host")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    let port = body.get("port").and_then(Value::as_u64);
-    let password = body
-        .get("password")
-        .and_then(Value::as_str)
-        .filter(|p| !p.is_empty())
-        .map(str::to_owned);
-    if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
-        return fail("Enter the computer's name or address.");
-    }
-    let Some(port) = port.filter(|p| (1..=65535).contains(p)) else {
-        return fail("Enter a port between 1 and 65535.");
+/// `/link`: a found library by `uuid`, or a library by `host` and `port`
+/// ("Add server", optionally checking `uuid`). Replacing a different linked
+/// library needs `"replace": true`; without it the reply asks for that
+/// (ADR 0018).
+fn link(api: &Api, body: &Value) -> (u16, Value) {
+    let uuid = body.get("uuid").and_then(Value::as_str);
+    let replace = body
+        .get("replace")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let result = match body.get("host") {
+        None => {
+            let Some(uuid) = uuid else {
+                return bad_request("expected {\"uuid\": ...} or {\"host\": ..., \"port\": ...}");
+            };
+            let Some(found) = api.handle.found().into_iter().find(|f| f.uuid == uuid) else {
+                return fail("That library isn't in the found list. Use Find libraries again.");
+            };
+            match daemon::link_found(&api.state_dir, &found, replace) {
+                Ok(Link::Refused(linked)) => Err(LinkError::NeedsReplace {
+                    linked: Box::new(linked),
+                    answered: CalibreInfo {
+                        library_uuid: found.uuid.clone(),
+                        library_name: found.name.clone(),
+                        ..Default::default()
+                    },
+                }),
+                Ok(link) => Ok((found.uuid, found.name, link)),
+                Err(e) => Err(LinkError::Settings(e)),
+            }
+        }
+        Some(host) => {
+            let host = host.as_str().unwrap_or("").trim();
+            let port = body.get("port").and_then(Value::as_u64);
+            let password = body
+                .get("password")
+                .and_then(Value::as_str)
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned);
+            if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
+                return fail("Enter the computer's name or address.");
+            }
+            let Some(port) = port.filter(|p| (1..=65535).contains(p)) else {
+                return fail("Enter a port between 1 and 65535.");
+            };
+            daemon::link_address(&api.state_dir, host, port as u16, password, uuid, replace)
+                .map(|(info, link)| (info.library_uuid, info.library_name, link))
+                .map_err(|e| match e {
+                    LinkError::Unreachable(e) => LinkError::Unreachable(io::Error::other(format!(
+                        "Could not reach Calibre at {host}:{port}: {e}"
+                    ))),
+                    other => other,
+                })
+        }
     };
-    match daemon::add_server(&api.state_dir, host, port as u16, password) {
-        Ok(info) => {
-            api.handle.connect_now();
+    match result {
+        Ok((uuid, name, link)) => {
+            api.handle.forget_found(&uuid);
+            let replaced = matches!(link, Link::Replaced(_));
+            if replaced {
+                // Stop talking to the old library at once.
+                api.handle.reconnect();
+            } else {
+                api.handle.connect_now();
+            }
             (
                 200,
-                json!({"ok": true, "library": {"uuid": info.library_uuid, "name": info.library_name}}),
+                json!({"ok": true, "library": {"uuid": uuid, "name": name}, "replaced": replaced}),
             )
         }
-        Err(e) => fail(format!("Could not reach Calibre at {host}:{port}: {e}")),
+        Err(LinkError::NeedsReplace { linked, answered }) => (
+            200,
+            json!({
+                "ok": false,
+                "needs_replace": true,
+                "error": format!(
+                    "This Kindle is linked to {}. Linking {} replaces it.",
+                    linked.display_name(),
+                    display_info(&answered)
+                ),
+                "linked": {"uuid": linked.uuid, "name": linked.name},
+                "library": {"uuid": answered.library_uuid, "name": answered.library_name},
+            }),
+        ),
+        Err(LinkError::OtherLibrary(info)) => fail(format!(
+            "A different library answered: {}.",
+            display_info(&info)
+        )),
+        Err(LinkError::Unreachable(e)) => fail(e.to_string()),
+        Err(LinkError::Settings(e)) => fail(format!("Cannot save settings: {e}")),
+    }
+}
+
+fn display_info(info: &CalibreInfo) -> &str {
+    if info.library_name.is_empty() {
+        &info.library_uuid
+    } else {
+        &info.library_name
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AllowedLibrary;
+    use crate::config::LinkedLibrary;
     use crate::daemon::{Daemon, Options};
     use crate::library::Library;
     use crate::session::DeviceConfig;
@@ -404,6 +480,7 @@ mod tests {
         home: PathBuf,
         state: PathBuf,
         addr: SocketAddr,
+        handle: Handle,
         // Kept alive so the handle's channel stays open; never run.
         _daemon: Daemon,
     }
@@ -426,7 +503,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let api = Api {
-            handle,
+            handle: handle.clone(),
             state_dir: state.clone(),
             home_dir: home.clone(),
             discover: Box::new(Vec::new),
@@ -437,6 +514,7 @@ mod tests {
             home,
             state,
             addr,
+            handle,
             _daemon: daemon,
         }
     }
@@ -474,24 +552,35 @@ mod tests {
     #[test]
     fn status_reports_state_and_libraries_without_passwords() {
         let f = start();
+        let (code, v) = get(&f, "/status", None);
+        assert_eq!(code, 200);
+        assert_eq!(v["library"], Value::Null);
+        assert_eq!(v["found"], json!([]));
         config::update(&f.state, |c| {
-            c.upsert_allowed(AllowedLibrary {
-                uuid: "lib-1".into(),
-                name: "Books".into(),
-                password: Some("secret".into()),
-                ..Default::default()
-            });
-            c.record_seen("lib-2", "Other", "10.0.0.9", 9090, "pc");
+            c.link(
+                LinkedLibrary {
+                    uuid: "lib-1".into(),
+                    name: "Books".into(),
+                    password: Some("secret".into()),
+                    ..Default::default()
+                },
+                false,
+            )
         })
         .unwrap();
+        f.handle.record_found(found("lib-1"));
+        f.handle.record_found(found("lib-2"));
         let (code, v) = get(&f, "/status", None);
         assert_eq!(code, 200);
         assert_eq!(v["ok"], true);
         assert!(v["state"].is_string());
         assert_eq!(v["autostart"], false);
-        assert_eq!(v["allowed"][0]["has_password"], true);
+        assert_eq!(v["library"]["has_password"], true);
+        assert_eq!(v["library"]["writable"], false);
         assert!(!v.to_string().contains("secret"));
-        assert_eq!(v["seen"][0]["uuid"], "lib-2");
+        // The linked library isn't listed as found.
+        assert_eq!(v["found"].as_array().unwrap().len(), 1);
+        assert_eq!(v["found"][0]["uuid"], "lib-2");
     }
 
     #[test]
@@ -524,46 +613,84 @@ mod tests {
         assert_eq!(post(&f, "/autostart", r#"{"on": 1}"#).0, 400);
     }
 
+    fn found(uuid: &str) -> FoundLibrary {
+        FoundLibrary {
+            uuid: uuid.into(),
+            name: format!("Library {uuid}"),
+            host: "10.0.0.9".into(),
+            port: 9090,
+            hostname: "pc".into(),
+        }
+    }
+
     #[test]
-    fn library_management() {
+    fn link_from_found_password_and_unlink() {
         let f = start();
-        config::update(&f.state, |c| {
-            c.record_seen("lib-2", "Other", "10.0.0.9", 9090, "pc")
-        })
-        .unwrap();
-        assert_eq!(post(&f, "/allow", r#"{"uuid": "nope"}"#).1["ok"], false);
-        assert_eq!(post(&f, "/allow", r#"{"uuid": "lib-2"}"#).1["ok"], true);
-        assert!(Config::load(&f.state).unwrap().allowed("lib-2").is_some());
+        f.handle.record_found(found("lib-2"));
+        assert_eq!(post(&f, "/link", r#"{"uuid": "nope"}"#).1["ok"], false);
+        let v = post(&f, "/link", r#"{"uuid": "lib-2"}"#).1;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["replaced"], false);
+        let a = Config::load(&f.state).unwrap().library.unwrap();
+        assert_eq!(a.uuid, "lib-2");
+        assert_eq!(a.host.as_deref(), Some("10.0.0.9"));
+        assert!(f.handle.found().is_empty(), "no longer listed as found");
 
         assert_eq!(
             post(&f, "/password", r#"{"uuid": "lib-2", "password": "pw"}"#).1["ok"],
             true
         );
-        assert_eq!(
-            get(&f, "/status", None).1["allowed"][0]["has_password"],
-            true
-        );
+        assert_eq!(get(&f, "/status", None).1["library"]["has_password"], true);
         assert_eq!(
             post(&f, "/password", r#"{"uuid": "lib-2", "password": null}"#).1["ok"],
             true
         );
+        assert_eq!(get(&f, "/status", None).1["library"]["has_password"], false);
         assert_eq!(
-            get(&f, "/status", None).1["allowed"][0]["has_password"],
+            post(&f, "/password", r#"{"uuid": "lib-1", "password": "pw"}"#).1["ok"],
             false
         );
 
-        assert_eq!(post(&f, "/forget", r#"{"uuid": "lib-2"}"#).1["ok"], true);
-        assert!(Config::load(&f.state).unwrap().allowed.is_empty());
-        assert_eq!(post(&f, "/forget", r#"{"uuid": "lib-2"}"#).1["ok"], false);
+        assert_eq!(post(&f, "/unlink", r#"{"uuid": "lib-1"}"#).1["ok"], false);
+        assert_eq!(post(&f, "/unlink", r#"{"uuid": "lib-2"}"#).1["ok"], true);
+        assert_eq!(Config::load(&f.state).unwrap().library, None);
+        assert_eq!(post(&f, "/unlink", r#"{"uuid": "lib-2"}"#).1["ok"], false);
     }
 
     #[test]
-    fn add_server_validates_and_reports_failures() {
+    fn linking_a_different_library_needs_confirming() {
         let f = start();
-        let v = post(&f, "/add-server", r#"{"host": "", "port": 9090}"#).1;
+        f.handle.record_found(found("lib-1"));
+        f.handle.record_found(found("lib-2"));
+        assert_eq!(post(&f, "/link", r#"{"uuid": "lib-1"}"#).1["ok"], true);
+
+        let v = post(&f, "/link", r#"{"uuid": "lib-2"}"#).1;
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["needs_replace"], true);
+        assert_eq!(v["linked"]["uuid"], "lib-1");
+        assert_eq!(v["library"]["name"], "Library lib-2");
+        assert!(v["error"].as_str().unwrap().contains("replaces"));
+        assert_eq!(
+            Config::load(&f.state).unwrap().library.unwrap().uuid,
+            "lib-1"
+        );
+
+        let v = post(&f, "/link", r#"{"uuid": "lib-2", "replace": true}"#).1;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["replaced"], true);
+        assert_eq!(
+            Config::load(&f.state).unwrap().library.unwrap().uuid,
+            "lib-2"
+        );
+    }
+
+    #[test]
+    fn link_by_address_validates_and_reports_failures() {
+        let f = start();
+        let v = post(&f, "/link", r#"{"host": "", "port": 9090}"#).1;
         assert_eq!(v["ok"], false);
         assert_eq!(
-            post(&f, "/add-server", r#"{"host": "pc", "port": 0}"#).1["ok"],
+            post(&f, "/link", r#"{"host": "pc", "port": 0}"#).1["ok"],
             false
         );
         let dead = TcpListener::bind("127.0.0.1:0")
@@ -572,24 +699,26 @@ mod tests {
             .unwrap();
         let v = post(
             &f,
-            "/add-server",
+            "/link",
             &format!(r#"{{"host": "127.0.0.1", "port": {}}}"#, dead.port()),
         )
         .1;
         assert_eq!(v["ok"], false);
         assert!(v["error"].as_str().unwrap().contains("Could not reach"));
-        assert!(Config::load(&f.state).unwrap().allowed.is_empty());
+        assert_eq!(Config::load(&f.state).unwrap().library, None);
     }
 
     #[test]
     fn bad_requests() {
         let f = start();
         assert_eq!(get(&f, "/nope", None).0, 404);
-        assert_eq!(get(&f, "/allow", None).0, 405);
-        assert_eq!(post(&f, "/allow", "not json").0, 400);
+        assert_eq!(get(&f, "/link", None).0, 405);
+        assert_eq!(post(&f, "/link", "not json").0, 400);
+        assert_eq!(post(&f, "/link", "{}").0, 400);
+        assert_eq!(post(&f, "/allow", "{}").0, 404);
         assert_eq!(request(&f, "garbage\r\n\r\n").0, 400);
         let big = "x".repeat(MAX_BODY + 1);
-        assert_eq!(post(&f, "/allow", &big).0, 413);
+        assert_eq!(post(&f, "/link", &big).0, 413);
         assert_eq!(request(&f, "OPTIONS /status HTTP/1.1\r\n\r\n").0, 204);
         assert_eq!(post(&f, "/connect-now", "").1["ok"], true);
         assert_eq!(post(&f, "/find", "").1["servers"], json!([]));

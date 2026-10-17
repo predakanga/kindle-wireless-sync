@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The allowlist of Calibre libraries, and libraries found by "Find
-//! libraries" but not yet allowed (ADR 0003, ADR 0008). Stored as
-//! `config.json` in the state directory.
+//! The Calibre library this Kindle is linked to (ADR 0018, which replaced the
+//! allowlist of ADR 0003), and the user's settings. Stored as `config.json`
+//! in the state directory.
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
@@ -51,7 +50,7 @@ pub fn update<T>(state_dir: &Path, f: impl FnOnce(&mut Config) -> T) -> io::Resu
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct AllowedLibrary {
+pub struct LinkedLibrary {
     pub uuid: String,
     pub name: String,
     /// Last address we reached it at. Tried directly by the background loop,
@@ -69,7 +68,7 @@ pub struct AllowedLibrary {
     pub last_read_column: Option<String>,
 }
 
-impl AllowedLibrary {
+impl LinkedLibrary {
     /// The sync columns to use with this library, if it's writable.
     pub fn sync_columns(&self) -> Option<Columns> {
         self.writable.then(|| Columns {
@@ -77,55 +76,46 @@ impl AllowedLibrary {
             last_read: self.last_read_column.clone(),
         })
     }
+
+    /// Its name, or its UUID if Calibre gave no name.
+    pub fn display_name(&self) -> &str {
+        if self.name.is_empty() {
+            &self.uuid
+        } else {
+            &self.name
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct SeenLibrary {
-    pub uuid: String,
-    pub name: String,
-    pub host: String,
-    pub port: u16,
-    pub hostname: String,
-    /// Unix seconds.
-    pub last_seen: u64,
+/// What [`Config::link`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Link {
+    /// Nothing was linked before.
+    New,
+    /// The same library: its address and name were updated.
+    Updated,
+    /// A different library was linked, and has been replaced.
+    Replaced(LinkedLibrary),
+    /// A different library is linked, and replacing it wasn't confirmed.
+    /// Nothing changed.
+    Refused(LinkedLibrary),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Config {
-    pub allowed: Vec<AllowedLibrary>,
-    pub seen: Vec<SeenLibrary>,
+    pub library: Option<LinkedLibrary>,
     /// Calibre series as native series (ADR 0016). On unless set to false.
     pub series: bool,
     path: PathBuf,
-}
-
-fn s(v: &Value, k: &str) -> String {
-    v.get(k)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
 }
 
 fn opt_s(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(str::to_owned)
 }
 
-fn port(v: &Value) -> Option<u16> {
-    v.get("port")
-        .and_then(Value::as_u64)
-        .and_then(|p| u16::try_from(p).ok())
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 impl Config {
     /// Loads the config. A missing file is an empty config; a corrupt one is
-    /// an error, so a damaged file never silently empties the allowlist.
+    /// an error, so a damaged file never silently unlinks the library.
     pub fn load(state_dir: &Path) -> io::Result<Config> {
         let path = state_dir.join(CONFIG_FILE);
         let value: Value = match fs::read(&path) {
@@ -138,41 +128,26 @@ impl Config {
             Err(e) if e.kind() == io::ErrorKind::NotFound => json!({}),
             Err(e) => return Err(e),
         };
-        let list = |k: &str| {
-            value
-                .get(k)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        };
+        let library = value
+            .get("library")
+            .filter(|l| l.is_object())
+            .map(|l| LinkedLibrary {
+                uuid: opt_s(l, "uuid").unwrap_or_default(),
+                name: opt_s(l, "name").unwrap_or_default(),
+                host: opt_s(l, "host"),
+                port: l
+                    .get("port")
+                    .and_then(Value::as_u64)
+                    .and_then(|p| u16::try_from(p).ok()),
+                hostname: opt_s(l, "hostname"),
+                password: opt_s(l, "password"),
+                writable: l.get("writable").and_then(Value::as_bool).unwrap_or(false),
+                read_column: opt_s(l, "read_column"),
+                last_read_column: opt_s(l, "last_read_column"),
+            })
+            .filter(|l| !l.uuid.is_empty());
         Ok(Config {
-            allowed: list("allowed")
-                .iter()
-                .map(|a| AllowedLibrary {
-                    uuid: s(a, "uuid"),
-                    name: s(a, "name"),
-                    host: opt_s(a, "host"),
-                    port: port(a),
-                    hostname: opt_s(a, "hostname"),
-                    password: opt_s(a, "password"),
-                    writable: a.get("writable").and_then(Value::as_bool).unwrap_or(false),
-                    read_column: opt_s(a, "read_column"),
-                    last_read_column: opt_s(a, "last_read_column"),
-                })
-                .filter(|a| !a.uuid.is_empty())
-                .collect(),
-            seen: list("seen")
-                .iter()
-                .map(|v| SeenLibrary {
-                    uuid: s(v, "uuid"),
-                    name: s(v, "name"),
-                    host: s(v, "host"),
-                    port: port(v).unwrap_or(0),
-                    hostname: s(v, "hostname"),
-                    last_seen: v.get("last_seen").and_then(Value::as_u64).unwrap_or(0),
-                })
-                .filter(|v| !v.uuid.is_empty())
-                .collect(),
+            library,
             series: value.get("series").and_then(Value::as_bool).unwrap_or(true),
             path,
         })
@@ -180,16 +155,12 @@ impl Config {
 
     pub fn save(&self) -> io::Result<()> {
         let value = json!({
-            "allowed": self.allowed.iter().map(|a| json!({
+            "library": self.library.as_ref().map(|a| json!({
                 "uuid": a.uuid, "name": a.name, "host": a.host, "port": a.port,
                 "hostname": a.hostname, "password": a.password,
                 "writable": a.writable, "read_column": a.read_column,
                 "last_read_column": a.last_read_column,
-            })).collect::<Vec<_>>(),
-            "seen": self.seen.iter().map(|v| json!({
-                "uuid": v.uuid, "name": v.name, "host": v.host, "port": v.port,
-                "hostname": v.hostname, "last_seen": v.last_seen,
-            })).collect::<Vec<_>>(),
+            })),
             "series": self.series,
         });
         let tmp = self.path.with_extension("json.tmp");
@@ -200,44 +171,23 @@ impl Config {
         fs::rename(&tmp, &self.path)
     }
 
-    pub fn allowed(&self, uuid: &str) -> Option<&AllowedLibrary> {
-        self.allowed.iter().find(|a| a.uuid == uuid)
+    /// The linked library, if it is the one with this UUID.
+    pub fn linked(&self, uuid: &str) -> Option<&LinkedLibrary> {
+        self.library.as_ref().filter(|a| a.uuid == uuid)
     }
 
-    /// Allows a library found by "Find libraries", taking its name and
-    /// address from `seen`. Returns false if it was already allowed or was
-    /// never seen.
-    pub fn allow_seen(&mut self, uuid: &str) -> bool {
-        if self.allowed(uuid).is_some() {
-            return false;
-        }
-        let Some(i) = self.seen.iter().position(|v| v.uuid == uuid) else {
-            return false;
-        };
-        let v = self.seen.remove(i);
-        self.allowed.push(AllowedLibrary {
-            uuid: v.uuid,
-            name: v.name,
-            host: Some(v.host),
-            port: Some(v.port),
-            hostname: (!v.hostname.is_empty()).then_some(v.hostname),
-            password: None,
-            ..Default::default()
-        });
-        true
-    }
-
-    /// Adds or updates an allowed library ("Add server", or after
-    /// connecting). Keeps an existing password unless a new one is given,
-    /// and always keeps an existing library's sync settings: only
-    /// [`Config::set_writable`] changes those.
-    pub fn upsert_allowed(&mut self, lib: AllowedLibrary) {
-        self.seen.retain(|v| v.uuid != lib.uuid);
-        match self.allowed.iter_mut().find(|a| a.uuid == lib.uuid) {
-            Some(a) => {
+    /// Links a library, or updates the linked one's address and name. For the
+    /// same library this keeps the stored password unless a new one is given,
+    /// and always keeps the sync settings: only [`Config::set_writable`]
+    /// changes those. A different library replaces the linked one only with
+    /// `replace`, and starts from `lib` alone (read-only unless it says
+    /// otherwise, ADR 0017).
+    pub fn link(&mut self, lib: LinkedLibrary, replace: bool) -> Link {
+        match &mut self.library {
+            Some(a) if a.uuid == lib.uuid => {
                 let password = lib.password.clone().or_else(|| a.password.take());
                 let hostname = lib.hostname.clone().or_else(|| a.hostname.take());
-                *a = AllowedLibrary {
+                *a = LinkedLibrary {
                     password,
                     hostname,
                     writable: a.writable,
@@ -245,23 +195,26 @@ impl Config {
                     last_read_column: a.last_read_column.take(),
                     ..lib
                 };
+                Link::Updated
             }
-            None => self.allowed.push(lib),
+            Some(a) if !replace => Link::Refused(a.clone()),
+            slot => match slot.replace(lib) {
+                Some(old) => Link::Replaced(old),
+                None => Link::New,
+            },
         }
     }
 
-    /// Removes an allowed library. Returns false if it wasn't allowed.
-    pub fn forget(&mut self, uuid: &str) -> bool {
-        let before = self.allowed.len();
-        self.allowed.retain(|a| a.uuid != uuid);
-        self.allowed.len() != before
+    /// Unlinks the library. Returns false if none was linked.
+    pub fn unlink(&mut self) -> bool {
+        self.library.take().is_some()
     }
 
-    /// Lets the Kindle change an allowed library, through the given sync
-    /// columns, or stops it (`None`, keeping the names). Returns false if the
-    /// library isn't allowed.
+    /// Lets the Kindle change the linked library, through the given sync
+    /// columns, or stops it (`None`, keeping the names). Returns false if
+    /// that library isn't the linked one.
     pub fn set_writable(&mut self, uuid: &str, columns: Option<Columns>) -> bool {
-        match self.allowed.iter_mut().find(|a| a.uuid == uuid) {
+        match self.library.as_mut().filter(|a| a.uuid == uuid) {
             Some(a) => {
                 a.writable = columns.is_some();
                 if let Some(c) = columns {
@@ -274,10 +227,10 @@ impl Config {
         }
     }
 
-    /// Sets or clears an allowed library's password. Returns false if the
-    /// library isn't allowed.
+    /// Sets or clears the linked library's password. Returns false if that
+    /// library isn't the linked one.
     pub fn set_password(&mut self, uuid: &str, password: Option<String>) -> bool {
-        match self.allowed.iter_mut().find(|a| a.uuid == uuid) {
+        match self.library.as_mut().filter(|a| a.uuid == uuid) {
             Some(a) => {
                 a.password = password;
                 true
@@ -286,28 +239,12 @@ impl Config {
         }
     }
 
-    /// Whether a discovered server is (as far as we know) an allowed
+    /// Whether a discovered server is (as far as we know) the linked
     /// library's: same broadcast hostname or same address.
-    pub fn matches_allowed(&self, hostname: &str, host: &str) -> bool {
-        self.allowed
-            .iter()
-            .any(|a| a.hostname.as_deref() == Some(hostname) || a.host.as_deref() == Some(host))
-    }
-
-    /// Records a library that answered but is not allowed.
-    pub fn record_seen(&mut self, uuid: &str, name: &str, host: &str, port: u16, hostname: &str) {
-        let entry = SeenLibrary {
-            uuid: uuid.to_owned(),
-            name: name.to_owned(),
-            host: host.to_owned(),
-            port,
-            hostname: hostname.to_owned(),
-            last_seen: now_secs(),
-        };
-        match self.seen.iter_mut().find(|v| v.uuid == uuid) {
-            Some(v) => *v = entry,
-            None => self.seen.push(entry),
-        }
+    pub fn matches_linked(&self, hostname: &str, host: &str) -> bool {
+        self.library.as_ref().is_some_and(|a| {
+            a.hostname.as_deref() == Some(hostname) || a.host.as_deref() == Some(host)
+        })
     }
 }
 
@@ -315,119 +252,124 @@ impl Config {
 mod tests {
     use super::*;
 
-    #[test]
-    fn round_trips_and_moves_seen_to_allowed() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut c = Config::load(tmp.path()).unwrap();
-        assert!(c.allowed.is_empty());
-        c.record_seen("lib-1", "Calibre Library", "192.168.1.2", 9090, "pc");
-        assert!(c.allow_seen("lib-1"));
-        assert!(!c.allow_seen("lib-1"), "already allowed");
-        assert!(!c.allow_seen("never-seen"));
-        c.upsert_allowed(AllowedLibrary {
-            uuid: "lib-2".into(),
-            name: "Other".into(),
+    fn lib(uuid: &str) -> LinkedLibrary {
+        LinkedLibrary {
+            uuid: uuid.into(),
+            name: format!("Library {uuid}"),
             host: Some("10.0.0.5".into()),
             port: Some(9090),
-            hostname: None,
-            password: Some("pw".into()),
             ..Default::default()
-        });
-        c.save().unwrap();
-
-        let mut c = Config::load(tmp.path()).unwrap();
-        assert!(c.seen.is_empty());
-        let a = c.allowed("lib-1").unwrap();
-        assert_eq!(a.name, "Calibre Library");
-        assert_eq!(a.host.as_deref(), Some("192.168.1.2"));
-        assert_eq!(a.hostname.as_deref(), Some("pc"));
-
-        // Updating an address keeps the stored password.
-        c.upsert_allowed(AllowedLibrary {
-            uuid: "lib-2".into(),
-            name: "Other".into(),
-            host: Some("10.0.0.6".into()),
-            port: Some(9091),
-            ..Default::default()
-        });
-        let b = c.allowed("lib-2").unwrap();
-        assert_eq!(b.password.as_deref(), Some("pw"));
-        assert_eq!(b.port, Some(9091));
+        }
     }
 
     #[test]
-    fn writable_and_its_columns_survive_reload_and_reconnect() {
+    fn link_round_trips_and_updates_keep_password_and_sync_settings() {
         let tmp = tempfile::tempdir().unwrap();
         let mut c = Config::load(tmp.path()).unwrap();
-        c.upsert_allowed(AllowedLibrary {
-            uuid: "lib-1".into(),
-            ..Default::default()
-        });
+        assert_eq!(c.library, None);
         assert_eq!(
-            c.allowed("lib-1").unwrap().sync_columns(),
-            None,
-            "off by default"
+            c.link(
+                LinkedLibrary {
+                    password: Some("pw".into()),
+                    hostname: Some("pc".into()),
+                    ..lib("lib-1")
+                },
+                false
+            ),
+            Link::New
         );
-        assert!(!c.set_writable("nope", Some(Columns::defaults())));
         assert!(c.set_writable("lib-1", Some(Columns::defaults())));
         c.save().unwrap();
 
         let mut c = Config::load(tmp.path()).unwrap();
-        assert_eq!(
-            c.allowed("lib-1").unwrap().sync_columns(),
-            Some(Columns::defaults())
-        );
-        // The daemon updating the address after a session keeps them.
-        c.upsert_allowed(AllowedLibrary {
-            uuid: "lib-1".into(),
-            host: Some("10.0.0.7".into()),
-            ..Default::default()
-        });
-        assert_eq!(
-            c.allowed("lib-1").unwrap().sync_columns(),
-            Some(Columns::defaults())
-        );
-        // Turning it off keeps the names for next time.
+        // The daemon updating the address after a session.
+        let update = LinkedLibrary {
+            host: Some("10.0.0.6".into()),
+            port: Some(9091),
+            ..lib("lib-1")
+        };
+        assert_eq!(c.link(update, false), Link::Updated);
+        let a = c.linked("lib-1").unwrap();
+        assert_eq!(a.port, Some(9091));
+        assert_eq!(a.password.as_deref(), Some("pw"));
+        assert_eq!(a.hostname.as_deref(), Some("pc"));
+        assert_eq!(a.sync_columns(), Some(Columns::defaults()));
+        assert!(c.linked("lib-2").is_none());
+
+        // Turning writable off keeps the names for next time.
+        assert!(!c.set_writable("lib-2", None), "not the linked library");
         assert!(c.set_writable("lib-1", None));
-        let a = c.allowed("lib-1").unwrap();
+        let a = c.linked("lib-1").unwrap();
         assert_eq!(a.sync_columns(), None);
         assert_eq!(a.read_column.as_deref(), Some("#kindle_read"));
     }
 
     #[test]
-    fn forget_password_and_update() {
+    fn a_different_library_replaces_only_when_confirmed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Config::load(tmp.path()).unwrap();
+        c.link(
+            LinkedLibrary {
+                password: Some("pw".into()),
+                ..lib("lib-1")
+            },
+            false,
+        );
+        c.set_writable("lib-1", Some(Columns::defaults()));
+        let old = c.library.clone().unwrap();
+
+        assert_eq!(c.link(lib("lib-2"), false), Link::Refused(old.clone()));
+        assert_eq!(c.library.as_ref(), Some(&old));
+
+        assert_eq!(c.link(lib("lib-2"), true), Link::Replaced(old));
+        // A fresh start: no password, read-only.
+        assert_eq!(c.library, Some(lib("lib-2")));
+        assert_eq!(c.linked("lib-2").unwrap().sync_columns(), None);
+    }
+
+    #[test]
+    fn unlink_password_and_update() {
         let tmp = tempfile::tempdir().unwrap();
         update(tmp.path(), |c| {
-            c.upsert_allowed(AllowedLibrary {
-                uuid: "lib-1".into(),
-                hostname: Some("pc".into()),
-                host: Some("10.0.0.2".into()),
-                ..Default::default()
-            })
+            c.link(
+                LinkedLibrary {
+                    hostname: Some("pc".into()),
+                    host: Some("10.0.0.2".into()),
+                    ..lib("lib-1")
+                },
+                false,
+            )
         })
         .unwrap();
         assert!(update(tmp.path(), |c| c.set_password("lib-1", Some("pw".into()))).unwrap());
+        assert!(!update(tmp.path(), |c| c.set_password("lib-2", None)).unwrap());
         let c = Config::load(tmp.path()).unwrap();
-        assert_eq!(c.allowed("lib-1").unwrap().password.as_deref(), Some("pw"));
-        assert!(c.matches_allowed("pc", "10.9.9.9"));
-        assert!(c.matches_allowed("other", "10.0.0.2"));
-        assert!(!c.matches_allowed("other", "10.9.9.9"));
-        assert!(update(tmp.path(), |c| c.forget("lib-1")).unwrap());
-        assert!(!update(tmp.path(), |c| c.forget("lib-1")).unwrap());
-        assert!(Config::load(tmp.path()).unwrap().allowed.is_empty());
+        assert_eq!(c.linked("lib-1").unwrap().password.as_deref(), Some("pw"));
+        assert!(c.matches_linked("pc", "10.9.9.9"));
+        assert!(c.matches_linked("other", "10.0.0.2"));
+        assert!(!c.matches_linked("other", "10.9.9.9"));
+        assert!(update(tmp.path(), |c| c.unlink()).unwrap());
+        assert!(!update(tmp.path(), |c| c.unlink()).unwrap());
+        let c = Config::load(tmp.path()).unwrap();
+        assert_eq!(c.library, None);
+        assert!(!c.matches_linked("pc", "10.0.0.2"));
     }
 
     #[test]
     fn concurrent_updates_are_not_lost() {
         let tmp = tempfile::tempdir().unwrap();
+        update(tmp.path(), |c| c.link(lib("lib-1"), false)).unwrap();
         let dir = tmp.path().to_path_buf();
         let threads: Vec<_> = (0..8)
             .map(|t| {
                 let dir = dir.clone();
                 std::thread::spawn(move || {
                     for i in 0..10 {
-                        let uuid = format!("lib-{t}-{i}");
-                        update(&dir, |c| c.record_seen(&uuid, "n", "h", 1, "x")).unwrap();
+                        update(&dir, |c| {
+                            let a = c.library.as_mut().unwrap();
+                            a.name.push_str(&format!(" {t}.{i}"));
+                        })
+                        .unwrap();
                     }
                 })
             })
@@ -435,13 +377,27 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
-        assert_eq!(Config::load(&dir).unwrap().seen.len(), 80);
+        let name = Config::load(&dir).unwrap().library.unwrap().name;
+        assert_eq!(name.split_whitespace().count(), 2 + 80);
     }
 
     #[test]
-    fn corrupt_config_is_an_error_not_an_empty_allowlist() {
+    fn corrupt_config_is_an_error_not_an_unlinked_kindle() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join(CONFIG_FILE), b"{not json").unwrap();
         assert!(Config::load(tmp.path()).is_err());
+    }
+
+    #[test]
+    fn the_old_allowlist_is_not_migrated() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(
+            tmp.path().join(CONFIG_FILE),
+            br#"{"allowed": [{"uuid": "lib-1"}], "seen": [], "series": false}"#,
+        )
+        .unwrap();
+        let c = Config::load(tmp.path()).unwrap();
+        assert_eq!(c.library, None);
+        assert!(!c.series);
     }
 }

@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use kws::api::{self, Api};
 use kws::catalog::Catalog;
-use kws::config::{self, Config};
-use kws::daemon::{self, Daemon, FindResult, Options};
+use kws::config::{self, Config, Link};
+use kws::daemon::{self, Daemon, FindResult, LinkError, Options};
 use kws::discovery;
 use kws::kindle::{self, CoverConfig};
 use kws::library::Library;
@@ -23,19 +23,24 @@ usage:
   kindle-wireless-sync daemon --books DIR --state DIR [--thumbnails DIR [--catalog DB]] [--name NAME]
               [--api-port PORT]
   kindle-wireless-sync find --state DIR [--probe ADDR]...
-  kindle-wireless-sync add-server --state DIR HOST PORT [--password PW]
-  kindle-wireless-sync allow --state DIR LIBRARY_UUID [--writable | --read-only]
+  kindle-wireless-sync link --state DIR [HOST [PORT]] [--uuid UUID] [--replace]
+              [--password PW] [--writable | --read-only]
+  kindle-wireless-sync unlink --state DIR
   kindle-wireless-sync status --state DIR
   kindle-wireless-sync series --books DIR --catalog DB --remove-all
 
-daemon      the service: connects to allowed libraries (ADR 0008)
+daemon      the service: connects to the linked library (ADR 0008, 0018)
 find        \"Find libraries\": broadcast, then connect once to each server to
-            read its library, and list new ones as seen
-add-server  connect to HOST:PORT now and allow its library if it answers
-allow       allow a library listed by find. --writable lets this Kindle send
-            read status and last-read date to the library (ADR 0017),
-            --read-only stops it; both also work on an allowed library
-status      show the daemon status and the allowed and seen libraries
+            read its library, and print what answered
+link        link this Kindle to the library at HOST:PORT (port 9090 if not
+            given), which must answer now. --uuid refuses any other library.
+            --replace confirms replacing a different linked library: the
+            books stay, but each book's metadata from that library goes.
+            --writable lets this Kindle send read status and last-read date
+            to the library (ADR 0017), --read-only stops it. Without HOST,
+            changes the linked library's --password or --writable setting
+unlink      stop syncing with the linked library; books stay
+status      show the daemon status and the linked library
 series      --remove-all: dissolve the series this app created (uninstall)
 
 Set RUST_LOG=debug to log every protocol message.";
@@ -55,6 +60,8 @@ connect     run a single session in the foreground";
 /// the connection is dead.
 const READ_TIMEOUT: Duration = Duration::from_secs(300);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
+/// Calibre's default port for wireless device connections.
+const CALIBRE_PORT: u16 = 9090;
 
 type CmdResult = Result<ExitCode, Box<dyn std::error::Error>>;
 
@@ -82,8 +89,8 @@ fn real_main() -> CmdResult {
     match cmd.as_str() {
         "daemon" => daemon_cmd(args),
         "find" => find_cmd(args),
-        "add-server" => add_server_cmd(args),
-        "allow" => allow_cmd(args),
+        "link" => link_cmd(args),
+        "unlink" => unlink_cmd(args),
         "status" => status_cmd(args),
         "series" => series_cmd(args),
         #[cfg(feature = "dev-tools")]
@@ -235,13 +242,22 @@ fn find_cmd(mut args: lexopt::Parser) -> CmdResult {
         println!("no calibre found (is \"Start wireless device connection\" on?)");
         return Ok(ExitCode::FAILURE);
     }
-    for (server, result) in daemon::find_libraries(&state, &found)? {
+    let config = Config::load(&state)?;
+    for (server, result) in daemon::find_libraries(&config, &found) {
         let at = format!("{} at {}:{}", server.hostname, server.addr, server.port);
         match result {
-            FindResult::Allowed => println!("{at}: an allowed library's server; not contacted"),
+            FindResult::Linked => println!("{at}: the linked library's server; not contacted"),
+            FindResult::Answered(info) if config.linked(&info.library_uuid).is_some() => {
+                println!("{at}: library {:?} (linked)", info.library_name)
+            }
             FindResult::Answered(info) => println!(
-                "{at}: library {:?} ({})",
-                info.library_name, info.library_uuid
+                "{at}: library {:?} ({})\n  to link it: link --state {} {} {} --uuid {}",
+                info.library_name,
+                info.library_uuid,
+                state.display(),
+                server.addr,
+                server.port,
+                info.library_uuid
             ),
             FindResult::Failed(e) => println!("{at}: {e}"),
         }
@@ -249,83 +265,139 @@ fn find_cmd(mut args: lexopt::Parser) -> CmdResult {
     Ok(ExitCode::SUCCESS)
 }
 
-fn add_server_cmd(mut args: lexopt::Parser) -> CmdResult {
+fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
-    let (mut state, mut password): (Option<PathBuf>, Option<String>) = (None, None);
+    let (mut state, mut uuid, mut password): (Option<PathBuf>, Option<String>, Option<String>) =
+        (None, None, None);
+    let mut writable: Option<bool> = None;
+    let mut replace = false;
     let mut positional: Vec<String> = Vec::new();
     while let Some(arg) = args.next()? {
         match arg {
             Long("state") => state = Some(args.value()?.into()),
+            Long("uuid") => uuid = Some(args.value()?.string()?),
             Long("password") => password = Some(args.value()?.string()?),
-            Value(v) => positional.push(v.string()?),
+            Long("writable") if writable.is_none() => writable = Some(true),
+            Long("read-only") if writable.is_none() => writable = Some(false),
+            Long("replace") => replace = true,
+            Value(v) if positional.len() < 2 => positional.push(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }
-    let [host, port] = positional.as_slice() else {
-        return Err(format!("add-server needs HOST and PORT\n{USAGE}").into());
-    };
     let state = required(state, "--state")?;
-    match daemon::add_server(&state, host, port.parse()?, password) {
-        Ok(info) => {
-            println!(
-                "added library {:?} ({}) at {host}:{port}",
-                info.library_name, info.library_uuid
-            );
-            Ok(ExitCode::SUCCESS)
+    let linked_uuid = match positional.as_slice() {
+        [] => {
+            if uuid.is_some() || replace {
+                return Err(format!("--uuid and --replace need HOST\n{USAGE}").into());
+            }
+            if password.is_none() && writable.is_none() {
+                return Err(format!("link needs HOST, or a setting to change\n{USAGE}").into());
+            }
+            let Some(lib) = Config::load(&state)?.library else {
+                println!("no library is linked; give its HOST");
+                return Ok(ExitCode::FAILURE);
+            };
+            if let Some(pw) = password {
+                let pw = (!pw.is_empty()).then_some(pw);
+                let set = pw.is_some();
+                config::update(&state, |c| c.set_password(&lib.uuid, pw))?;
+                println!(
+                    "{}",
+                    if set {
+                        "password set"
+                    } else {
+                        "password cleared"
+                    }
+                );
+            }
+            lib.uuid
         }
-        Err(e) => {
-            println!("could not add {host}:{port}: {e}");
-            Ok(ExitCode::FAILURE)
+        [host, port @ ..] => {
+            let port = match port.first() {
+                Some(p) => p.parse()?,
+                None => CALIBRE_PORT,
+            };
+            let password = password.filter(|p| !p.is_empty());
+            match daemon::link_address(&state, host, port, password, uuid.as_deref(), replace) {
+                Ok((info, link)) => {
+                    let lib = format!("{:?} ({})", info.library_name, info.library_uuid);
+                    match link {
+                        Link::Updated => {
+                            println!("updated the linked library {lib}: {host}:{port}")
+                        }
+                        Link::Replaced(old) => println!(
+                            "linked library {lib} at {host}:{port}, replacing {:?} ({})",
+                            old.name, old.uuid
+                        ),
+                        _ => println!("linked library {lib} at {host}:{port}"),
+                    }
+                    info.library_uuid
+                }
+                Err(LinkError::NeedsReplace { linked, answered }) => {
+                    println!(
+                        "this Kindle is linked to {:?} ({}). Linking {:?} ({}) replaces it: \
+                         the books stay, but each book's metadata from {:?} goes. \
+                         Rerun with --replace to do that.",
+                        linked.name,
+                        linked.uuid,
+                        answered.library_name,
+                        answered.library_uuid,
+                        linked.name
+                    );
+                    return Ok(ExitCode::FAILURE);
+                }
+                Err(LinkError::OtherLibrary(info)) => {
+                    println!(
+                        "{host}:{port} serves library {:?} ({}), not {}; nothing changed",
+                        info.library_name,
+                        info.library_uuid,
+                        uuid.unwrap_or_default()
+                    );
+                    return Ok(ExitCode::FAILURE);
+                }
+                Err(LinkError::Unreachable(e)) => {
+                    println!("could not reach Calibre at {host}:{port}: {e}");
+                    return Ok(ExitCode::FAILURE);
+                }
+                Err(LinkError::Settings(e)) => return Err(e.into()),
+            }
+        }
+    };
+    if let Some(w) = writable {
+        // The app will let users pick the columns; for now every caller
+        // stores the fixed names (ADR 0017).
+        config::update(&state, |c| {
+            c.set_writable(&linked_uuid, w.then(Columns::defaults))
+        })?;
+        if w {
+            println!(
+                "writable: read status and last-read date go to the library's \
+                 {DEFAULT_READ_COLUMN} and {DEFAULT_LAST_READ_COLUMN} columns, once you create them"
+            );
+        } else {
+            println!("read-only: this Kindle won't change the library");
         }
     }
+    Ok(ExitCode::SUCCESS)
 }
 
-fn allow_cmd(mut args: lexopt::Parser) -> CmdResult {
+fn unlink_cmd(mut args: lexopt::Parser) -> CmdResult {
     use lexopt::prelude::*;
-    let (mut state, mut uuid): (Option<PathBuf>, Option<String>) = (None, None);
-    let mut writable: Option<bool> = None;
+    let mut state: Option<PathBuf> = None;
     while let Some(arg) = args.next()? {
         match arg {
             Long("state") => state = Some(args.value()?.into()),
-            Long("writable") if writable.is_none() => writable = Some(true),
-            Long("read-only") if writable.is_none() => writable = Some(false),
-            Value(v) if uuid.is_none() => uuid = Some(v.string()?),
             _ => return Err(arg.unexpected().into()),
         }
     }
-    let uuid = required(uuid, "LIBRARY_UUID")?;
     let state = required(state, "--state")?;
-    let (already, allowed) = config::update(&state, |c| {
-        let already = c.allowed(&uuid).is_some();
-        let allowed = already || c.allow_seen(&uuid);
-        if let (true, Some(w)) = (allowed, writable) {
-            // The app will let users pick the columns; for now every caller
-            // stores the fixed names (ADR 0017).
-            c.set_writable(&uuid, w.then(Columns::defaults));
-        }
-        (already, allowed)
-    })?;
-    if !allowed {
-        println!("unknown library; run `find` first, or use `add-server`");
-        return Ok(ExitCode::FAILURE);
+    if config::update(&state, |c| c.unlink())? {
+        println!("unlinked; the books stay on the Kindle");
+        Ok(ExitCode::SUCCESS)
+    } else {
+        println!("no library was linked");
+        Ok(ExitCode::FAILURE)
     }
-    println!(
-        "{}",
-        if already {
-            "already allowed"
-        } else {
-            "allowed"
-        }
-    );
-    match writable {
-        Some(true) => println!(
-            "writable: read status and last-read date go to the library's \
-             {DEFAULT_READ_COLUMN} and {DEFAULT_LAST_READ_COLUMN} columns, once you create them"
-        ),
-        Some(false) => println!("read-only: this Kindle won't change the library"),
-        None => {}
-    }
-    Ok(ExitCode::SUCCESS)
 }
 
 /// `series --remove-all`: dissolve our series (ADR 0016), for uninstall.
@@ -364,19 +436,16 @@ fn status_cmd(mut args: lexopt::Parser) -> CmdResult {
         Ok(s) => println!("{s}"),
         Err(_) => println!("no status yet (daemon not run)"),
     }
-    let config = Config::load(&state)?;
-    for a in &config.allowed {
-        println!(
-            "allowed: {:?} ({}) last at {:?}:{:?}, {}",
+    match Config::load(&state)?.library {
+        Some(a) => println!(
+            "linked: {:?} ({}) last at {:?}:{:?}, {}",
             a.name,
             a.uuid,
             a.host,
             a.port,
             if a.writable { "writable" } else { "read-only" }
-        );
-    }
-    for s in &config.seen {
-        println!("seen: {:?} ({}) at {}:{}", s.name, s.uuid, s.host, s.port);
+        ),
+        None => println!("no library linked"),
     }
     Ok(ExitCode::SUCCESS)
 }

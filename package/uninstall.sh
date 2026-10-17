@@ -4,7 +4,7 @@
 # Books received from Calibre, and their thumbnails, are the user's: keep them.
 
 # On upgrade KPM runs this before installing the new version: keep settings,
-# the allowlist and the service. install.sh replaces the files.
+# the linked library and the service. install.sh replaces the files.
 [ "$1" = upgrade ] && exit 0
 
 # Any failure exits non-zero, so KPM keeps the package and the user can retry.

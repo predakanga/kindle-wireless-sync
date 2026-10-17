@@ -50,7 +50,7 @@ impl Default for DeviceConfig {
 }
 
 /// What Calibre tells us about itself in the handshake.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CalibreInfo {
     pub library_uuid: String,
     pub library_name: String,
