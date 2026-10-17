@@ -707,7 +707,18 @@ impl Library {
 /// its own `last_modified` differs, so the old library's date would stop
 /// that library ever filling the record in again.
 fn identity(record: &Value, file_modified: Option<SystemTime>) -> Value {
-    const KEPT: [&str; 6] = ["lpath", "size", "last_modified", "uuid", "title", "authors"];
+    // Series stay: they group the Kindle's library, which is useful even
+    // before the new library resends a book's metadata, or if it never does.
+    const KEPT: [&str; 8] = [
+        "lpath",
+        "size",
+        "last_modified",
+        "uuid",
+        "title",
+        "authors",
+        "series",
+        "series_index",
+    ];
     let mut out = Map::new();
     for key in KEPT {
         if let Some(v) = record.get(key) {
@@ -1128,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn linking_a_different_library_keeps_only_book_identities() {
+    fn linking_a_different_library_keeps_only_book_identities_and_series() {
         let (tmp, mut lib) = setup();
         let state = tmp.path().join("state");
         receive(
@@ -1164,10 +1175,11 @@ mod tests {
             .unwrap();
         let expected = json!({"lpath": "A/Book.txt", "size": 4,
             "last_modified": adopt::iso_utc(modified), "uuid": "u1", "title": "Book",
-            "authors": ["A"], "thumbnail": null, "_kws": {"cde_key": "k", "cde_type": "PDOC"}});
+            "authors": ["A"], "series": "Saga", "series_index": 1, "thumbnail": null,
+            "_kws": {"cde_key": "k", "cde_type": "PDOC"}});
         assert_ne!(expected["last_modified"], before["last_modified"]);
         assert_eq!(lib.book("A/Book.txt").unwrap(), &expected);
-        assert!(lib.calibre_metadata(0).unwrap().get("series").is_none());
+        assert_eq!(lib.calibre_metadata(0).unwrap()["series"], "Saga");
         assert!(lib.known_columns("lib-a").is_empty());
         assert!(!state.join(COLUMNS_FILE).exists());
         assert!(!state.join(DRIVEINFO_FILE).exists());

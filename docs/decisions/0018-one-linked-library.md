@@ -136,7 +136,7 @@ Two ways to forget the old library's metadata:
    unknown: Calibre may write its UUID into a PDF's metadata, and KFX was
    never explored, but adoption reads neither today.
 2. **Keep each record's identity (lpath, size, `_kws`), and drop the
-   Calibre-library parts** (title stays, but series, `user_metadata` and
+   Calibre-library parts** (title and series stay, but `user_metadata` and
    read-sync state go). The new library's Calibre then pairs each book by
    UUID or title and author, and resends its own metadata for matches.
    Books it can't match show as on the device but not in the library, as
@@ -154,14 +154,20 @@ Agreed by the developer (2026-10-17). Exactly what each record keeps:
     falls back to title and authors. But if the user links the old library
     again, it matches every book exactly again.
   - **Title and authors** are what the new library matches on.
+  - **`series` and `series_index`** (amended 2026-10-18, developer): they
+    group the Kindle's library, which is useful whatever library is
+    linked. The first version dropped them, so replacing a library broke
+    up every series until the new library resent its metadata, and kept
+    them broken up for books it doesn't have.
 - **Dropped:** everything else Calibre sent, which belongs to the old
-  library: series, tags, `user_metadata` (custom columns, including the
-  read-sync columns), identifiers, comments and the rest, and `_kws`'s
-  read-sync state.
+  library: tags, `user_metadata` (custom columns, including the read-sync
+  columns), identifiers, comments and the rest, and `_kws`'s read-sync
+  state.
 
-Series follow automatically. The next series pass (ADR 0016) sees no series
-in the records, dissolves ours, and rebuilds them from the new library's
-metadata once Calibre resends it.
+Series follow automatically. The series pass (ADR 0016) leaves them as they
+are, and changes a book's series once the new library resends its metadata:
+to that library's series, or none. Books the new library doesn't have keep
+their series.
 
 ## Alternatives considered
 - **Keep several allowed libraries, and scope state per library:** record

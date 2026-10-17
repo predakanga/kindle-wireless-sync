@@ -18,8 +18,9 @@ one.
 - The Kindle is linked to one Calibre library, instead of an allowlist of
   libraries. Link it with **Find libraries** or by address in the app, or
   with `link` on the command line, which replaces `allow` and `add-server`.
-  Linking a different library asks first, keeps your books on the Kindle,
-  and forgets what the old library knew about them. **After upgrading, link
+  Linking a different library asks first, keeps your books and their series
+  on the Kindle, and forgets the rest of what the old library knew about
+  them. **After upgrading, link
   your library again.**
 
 ### Fixed

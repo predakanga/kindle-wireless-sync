@@ -81,8 +81,9 @@ stay in your library. The series this app created are removed.
 3. Send books from Calibre as usual.
 
 To use a different Calibre library, link it in the same way. The app asks
-first. Your books stay on the Kindle, but what the old library knew about
-them (series, read status) is forgotten until the new library sends its own.
+first. Your books stay on the Kindle, and so do their series, but the rest
+of what the old library knew about them (tags, read status) is forgotten
+until the new library sends its own.
 Books the new library doesn't have show in Calibre as on the device only.
 
 To stop the app managing series, set `"series": false` in

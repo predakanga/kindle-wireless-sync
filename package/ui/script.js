@@ -170,7 +170,7 @@
         var r = pendingReplace;
         el("replaceBox").innerHTML = 'This Kindle is linked to <b>' + esc(r.linked) + '</b>. Linking <b>'
             + esc(r.name) + '</b> replaces it. The books stay on the Kindle, but their details from '
-            + esc(r.linked) + ' (series, read status) are forgotten until ' + esc(r.name) + ' sends its own.'
+            + esc(r.linked) + ' (tags, read status) are forgotten until ' + esc(r.name) + ' sends its own.'
             + '<div class="row" style="margin-top:0.5rem">'
             + '<button class="btn btn-danger" data-act="confirmreplace">Link ' + esc(r.name) + '</button>'
             + '<button class="btn" data-act="cancelreplace">Cancel</button></div>';
