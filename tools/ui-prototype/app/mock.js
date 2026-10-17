@@ -183,7 +183,9 @@
             var out;
             try { out = self.handle(method, path, body || {}); }
             catch (e) { return cb(null, String(e)); }
-            self.onChange();
+            // Reading the status changes nothing; reporting it as a change
+            // made the harness poke the app into polling again, in a loop.
+            if (path !== "/status") self.onChange();
             cb(out, null);
         }, 120);
     };

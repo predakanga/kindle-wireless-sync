@@ -162,7 +162,12 @@ function renderPanel() {
     document.getElementById("wifi").checked = mock.wifi;
     document.getElementById("log").textContent = mock.log.join("\n");
     const libs = document.getElementById("libs");
-    if (libs.contains(document.activeElement) && document.activeElement.type === "text") return; // don't eat typing
+    // Rebuild the controls only when the libraries change: a rebuild under
+    // the pointer loses clicks, and one under the cursor loses typing.
+    const snapshot = JSON.stringify(mock.net);
+    if (snapshot === renderPanel.last) return;
+    if (libs.contains(document.activeElement) && document.activeElement.type === "text") return;
+    renderPanel.last = snapshot;
     const catalog = KWSMock.COLUMN_CATALOG;
     libs.innerHTML = mock.net.map((l, i) => {
         const cols = [...catalog.bool.map((c) => [c, "Yes/No"]), ...catalog.datetime.map((c) => [c, "Date"])]
