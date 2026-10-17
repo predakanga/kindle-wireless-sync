@@ -251,14 +251,16 @@ fn find_cmd(mut args: lexopt::Parser) -> CmdResult {
         return Ok(ExitCode::FAILURE);
     }
     let config = Config::load(&state)?;
-    for (server, result) in daemon::find_libraries(&config, &found) {
+    for (server, result) in daemon::find_libraries(&config, &found, &|_| None) {
         let at = format!("{} at {}:{}", server.hostname, server.addr, server.port);
         match result {
             FindResult::Linked => println!("{at}: the linked library's server; not contacted"),
-            FindResult::Answered(info) if config.linked(&info.library_uuid).is_some() => {
+            FindResult::Answered(info) | FindResult::Cached(info)
+                if config.linked(&info.library_uuid).is_some() =>
+            {
                 println!("{at}: library {:?} (linked)", info.library_name)
             }
-            FindResult::Answered(info) => println!(
+            FindResult::Answered(info) | FindResult::Cached(info) => println!(
                 "{at}: library {:?} ({})\n  to link it: link --state {} {} {} --uuid {}",
                 info.library_name,
                 info.library_uuid,

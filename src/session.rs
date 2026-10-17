@@ -130,6 +130,9 @@ pub enum SessionEnd {
     ColumnsChanged,
     /// Ended at a quiet moment because [`Admit::end_when_quiet`] asked.
     Yielded,
+    /// Calibre closed the connection before sending anything: most likely
+    /// its lockout after too many failed connections (ADR 0020).
+    ClosedAtOnce,
 }
 
 fn protocol_error(msg: impl Into<String>) -> io::Error {
@@ -169,10 +172,16 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
     // idle. `last_busy` is when Calibre last sent anything but a keep-alive.
     let mut reconnect = false;
     let mut last_busy = Instant::now();
+    let mut heard = false;
     loop {
         let Some(msg) = conn.recv()? else {
-            return Ok(SessionEnd::Closed);
+            return Ok(if heard {
+                SessionEnd::Closed
+            } else {
+                SessionEnd::ClosedAtOnce
+            });
         };
+        heard = true;
         let Some(op) = msg.opcode() else {
             log::warn!("ignoring unknown opcode {}", msg.code);
             continue;
@@ -1421,6 +1430,15 @@ mod tests {
                 .msg(Opcode::DisplayMessage, json!({"messageKind": 1})),
         );
         assert_eq!(o.end, SessionEnd::PasswordRejected);
+        // Closed before Calibre said anything: its lockout (ADR 0020).
+        let o = run_script(&mut lib, &DeviceConfig::default(), Script::new());
+        assert_eq!(o.end, SessionEnd::ClosedAtOnce);
+        let o = run_script(
+            &mut lib,
+            &DeviceConfig::default(),
+            Script::new().handshake(),
+        );
+        assert_eq!(o.end, SessionEnd::Closed);
     }
 
     #[test]

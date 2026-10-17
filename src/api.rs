@@ -394,16 +394,24 @@ fn find(api: &Api) -> (u16, Value) {
         Ok(c) => c,
         Err(e) => return fail(format!("Cannot read settings: {e}")),
     };
-    let servers: Vec<Value> = daemon::find_libraries(&config, &found)
+    let cached = |addr| api.handle.cached_find(addr);
+    let servers: Vec<Value> = daemon::find_libraries(&config, &found, &cached)
         .iter()
         .map(|(s, r)| {
             let mut v = json!({"hostname": s.hostname, "host": s.addr.to_string(), "port": s.port});
+            if let FindResult::Answered(info) = r {
+                // Fresh answers only: a cached one keeps its age.
+                api.handle
+                    .remember_find(SocketAddr::new(s.addr, s.port), info.clone());
+            }
             match r {
-                FindResult::Answered(info) if config.linked(&info.library_uuid).is_some() => {
+                FindResult::Answered(info) | FindResult::Cached(info)
+                    if config.linked(&info.library_uuid).is_some() =>
+                {
                     v["status"] = json!("linked")
                 }
                 FindResult::Linked => v["status"] = json!("linked"),
-                FindResult::Answered(info) => {
+                FindResult::Answered(info) | FindResult::Cached(info) => {
                     api.handle.record_found(FoundLibrary::new(
                         info,
                         s.addr.to_string(),

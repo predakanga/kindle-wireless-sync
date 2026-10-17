@@ -7,7 +7,7 @@
 //! are only contacted by the explicit [`find_libraries`] and
 //! [`link_address`] actions, and what they find is kept in memory.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufReader, BufWriter};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
@@ -32,6 +32,8 @@ const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// library linked from another process is picked up.
 const NO_LIBRARY_RECHECK: Duration = Duration::from_secs(30);
 pub const STATUS_FILE: &str = "status.json";
+/// How long Find libraries reuses what a server answered (ADR 0020).
+pub const FIND_CACHE_FOR: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -45,6 +47,8 @@ pub enum State {
     Error,
     Paused,
     Stopped,
+    /// Calibre closes our connections at once: its lockout (ADR 0020).
+    LockedOut,
 }
 
 impl State {
@@ -60,6 +64,7 @@ impl State {
             State::Error => "error",
             State::Paused => "paused",
             State::Stopped => "stopped",
+            State::LockedOut => "locked_out",
         }
     }
 }
@@ -114,6 +119,10 @@ struct Shared {
     settings_changed: AtomicBool,
     /// Turns series on and off while running (ADR 0016), if managed.
     series_switch: Option<Arc<AtomicBool>>,
+    /// What Find libraries learned from each server, and when: reused for
+    /// 5 minutes so searches don't count towards Calibre's lockout
+    /// (ADR 0020). Cleared when Wi-Fi changes.
+    find_cache: Mutex<HashMap<SocketAddr, (Instant, CalibreInfo)>>,
 }
 
 impl Shared {
@@ -224,6 +233,7 @@ impl Handle {
     /// once rather than waiting for a TCP timeout.
     pub fn network_changed(&self, up: bool) {
         self.shared.wifi.store(up, Ordering::SeqCst);
+        self.shared.find_cache.lock().unwrap().clear();
         if !up {
             self.shared.interrupt();
         }
@@ -301,6 +311,22 @@ impl Handle {
             switch.store(enabled, Ordering::SeqCst);
             let _ = self.tx.send(Control::Wake);
         }
+    }
+
+    /// What Find learned from `addr` in the last 5 minutes, if anything.
+    pub fn cached_find(&self, addr: SocketAddr) -> Option<CalibreInfo> {
+        let cache = self.shared.find_cache.lock().unwrap();
+        cache
+            .get(&addr)
+            .filter(|(at, _)| at.elapsed() < FIND_CACHE_FOR)
+            .map(|(_, info)| info.clone())
+    }
+
+    /// Records what a server answered, for [`Handle::cached_find`].
+    pub fn remember_find(&self, addr: SocketAddr, info: CalibreInfo) {
+        let mut cache = self.shared.find_cache.lock().unwrap();
+        cache.retain(|_, (at, _)| at.elapsed() < FIND_CACHE_FOR);
+        cache.insert(addr, (Instant::now(), info));
     }
 
     pub fn wifi(&self) -> bool {
@@ -384,6 +410,8 @@ enum Outcome {
     Reconnect,
     /// A check is using the library's address: wait until it's done.
     Held,
+    /// Calibre closed the connection before saying anything.
+    LockedOut,
 }
 
 impl Daemon {
@@ -408,6 +436,7 @@ impl Daemon {
             wifi: AtomicBool::new(net_up),
             settings_changed: AtomicBool::new(false),
             series_switch: lib.series_switch(),
+            find_cache: Mutex::new(HashMap::new()),
         });
         let handle = Handle {
             tx,
@@ -650,6 +679,10 @@ impl Daemon {
                                 outcome = Outcome::Held;
                                 break;
                             }
+                            Ok(SessionEnd::ClosedAtOnce) => {
+                                outcome = Outcome::LockedOut;
+                                break;
+                            }
                             Ok(SessionEnd::Closed | SessionEnd::ProtocolMismatch) | Err(_) => {
                                 if let Err(e) = &end {
                                     log::warn!("session with {} failed: {e}", cand.addr);
@@ -762,6 +795,10 @@ impl Daemon {
                 Outcome::Lost(name) => self.set(
                     State::NotFound,
                     format!("Lost the connection to {name}. Retrying in {secs}s."),
+                ),
+                Outcome::LockedOut => self.set(
+                    State::LockedOut,
+                    format!("{} Retrying in {secs}s.", check::LOCKED_OUT),
                 ),
             }
             attempt += 1;
@@ -989,23 +1026,30 @@ pub enum FindResult {
     /// The linked library's server; not contacted.
     Linked,
     Answered(CalibreInfo),
+    /// Answered recently: reused without connecting (ADR 0020).
+    Cached(CalibreInfo),
     Failed(io::Error),
 }
 
 /// "Find libraries": probes each discovered server that isn't the linked
-/// library's (ADR 0008). Remembering what answered is up to the caller: the
-/// daemon keeps it in memory (ADR 0018).
+/// library's (ADR 0008), unless `cached` knows what it answered recently
+/// (ADR 0020). Remembering what answered is up to the caller: the daemon
+/// keeps it in memory (ADR 0018).
 pub fn find_libraries(
     config: &Config,
     found: &[CalibreServer],
+    cached: &dyn Fn(SocketAddr) -> Option<CalibreInfo>,
 ) -> Vec<(CalibreServer, FindResult)> {
     found
         .iter()
         .map(|s| {
+            let addr = SocketAddr::new(s.addr, s.port);
             let result = if config.matches_linked(&s.hostname, &s.addr.to_string()) {
                 FindResult::Linked
+            } else if let Some(info) = cached(addr) {
+                FindResult::Cached(info)
             } else {
-                match probe(SocketAddr::new(s.addr, s.port)) {
+                match probe(addr) {
                     Ok(info) => FindResult::Answered(info),
                     Err(e) => FindResult::Failed(e),
                 }
@@ -1628,6 +1672,54 @@ mod tests {
     }
 
     #[test]
+    fn find_reuses_what_a_server_answered_until_wifi_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre("lib-new");
+        let server = CalibreServer {
+            addr: addr.ip(),
+            hostname: "pc".into(),
+            port: addr.port(),
+            content_server_port: None,
+        };
+        let config = Config::load(tmp.path()).unwrap();
+        let (h, thread) = start(tmp.path(), None);
+        let cached = |a| h.cached_find(a);
+        let search = || find_libraries(&config, std::slice::from_ref(&server), &cached);
+
+        let results = search();
+        let FindResult::Answered(info) = &results[0].1 else {
+            panic!("expected a fresh answer");
+        };
+        h.remember_find(addr, info.clone());
+        assert!(matches!(&search()[0].1, FindResult::Cached(i) if i.library_uuid == "lib-new"));
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "one connection for two searches"
+        );
+
+        h.network_changed(false);
+        h.network_changed(true);
+        assert!(matches!(&search()[0].1, FindResult::Answered(_)));
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn a_calibre_that_closes_at_once_is_reported_as_a_lockout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || listener.incoming().for_each(drop));
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        wait_until("the lockout", || h.status().state == State::LockedOut);
+        assert!(h.status().detail.starts_with(check::LOCKED_OUT));
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
     fn find_libraries_skips_the_linked_server() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre("lib-new");
@@ -1638,7 +1730,7 @@ mod tests {
             content_server_port: None,
         };
         let config = Config::load(tmp.path()).unwrap();
-        let results = find_libraries(&config, std::slice::from_ref(&server));
+        let results = find_libraries(&config, std::slice::from_ref(&server), &|_| None);
         assert!(matches!(&results[0].1, FindResult::Answered(i) if i.library_uuid == "lib-new"));
         assert!(
             !tmp.path().join(config::CONFIG_FILE).exists(),
@@ -1657,7 +1749,7 @@ mod tests {
         );
         assert_eq!(link_found(tmp.path(), &found, false).unwrap(), Link::New);
         let config = Config::load(tmp.path()).unwrap();
-        let results = find_libraries(&config, &[server]);
+        let results = find_libraries(&config, &[server], &|_| None);
         assert!(matches!(results[0].1, FindResult::Linked));
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
