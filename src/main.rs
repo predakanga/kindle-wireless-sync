@@ -53,8 +53,13 @@ Development commands (dev-tools feature):
               [--password PW] [--allow LIBRARY_UUID]... [--allow-any]
               [--name NAME] [--transcript FILE] [--thumbnails DIR [--catalog DB]]
 
+  kindle-wireless-sync check --state DIR HOST [PORT] [--password PW] [--quiet SECS]
+
 discover    broadcast only; lists servers without connecting
-connect     run a single session in the foreground";
+connect     run a single session in the foreground
+check       check a library as the app does before linking it (ADR 0020):
+            password, columns, and nothing synced. --quiet is how long
+            Calibre must be quiet before the check leaves (default 3)";
 
 /// Calibre pings an idle device every few seconds; silence this long means
 /// the connection is dead.
@@ -97,6 +102,8 @@ fn real_main() -> CmdResult {
         "discover" => dev::discover_cmd(args),
         #[cfg(feature = "dev-tools")]
         "connect" => dev::connect_cmd(args),
+        #[cfg(feature = "dev-tools")]
+        "check" => dev::check_cmd(args),
         _ => Err(format!("unknown command {cmd:?}\n{USAGE}").into()),
     }
 }
@@ -507,6 +514,51 @@ mod dev {
             println!("{} at {}:{}", s.hostname, s.addr, s.port);
         }
         Ok(ExitCode::SUCCESS)
+    }
+
+    pub fn check_cmd(mut args: lexopt::Parser) -> CmdResult {
+        use kws::check::{self, CheckState, Target};
+        use lexopt::prelude::*;
+        let mut state: Option<PathBuf> = None;
+        let mut host: Option<String> = None;
+        let mut port = super::CALIBRE_PORT;
+        let mut password: Option<String> = None;
+        let mut quiet = kws::check::QUIET;
+        while let Some(arg) = args.next()? {
+            match arg {
+                Long("state") => state = Some(args.value()?.into()),
+                Long("password") => password = Some(args.value()?.string()?),
+                Long("quiet") => quiet = Duration::from_secs_f64(args.value()?.parse()?),
+                Value(v) if host.is_none() => host = Some(v.string()?),
+                Value(v) => port = v.parse()?,
+                _ => return Err(arg.unexpected().into()),
+            }
+        }
+        let state: PathBuf = required(state, "--state")?;
+        std::fs::create_dir_all(state.join("books"))?;
+        let env = check::Env {
+            books_dir: state.join("books"),
+            state_dir: state,
+            device: DeviceConfig::default(),
+            quiet,
+        };
+        let target = Target::Address {
+            host: required(host, "HOST")?,
+            port,
+        };
+        let started = std::time::Instant::now();
+        let status = check::run(&env, &target, password, &|_| {});
+        println!(
+            "{} after {:.1}s: {}",
+            status.state.as_str(),
+            started.elapsed().as_secs_f64(),
+            serde_json::to_string_pretty(&status.to_json())?
+        );
+        Ok(if status.state == CheckState::Ok {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        })
     }
 
     pub fn connect_cmd(mut args: lexopt::Parser) -> CmdResult {

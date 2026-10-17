@@ -286,7 +286,7 @@ impl Handle {
                 state_dir: shared.state_dir.clone(),
                 books_dir: shared.books_dir.clone(),
                 device: shared.device.lock().unwrap().clone(),
-                quiet: shared.quiet,
+                quiet: shared.quiet.min(check::QUIET),
             };
             let status = check::run(&env, &target, password, &|addr| shared.set_hold(addr, &tx));
             log::info!("check of {}: {}", status.name, status.state.as_str());
@@ -1440,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn a_check_by_address_probes_then_checks_and_holds_the_address() {
+    fn a_check_connects_once_and_holds_the_address() {
         let tmp = tempfile::tempdir().unwrap();
         let env = check_env(tmp.path());
         let (addr, count) = fake_calibre("lib-9");
@@ -1458,9 +1458,9 @@ mod tests {
         );
         assert_eq!(lib.columns["#kindle_read"]["name"], "Kindle read");
         assert_eq!(*holds.lock().unwrap(), vec![Some(addr), None]);
-        assert_eq!(count.load(Ordering::SeqCst), 2, "the probe, then the check");
+        assert_eq!(count.load(Ordering::SeqCst), 1, "one connection");
 
-        // A library Find has seen skips the probe.
+        // A library Find has seen.
         let found = FoundLibrary {
             uuid: "lib-9".into(),
             name: "Test Library".into(),
@@ -1472,7 +1472,7 @@ mod tests {
         let status = check::run(&env, &Target::Found(found.clone()), None, &|_| {});
         assert_eq!(status.state, CheckState::Ok);
         assert_eq!(status.library.unwrap().hostname.as_deref(), Some("pc"));
-        assert_eq!(count.load(Ordering::SeqCst), 3);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
 
         // One that wants a password, without one: no connection at all.
         let wants = Target::Found(FoundLibrary {
@@ -1481,7 +1481,7 @@ mod tests {
         });
         let status = check::run(&env, &wants, None, &|_| panic!("held"));
         assert_eq!(status.state, CheckState::PasswordNeeded);
-        assert_eq!(count.load(Ordering::SeqCst), 3);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -1535,8 +1535,8 @@ mod tests {
         let s = h.check_status().unwrap();
         assert_eq!(s.state, CheckState::Ok, "{s:?}");
         assert_eq!(h.checked().unwrap().uuid, "lib-1");
-        // Then the service connects again: session, probe, check, session.
-        wait_until("reconnected", || count.load(Ordering::SeqCst) >= 4);
+        // Then the service connects again: session, check, session.
+        wait_until("reconnected", || count.load(Ordering::SeqCst) >= 3);
         wait_until("connected", || h.status().state == State::Connected);
         h.shutdown();
         thread.join().unwrap();

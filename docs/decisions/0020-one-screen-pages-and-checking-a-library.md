@@ -154,14 +154,20 @@ the Kindle.
    - **A library from Find** skips this step: Find libraries records the
      same things, including (new) whether a password challenge was set.
      That avoids a second failed connection counting towards the lockout.
-   - **A library entered by address** runs the existing `daemon::probe`
-     first.
+   - **A library entered by address** goes straight to the full
+     connection: its handshake says the same things. (Amended in the
+     implementation, 2026-10-18: a separate probe first was one more
+     connection counting towards the lockout. See the implementation
+     notes.)
 
    If Calibre wants a password and none was given, the check ends here with
-   "Password needed", before any full connection.
+   "Password needed": for a found library before connecting, for an
+   address at the start of the handshake.
 2. **A full connection under a separate device ID.** The check connects as
    a device with its own ID: generated once, kept in the state directory,
-   and reused by every check (developer, 2026-10-18). It never uses the Kindle's real ID, names no
+   and reused by every check (developer, 2026-10-18). Calibre makes the
+   ID at the first check, and the check keeps it. It never uses the
+   Kindle's real ID, names no
    read-sync columns, and lists no books. It doesn't store the driveinfo
    Calibre sends (`SET_CALIBRE_DEVICE_INFO`). It reports the same device name
    as the real sessions.
@@ -169,8 +175,8 @@ the Kindle.
    and the library's columns with their headings and types
    (`SET_LIBRARY_INFO`).
 4. **When it leaves.** At the first keep-alive after Calibre has been
-   quiet, the rule read sync uses to reconnect (ADR 0017). Whether the
-   check can wait less than 10 s is to be measured with the harness.
+   quiet for 3 s, the rule read sync uses to reconnect (ADR 0017) with a
+   shorter wait, measured with the harness (implementation notes).
 5. **If Calibre serves this Kindle right now.** Calibre serves one device
    at a time. If the service's own session is with the same Calibre, the
    service ends that session at a quiet keep-alive and holds off
@@ -336,3 +342,39 @@ count towards the crash-loop guard (ADR 0010).
   - A cached library can be out of date for up to 5 minutes; the check
     catches a changed library before linking.
 - **Docs:** the README's app section and the changelog.
+
+## Implementation notes (2026-10-18)
+Tested from the dev Mac against the harness Calibre (ADR 0019), with a
+dev-only `check` command that runs the same code as the app's check
+(`kindle-wireless-sync check --state DIR HOST [PORT] [--password PW]
+[--quiet SECS]`).
+
+- **A check works, and Calibre shows no dialog.** Calibre took the
+  connection after about 5 s (its device polling), showed "Wireless device:
+  Kindle" until the check left, then dropped it quietly. With the library's
+  two custom columns, the check listed both with their headings and types.
+- **The check's device ID.** Calibre assigned one at the first check
+  (`8c4753a6-…`), the check kept it in `check_device_uuid`, and later checks
+  reused it: Calibre's cache folder gained that one empty file and no more.
+- **The quiet wait.** With the 10 s of sessions, a check took about 21 s.
+  Leaving at the first keep-alive after the book list, three checks took
+  3–7 s with no dialog; with a 3 s wait, 9–11 s. A check lists no books, so
+  Calibre has nothing to follow the book list with. Checks wait 3 s as a
+  margin; sessions keep 10 s.
+- **The lockout, reproduced.** Five connections that read Calibre's first
+  message and left made the next check end at once: Calibre accepted the
+  connection and closed it without a word. The check reported
+  `locked_out` with the message above, and Calibre showed no dialog of its
+  own. Stopping and starting the wireless connection in Calibre cleared it,
+  and the next check succeeded.
+- **The separate probe was dropped.** With a password on the harness, a
+  check by address cost two counted connections (the probe, then the full
+  connection), so after a "Password needed" and a wrong password the right
+  password hit the lockout. Without the probe, no password, two wrong
+  passwords and then the right one all behaved: `password_needed`,
+  `password_rejected` twice, then `ok`, with no dialog.
+- **Not tested yet:**
+  - A send started in Calibre during a check. The check ends with an
+    error, which Calibre reports as a failed job.
+  - A check while the service is connected to the same Calibre. A unit
+    test covers it with a fake Calibre; it needs a real device.

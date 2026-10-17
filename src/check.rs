@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 
-use crate::daemon::{self, FoundLibrary};
+use crate::daemon::FoundLibrary;
 use crate::library;
 use crate::protocol::Connection;
 use crate::session::{self, CheckEnd, DeviceConfig};
@@ -23,6 +23,12 @@ const CHECK_ID_FILE: &str = "check_device_uuid";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Calibre sends a keep-alive about every 3 s while connected.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long Calibre must have been quiet before a check leaves. Shorter
+/// than a session's (10 s, ADR 0017): a check lists no books, so Calibre
+/// has nothing to follow the book list with. With the harness, checks
+/// leaving at once never showed a dialog; 3 s is a margin (ADR 0020).
+pub const QUIET: Duration = Duration::from_secs(3);
 
 /// What to tell the user when Calibre closes a connection before saying
 /// anything: most likely its lockout after 5 failed connections from this
@@ -180,23 +186,12 @@ pub fn run(
         }
     }
 
+    // One connection: its handshake says which library answers and whether
+    // it wants a password, and with none given the check stops there. A
+    // separate probe first would be one more connection counting towards
+    // Calibre's lockout (seen with the harness, 2026-10-18).
     hold(Some(addr));
     let _release = Release(hold);
-    let password_required = match target {
-        Target::Found(f) => f.password_required,
-        Target::Address { .. } => match daemon::probe(addr) {
-            Ok(info) => {
-                status.name = info.library_name.clone();
-                status.uuid = Some(info.library_uuid.clone());
-                info.password_required
-            }
-            Err(e) => return probe_failed(status, &e),
-        },
-    };
-    if password_required && password.is_none() {
-        return status.ended(CheckState::PasswordNeeded, None);
-    }
-
     match full_check(env, addr, password.as_deref()) {
         Ok(CheckEnd::Done {
             info,
@@ -236,8 +231,16 @@ pub fn run(
             });
             status.ended(CheckState::Ok, None)
         }
-        Ok(CheckEnd::PasswordNeeded(_)) => status.ended(CheckState::PasswordNeeded, None),
-        Ok(CheckEnd::PasswordRejected(_)) => status.ended(CheckState::PasswordRejected, None),
+        Ok(CheckEnd::PasswordNeeded(info)) | Ok(CheckEnd::PasswordRejected(info)) => {
+            let state = if password.is_none() {
+                CheckState::PasswordNeeded
+            } else {
+                CheckState::PasswordRejected
+            };
+            status.name = info.library_name;
+            status.uuid = Some(info.library_uuid);
+            status.ended(state, None)
+        }
         Ok(CheckEnd::Busy) => status.ended(
             CheckState::Busy,
             Some("Calibre is busy with another device.".into()),
@@ -299,20 +302,6 @@ fn check_id(state_dir: &Path) -> Option<String> {
     let id = id.trim();
     (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
         .then(|| id.to_owned())
-}
-
-fn probe_failed(status: CheckStatus, e: &io::Error) -> CheckStatus {
-    if daemon::is_locked_out(e) {
-        return status.ended(CheckState::LockedOut, Some(LOCKED_OUT.into()));
-    }
-    if daemon::is_busy(e) {
-        return status.ended(
-            CheckState::Busy,
-            Some("Calibre is busy with another device.".into()),
-        );
-    }
-    let text = unreachable_text(&status.host, status.port, e);
-    status.ended(CheckState::Unreachable, Some(text))
 }
 
 fn unreachable_text(host: &str, port: u16, e: &io::Error) -> String {
