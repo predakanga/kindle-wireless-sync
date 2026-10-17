@@ -1,6 +1,6 @@
 # 0018: Link the Kindle to one Calibre library
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-17
 
 ## Context
@@ -206,8 +206,15 @@ emulated Kindle and the Calibre harness both answer it: yes.
   those books. Calibre would then show the old library's series, tags and
   columns without asking the device. A new device UUID avoids that.
 - **Side effects.** The old cache file stays in Calibre's cache folder, and
-  nothing removes it. It's small, and it's Calibre's to manage. Deleting
-  the whole file also drops a `device_name` the user set in Calibre. ADR
-  0015 leaves that field to Calibre. Calibre's location bar doesn't show it,
-  so the loss is small. The reset could remove only `device_store_uuid` and
-  `last_library_uuid` instead (to decide when building it).
+  nothing removes it. It's small, and it's Calibre's to manage.
+- **Only two fields survive a connection.** `_update_driveinfo_record`
+  rewrites `last_library_uuid`, `calibre_version`, `date_last_connected`,
+  `location_code` and `prefix` on every connection. It keeps only
+  `device_store_uuid` and `device_name` if they are present. Clearing the
+  file therefore differs from removing just the UUID only in
+  `device_name`. That field is Calibre's (ADR 0015). Calibre fills it on
+  first contact, and we supply the Kindle's name then. Only
+  `SET_CALIBRE_DEVICE_NAME` (`set_driveinfo_name`) changes it after that,
+  and in 9.16.0 nothing in Calibre's GUI calls it, so only a plugin could.
+  The `connected_device_name()` template function is the only place
+  Calibre shows it.

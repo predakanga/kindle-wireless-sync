@@ -14,8 +14,8 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 - The user's PC runs stock Calibre and nothing else. A Calibre plugin is
   allowed only for the stretch goals (Series→collections, progress/rating
   sync back to Calibre).
-- An on-device UI lets the user allowlist Calibre connections and start/stop
-  the sync service, with optional autostart at boot or network-up (ADR 0002).
+- An on-device UI lets the user link the Kindle to one Calibre library (ADR
+  0018, replacing the allowlist) and start/stop the sync service, with optional autostart at boot or network-up (ADR 0002).
 - The reference device is a Kindle Paperwhite 12th Gen on FW 5.20.1. Other
   devices and firmware are best-effort (ADR 0001).
 - Books appear in the Kindle library as soon as a sync finishes.

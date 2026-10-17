@@ -4,6 +4,10 @@
 - Date: 2026-10-15
 - Amended: 2026-10-15 (see "Amendment" below; it replaces "Avoiding unwanted
   libraries")
+- Amended by [0018](0018-one-linked-library.md) (2026-10-17): the daemon
+  connects only to the one linked library, not to any allowed library.
+  Password failures are tracked for that library alone. Libraries found by
+  Find libraries are kept in memory, not in the config.
 
 ## Context
 ADR 0004 runs the client as a long-lived upstart job that waits for Wi-Fi.

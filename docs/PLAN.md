@@ -10,7 +10,8 @@ Base:
 
 1. Written in Rust.
 2. Ships as a package that KPM (Kindle Package Manager) can install.
-3. Has an on-device UI where the user allowlists Calibre connections.
+3. Has an on-device UI where the user links the Kindle to a Calibre library
+   (ADR 0018; until then, an allowlist).
 4. Books appear in the Kindle library as soon as each sync finishes, with no
    reboot or manual rescan.
 5. Targets the built-in reader. KOReader and other third-party readers are out
@@ -191,6 +192,11 @@ them as on the device and stops sending duplicates.
 
 **Exit criteria:** a fresh install from KPM, through allowlisting, to a first
 sync works end to end with only stock Calibre.
+
+**Next (2026-10-17): build ADR 0018 (Accepted).** It replaces the allowlist
+with one linked library, in the config, the command line (`link`,
+`unlink`), the API and the app. Build it before the next release, which
+will also carry read sync (ADR 0017, unreleased).
 
 ### Phase 5: Stretch goals
 

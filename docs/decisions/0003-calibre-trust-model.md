@@ -6,6 +6,9 @@
   0008's amendment: "Find libraries" lists them for approval, and "Add server"
   probes an address and allows the library that answers. Entries stay keyed by
   library UUID.
+- Amended by [0018](0018-one-linked-library.md) (2026-10-17): the allowlist
+  becomes one **linked** library. The trust rules below are unchanged: only
+  the linked library's UUID can drive a session.
 
 ## Context
 In the wireless protocol, Calibre is the TCP server and the Kindle connects to

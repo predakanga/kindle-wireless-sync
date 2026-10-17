@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-10-16
+- Amended by [0018](0018-one-linked-library.md) (2026-10-17): the settings
+  belong to the linked library, `link --writable` replaces `allow
+  --writable`, and linking a different library resets them.
 
 ## Context
 Phase 5, stretch goal 2, is to send reading progress and ratings from the
@@ -56,8 +59,8 @@ there, reach Calibre on the next connection. Changes made in Calibre stay
 in Calibre: we don't change the Kindle's read state (developer, 2026-10-16;
 the other direction is on the Later list).
 
-**Only for libraries marked writable.** Each allowed library's entry in
-`config.json` (ADR 0003) gets a boolean `"writable"`.
+**Only for libraries marked writable.** The linked library's entry in
+`config.json` (ADRs 0003, 0018) gets a boolean `"writable"`.
 - A library with `writable: false` only sends books to the Kindle. We never
   name the columns for it, so nothing the Kindle does changes that library.
 - A library with `writable: true` also takes changes from the Kindle: read
@@ -148,7 +151,7 @@ The values are read from `cc.db` with read-only `sqlite3` queries (ADR
 - **To use it**, the user creates the two columns in Calibre (Preferences →
   Add your own columns) and marks the library writable on the Kindle. The
   README documents both steps.
-- New config fields per allowed library (`writable`, `read_column`,
+- New config fields for the linked library (`writable`, `read_column`,
   `last_read_column`), and command-line options to set them.
 - New state per book in `books.json`: the values last sent by Calibre and
   the values we last reported.
