@@ -13,15 +13,17 @@
 
     var status = null;          // last /status, or {error} when the service is down
     var lastStatusText = null;
-    var page = null;            // home, choose, address, probe, setup, picker, settings, password
+    var page = null;            // see PAGES
     var renderedKey = null;     // form pages aren't redrawn under the user's typing
-    var form = null;            // settings being edited: {ctx: "setup"|"settings", ...}
+    var form = null;            // settings being edited: {ctx: "setup"|"settings", columns, ...}
     var pickerKind = null;      // "bool" or "datetime"
     var dialog = null;          // {kind: "unlink"|"replace", ...}
     var lastProbe = null;       // the /probe body, for Try again
     var probeStarting = false;  // sent /probe; its status hasn't arrived yet
-    var probeFrom = "choose";   // where Cancel goes from a probe
+    var probeFrom = "choose";   // where Back goes from a probe
     var passwordFrom = "settings";
+    var appFrom = "home";       // where Back goes from the app settings
+    var addressFrom = "choose"; // where Back goes from Connect by address
     var addr = { host: "", port: "9090", password: "" };
     var messageTimer = null;
 
@@ -115,12 +117,22 @@
         return false;
     }
 
+    /// The first page: Home once linked, otherwise the welcome or the list.
+    function rootPage() {
+        if (status && status.library) return "home";
+        return variant("firstPage") === "welcome" ? "welcome" : "choose";
+    }
+
     // ---- building blocks ----
 
-    function header(title, backAct) {
+    /// A page header: a back button (backAct) or none, and a gear for the
+    /// app settings on the first pages.
+    function header(title, backAct, gear) {
         return '<div class="header">'
             + (backAct ? '<button class="back" data-act="' + backAct + '">‹</button>' : '')
-            + '<div class="title' + (backAct ? '' : ' no-back') + '">' + esc(title) + '</div></div>';
+            + '<div class="title' + (backAct ? '' : ' no-back') + (gear ? ' with-gear' : '') + '">' + esc(title) + '</div>'
+            + (gear ? '<button class="gear" data-act="appsettings" aria-label="Settings">⚙</button>' : '')
+            + '</div>';
     }
 
     function toggleRow(label, on, act, boxed) {
@@ -140,6 +152,12 @@
         return '<div class="btn-row' + (buttons.length === 3 ? ' thirds' : '') + '">' + buttons.join("") + '</div>';
     }
 
+    function wide(label, act, opts) {
+        opts = opts || {};
+        opts.cls = "btn-wide" + (opts.cls ? " " + opts.cls : "");
+        return '<div class="btn-row">' + button(label, act, opts) + '</div>';
+    }
+
     function sectionLabel(text, aside) {
         return '<div class="section-label">' + esc(text)
             + (aside ? '<span class="aside">' + esc(aside) + '</span>' : '') + '</div>';
@@ -150,77 +168,76 @@
             + '<input type="' + type + '" id="' + id + '" value="' + esc(value || "") + '" autocomplete="off" autocapitalize="off" /></div>';
     }
 
-    function footer() {
-        var html = '';
-        if (variant("serviceControls") === "bottom") {
-            html += '<div class="rule service"><span class="label">Service running</span>'
-                + button("Stop", "service", { cls: "btn-small", arg: "stop" })
-                + button("Restart", "service", { cls: "btn-small", arg: "restart" }) + '</div>';
-        }
-        return html + '<div class="footer">Wireless Sync ' + esc(status.version || "") + '</div>';
+    function forgetText(oldName, newName) {
+        return 'Your books and their series stay on the Kindle. The rest of what ' + esc(oldName)
+            + ' knew about them (tags, read status) is forgotten until ' + esc(newName) + ' sends its own.';
     }
 
     // ---- pages ----
 
-    var STATE_TITLES = {
-        waiting_for_wifi: "Waiting for Wi-Fi",
-        not_linked: "No library linked",
-        searching: "Connecting",
-        not_found: "Not connected",
+    // What the library card says for each state of the service.
+    var STATE_LINES = {
         connected: "Connected",
+        searching: "Connecting…",
+        not_found: "Not found on the network. Trying again shortly.",
+        password_rejected: "Calibre rejected the password.",
+        waiting_for_wifi: "Waiting for Wi-Fi",
+        paused: "Disconnected",
         ejected: "Disconnected by Calibre",
-        password_rejected: "Password rejected",
-        error: "Problem",
-        paused: "Paused"
+        error: "Something went wrong."
     };
 
     function readSyncText(lib) {
-        if (!lib.writable) return "Read status isn't sent to Calibre";
+        if (!lib.writable) return "Reading status isn't synced";
         var parts = [];
         if (lib.read_column) parts.push(columnName(lib.columns, lib.read_column));
         if (lib.last_read_column) parts.push(columnName(lib.columns, lib.last_read_column));
-        return parts.length ? "Read status goes to " + parts.join(" and ") : "Read sync on, but no columns chosen";
+        return parts.length ? "Reading status syncs to " + parts.join(" and ") : "Reading status sync is on, but no columns are chosen";
     }
 
     var PAGES = {};
-    var BOTTOM = {};
 
     PAGES.home = function (s) {
         var lib = s.library;
-        var canConnect = !s.paused && s.state !== "connected" && s.state !== "searching" && s.state !== "waiting_for_wifi";
-        var html = toggleRow("Start automatically", s.autostart, "autostart")
-            + sectionLabel("Status")
-            + '<div class="state">' + esc(STATE_TITLES[s.state] || s.state) + '</div>'
-            + '<div class="detail">' + esc(s.detail) + '</div>';
+        // One button: Disconnect while the service is trying, Connect otherwise
+        // (resume, or try again now).
+        var trying = !s.paused && (s.state === "connected" || s.state === "searching" || s.state === "waiting_for_wifi");
+        var html = header("Wireless Sync", null, true)
+            + '<div class="card">'
+            + '<div class="card-name">' + esc(lib.name) + '</div>'
+            + '<div class="card-state">' + esc(STATE_LINES[s.state] || s.detail) + '</div>'
+            + '<div class="sub">' + esc(where(lib)) + '</div>'
+            + '<div class="sub">' + esc(readSyncText(lib)) + '</div>';
         if (s.state === "password_rejected") {
-            html += '<div class="hint">Calibre\'s password may have changed.</div>'
-                + button("Enter the password", "password", { cls: "btn-wide btn-strong", arg: "home" });
+            html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
         } else if (s.state === "not_found") {
             html += '<div class="hint">Is Calibre open, with Connect/share → Start wireless device connection on?</div>';
         }
-        html += btnRow([button("Connect now", "connect", { disabled: !canConnect }),
-                        button(s.paused ? "Resume" : "Pause", "pause")])
-            + sectionLabel("Calibre library")
-            + '<div class="rows"><div class="row" data-act="go" data-arg="settings">'
-            + '<div class="name">' + esc(lib.name) + '</div>'
-            + '<div class="sub">' + esc(where(lib)) + '</div>'
-            + '<div class="sub">' + esc(readSyncText(lib)) + '</div>'
-            + '<span class="chev">›</span></div></div>';
-        if (variant("changeFlow") === "choose") {
-            html += btnRow([button("Library settings", "go", { arg: "settings" }),
-                            button("Change library", "change")]);
-        } else {
-            html += '<div class="btn-row">' + button("Library settings", "go", { cls: "btn-wide", arg: "settings" }) + '</div>';
-        }
+        html += '</div>'
+            + btnRow([button(trying ? "Disconnect" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),
+                      button("Library settings", "go", { arg: "settings" })]);
+        html += variant("changeFlow") === "choose"
+            ? btnRow([button("Change library", "change"), button("Unlink", "unlink")])
+            : wide("Unlink", "unlink");
         return html;
     };
-    BOTTOM.home = footer;
+
+    PAGES.welcome = function () {
+        return header("Wireless Sync", null, true)
+            + '<h1>Welcome</h1>'
+            + '<div class="detail">Wireless Sync puts books from Calibre on this Kindle over Wi-Fi, '
+            + 'straight into the Kindle\'s own library.</div>'
+            + '<ol class="steps"><li>On your computer, open Calibre and choose '
+            + '<b>Connect/share → Start wireless device connection</b>.</li>'
+            + '<li>Find your Calibre library and link it.</li>'
+            + '<li>Send books from Calibre as usual.</li></ol>'
+            + wide("Find libraries", "go", { cls: "btn-strong", arg: "choose" })
+            + wide("Connect by address…", "go", { arg: "address" });
+    };
 
     PAGES.choose = function (s) {
-        var root = !s.library;
-        var html = root
-            ? toggleRow("Start automatically", s.autostart, "autostart") + '<h1>Link a Calibre library</h1>'
-            : header("Choose a library", "back:home");
+        var back = s.library ? "back:home" : (variant("firstPage") === "welcome" ? "back:welcome" : null);
+        var html = back ? header("Choose a library", back) : header("Wireless Sync", null, true) + '<h1>Link a Calibre library</h1>';
         html += '<div class="hint">In Calibre, choose <b>Connect/share → Start wireless device connection</b>. '
             + 'Then tap the library to use.</div>'
             + sectionLabel("Found on the network", s.finding ? "Searching…" : "");
@@ -237,35 +254,29 @@
             }
             html += '</div>';
         }
-        html += btnRow([button("Find again", "find", { disabled: s.finding }),
-                        button("Link by address…", "go", { arg: "address" })]);
-        if (!root && variant("changeFlow") === "choose") {
-            html += '<div class="hint">Linking another library replaces ' + esc(s.library.name) + '.</div>';
-        }
+        html += btnRow([button("Search again", "find", { disabled: s.finding }),
+                        button("Connect by address…", "go", { arg: "address" })]);
+        if (s.library) html += '<div class="hint">Linking another library replaces ' + esc(s.library.name) + '.</div>';
         return html;
     };
-    BOTTOM.choose = function (s) { return s.library ? "" : footer(); };
 
     PAGES.address = function () {
-        return header("Link by address", "back:choose")
+        return header("Connect by address", "back:" + addressFrom)
             + '<div class="hint">For when Find can\'t see your computer. In Calibre\'s wireless settings, '
             + 'tick <b>Use fixed network port</b> so the port doesn\'t change.</div>'
             + field("inHost", "Computer name or address", "text", addr.host)
             + field("inPort", "Port", "number", addr.port)
             + field("inPassword", "Password (if Calibre has one)", "password", addr.password)
-            + btnRow([button("Check", "checkaddress", { cls: "btn-strong" }), button("Cancel", "back:choose")]);
+            + wide("Connect", "checkaddress", { cls: "btn-strong" });
     };
 
     PAGES.probe = function (s) {
         var p = s.probe || { state: "checking", target: {} };
         var name = p.target.name || address(p.target);
         if (p.state === "checking") {
-            return header("Checking", null)
-                + '<h1>Checking ' + esc(name) + '…</h1>'
-                + '<div class="detail">Wireless Sync is connecting to Calibre to check the password and '
-                + 'read the library\'s columns. Nothing is synced yet.</div>'
-                + '<div class="hint">Calibre shows the Kindle as connected for a few seconds.</div>'
-                + button("Cancel", "cancelprobe", { cls: "btn-wide" });
+            return '<h1 class="top">Testing connection to ' + esc(name) + '…</h1>'
+                + '<div class="hint">Calibre will show the Kindle as connected for a few seconds.</div>'
+                + wide("Cancel", "cancelprobe");
         }
         if (p.state === "password_needed" || p.state === "password_rejected") {
             return header(name, "cancelprobe")
@@ -275,12 +286,12 @@
                     : 'Calibre rejected that password.') + '</div>'
                 + '<div class="hint">It\'s set in Calibre\'s <b>Start wireless device connection</b> window.</div>'
                 + field("inProbePw", "Password", "password", "")
-                + btnRow([button("Check again", "probepw", { cls: "btn-strong" }), button("Cancel", "cancelprobe")]);
+                + wide("Continue", "probepw", { cls: "btn-strong" });
         }
         return header(name, "cancelprobe")
-            + '<h1>Couldn\'t check ' + esc(name) + '</h1>'
+            + '<h1>Couldn\'t connect to ' + esc(name) + '</h1>'
             + '<div class="detail">' + esc(p.error || "Something went wrong.") + '</div>'
-            + btnRow([button("Try again", "retryprobe", { cls: "btn-strong" }), button("Back", "cancelprobe")]);
+            + wide("Try again", "retryprobe", { cls: "btn-strong" });
     };
 
     function pickerRow(label, kind, columns) {
@@ -293,10 +304,10 @@
     }
 
     function readSyncForm(columns) {
-        var html = toggleRow("Send read status to Calibre", form.writable, "writable", true);
+        var html = toggleRow("Update read status in Calibre", form.writable, "writable", true);
         if (!form.writable) {
-            return html + '<div class="hint">When on, books marked read on the Kindle, and when you last read them, '
-                + 'are saved in Calibre columns you choose. Off, the Kindle never changes this library.</div>';
+            return html + '<div class="hint">When enabled, books\' completion and last-read date are synced to '
+                + 'Calibre, in columns you choose.</div>';
         }
         return html + '<div class="rows" style="border-top:none">'
             + pickerRow("Read", "bool", columns) + pickerRow("Last read", "datetime", columns) + '</div>';
@@ -309,19 +320,18 @@
         var html = header("Link " + lib.name, "cancelprobe")
             + '<div class="sub">' + esc(where(lib)) + '</div>';
         if (inline) {
-            html += '<div class="warning">This replaces <b>' + esc(s.library.name) + '</b>. The books stay on the Kindle, '
-                + 'but their details from ' + esc(s.library.name) + ' (series, read status) are forgotten until '
-                + esc(lib.name) + ' sends its own.</div>';
+            html += '<div class="warning">This replaces <b>' + esc(s.library.name) + '</b>. '
+                + forgetText(s.library.name, lib.name) + '</div>';
         }
-        html += readSyncForm(lib.columns)
-            + btnRow([button(inline ? "Replace and link" : "Link", "link", { cls: "btn-strong" }),
-                      button("Cancel", "cancelprobe")]);
-        return html;
+        return html + readSyncForm(form.columns)
+            + wide(inline ? "Replace and link" : "Link", "link", { cls: "btn-strong" });
     };
 
     PAGES.picker = function (s) {
-        var columns = form.ctx === "setup" ? s.probe.library.columns : s.library.columns;
-        var libName = form.ctx === "setup" ? s.probe.library.name : s.library.name;
+        var setup = form.ctx === "setup";
+        var columns = setup ? form.columns : s.library.columns;
+        var libName = setup ? form.name : s.library.name;
+        var rechecking = setup && s.probe && s.probe.state === "checking";
         var isRead = pickerKind === "bool";
         var current = isRead ? form.read_column : form.last_read_column;
         var list = columns && columns[pickerKind] || [];
@@ -340,9 +350,11 @@
                 + 'In Calibre, add one under <b>Preferences → Add your own columns</b>'
                 + (isRead ? ' (type "Yes/No")' : ' (type "Date")') + ', for example "'
                 + (isRead ? "Kindle read" : "Kindle last read") + '".</div>';
-            html += form.ctx === "setup"
-                ? button("Check again", "retryprobe", { cls: "btn-wide" })
-                : '<div class="hint">It shows up here after Wireless Sync next connects.</div>';
+        }
+        if (setup) {
+            html += wide(rechecking ? "Checking…" : "Check again", "recheck", { disabled: rechecking });
+        } else if (!list.length) {
+            html += '<div class="hint">It shows up here after Wireless Sync next connects.</div>';
         }
         return html;
     };
@@ -358,12 +370,7 @@
             + button("Change", "password", { cls: "btn-small", arg: "settings" }) + '</span></div>'
             + readSyncForm(lib.columns)
             + (form.writable ? '<div class="hint">Columns as of the last connection to Calibre.</div>' : '')
-            + button("Save", "save", { cls: "btn-wide btn-strong", disabled: !changed });
-    };
-    BOTTOM.settings = function (s) {
-        return '<div class="rule">'
-            + (variant("changeFlow") === "unlink" ? '<div class="hint">To use a different library, unlink this one first.</div>' : '')
-            + button("Unlink " + s.library.name, "unlink", { cls: "btn-wide" }) + '</div>';
+            + wide("Save", "save", { cls: "btn-strong", disabled: !changed });
     };
 
     PAGES.password = function (s) {
@@ -374,8 +381,22 @@
             + btnRow([button("Save", "savepw", { cls: "btn-strong" }), button("No password", "clearpw")]);
     };
 
+    PAGES.app = function (s) {
+        var html = header("Settings", "back:" + appFrom)
+            + toggleRow("Start automatically", s.autostart, "autostart")
+            + '<div class="hint">Start Wireless Sync when the Kindle starts.</div>'
+            + toggleRow("Group books into series", s.series, "series")
+            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>';
+        if (variant("serviceControls") === "settings") {
+            html += sectionLabel("Service")
+                + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
+                + '<div class="hint">Once stopped, it starts again the next time you open Wireless Sync.</div>';
+        }
+        return html + '<div class="footer">Wireless Sync ' + esc(s.version || "") + '</div>';
+    };
+
     PAGES.stopped = function (s) {
-        return '<h1>Service not running</h1><div class="detail">' + esc(s.error)
+        return '<h1 class="top">Service not running</h1><div class="detail">' + esc(s.error)
             + ' Close and reopen Wireless Sync to start it.</div>';
     };
 
@@ -387,15 +408,13 @@
         var html = '<div class="dialog">';
         if (dialog.kind === "unlink") {
             html += '<div class="title">Unlink ' + esc(dialog.name) + '?</div>'
-                + '<div class="detail">The books stay on the Kindle. Wireless Sync stops connecting to '
-                + esc(dialog.name) + ' until you link a library again.</div>'
+                + '<div class="detail">Your books and their series stay on the Kindle. Wireless Sync stops '
+                + 'connecting to ' + esc(dialog.name) + ' until you link a library again.</div>'
                 + btnRow([button("Cancel", "closedialog"), button("Unlink", "dounlink", { cls: "btn-strong" })]);
         } else if (dialog.kind === "replace") {
             html += '<div class="title">Replace ' + esc(dialog.linked) + '?</div>'
                 + '<div class="detail">This Kindle is linked to <b>' + esc(dialog.linked) + '</b>. Linking <b>'
-                + esc(dialog.name) + '</b> replaces it. The books stay on the Kindle, but their details from '
-                + esc(dialog.linked) + ' (series, read status) are forgotten until ' + esc(dialog.name)
-                + ' sends its own.</div>'
+                + esc(dialog.name) + '</b> replaces it. ' + forgetText(dialog.linked, dialog.name) + '</div>'
                 + btnRow([button("Cancel", "closedialog"), button("Replace", "doreplace", { cls: "btn-strong" })]);
         }
         d.innerHTML = html + '</div>';
@@ -410,17 +429,22 @@
     }
 
     function setupForm(lib, old) {
-        if (old && old.ctx === "setup" && old.uuid === lib.uuid) return old;
+        if (old && old.ctx === "setup" && old.uuid === lib.uuid) {
+            old.columns = lib.columns;
+            return old;
+        }
         var cols = lib.columns;
-        return { ctx: "setup", uuid: lib.uuid, writable: false,
+        return { ctx: "setup", uuid: lib.uuid, name: lib.name, columns: cols, writable: false,
                  read_column: hasColumn(cols, "bool", "#kindle_read") ? "#kindle_read" : null,
                  last_read_column: hasColumn(cols, "datetime", "#kindle_last_read") ? "#kindle_last_read" : null };
     }
 
     function go(to) {
+        if (to === "root") to = rootPage();
         // Back from a column picker keeps the edits; otherwise start from the saved settings.
         if (to === "settings" && status.library && page !== "picker") form = settingsForm(status.library);
         if (to === "choose") startFind();
+        if (to === "address" && page !== "probe") addressFrom = page;
         page = to;
         redraw();
     }
@@ -428,21 +452,29 @@
     function fixPage(s) {
         if (s.error) { page = "stopped"; return; }
         if (page === "stopped" || !page) {
-            page = s.library ? "home" : "choose";
-            if (!s.library) startFind();
+            page = rootPage();
+            if (page === "choose") startFind();
         }
         if (!s.library && (page === "home" || page === "settings" || page === "password")) {
-            page = "choose";
-            startFind();
+            page = rootPage();
+            if (page === "choose") startFind();
         }
-        var probing = page === "probe" || page === "setup" || (page === "picker" && form && form.ctx === "setup");
+        if (s.library && page === "welcome") page = "home";
         if (s.probe) probeStarting = false;
+        var setupPicker = page === "picker" && form && form.ctx === "setup";
+        var probing = page === "probe" || page === "setup" || setupPicker;
         if (probing && !s.probe && !probeStarting) page = probeFrom;
         if (page === "probe" && s.probe && s.probe.state === "ok") {
             form = setupForm(s.probe.library, form);
             page = "setup";
         }
-        if (page === "picker" && !form) page = s.library ? "home" : "choose";
+        // Check again from a picker stays there, with the columns it found;
+        // a problem (a changed password, say) shows on the probe page.
+        if (setupPicker && s.probe) {
+            if (s.probe.state === "ok") form = setupForm(s.probe.library, form);
+            else if (s.probe.state !== "checking") page = "probe";
+        }
+        if (page === "picker" && !form) page = rootPage();
     }
 
     var FORM_PAGES = { address: true, password: true };
@@ -455,7 +487,6 @@
         var typing = FORM_PAGES[page] || probeState === "password_needed" || probeState === "password_rejected";
         if (!(typing && key === renderedKey)) {
             el("page").innerHTML = PAGES[page](status);
-            el("bottom").innerHTML = BOTTOM[page] && !status.error ? BOTTOM[page](status) : "";
             renderedKey = key;
         }
         renderDialog();
@@ -467,11 +498,10 @@
     /// Tell the harness how much the page overflows the screen.
     function report() {
         if (window.parent === window) return;
-        var pageEl = el("page"), bottom = el("bottom");
+        var pageEl = el("page");
         var used = pageEl.offsetTop + pageEl.offsetHeight;
-        var room = window.innerHeight - (bottom.innerHTML ? bottom.offsetHeight : 0);
         window.parent.postMessage({ kws: "metrics", page: page + (dialog ? " + " + dialog.kind + " dialog" : ""),
-                                    overflow: used - room }, "*");
+                                    overflow: used - window.innerHeight }, "*");
     }
 
     function refresh() {
@@ -489,16 +519,17 @@
 
     // ---- actions ----
 
-    function startProbe(body, from) {
+    function startProbe(body, from, stay) {
         lastProbe = body;
         probeFrom = from;
         probeStarting = true;
-        page = "probe";
+        if (!stay) page = "probe";
         post("/probe", body);
         redraw();
     }
 
     function doLink(replace) {
+        var name = form.name;
         post("/link", { writable: form.writable, read_column: form.writable ? form.read_column : null,
                         last_read_column: form.writable ? form.last_read_column : null, replace: !!replace },
             function (data) {
@@ -507,7 +538,7 @@
                     renderDialog();
                     report();
                 } else if (data && data.ok) {
-                    showMessage("Linked to " + status.probe.library.name + ".");
+                    showMessage("Linked to " + name + ".");
                     form = null;
                     page = "home";
                 }
@@ -516,9 +547,11 @@
 
     var ACTIONS = {
         go: function (arg) { go(arg); },
+        appsettings: function () { appFrom = page; page = "app"; redraw(); },
         autostart: function () { post("/autostart", { enabled: !status.autostart }); },
-        connect: function () { post("/connect-now"); },
-        pause: function () { post(status.paused ? "/resume" : "/pause"); },
+        series: function () { post("/series", { enabled: !status.series }); },
+        connect: function () { post(status.paused ? "/resume" : "/connect-now"); },
+        disconnect: function () { post("/pause"); },
         find: function () { startFind(); },
         change: function () { go("choose"); },
         probe: function (uuid) { startProbe({ uuid: uuid }, "choose"); },
@@ -535,6 +568,7 @@
             startProbe(body, probeFrom);
         },
         retryprobe: function () { startProbe(lastProbe, probeFrom); },
+        recheck: function () { startProbe(lastProbe, probeFrom, true); },
         cancelprobe: function () {
             post("/probe/cancel");
             form = null;
@@ -574,7 +608,7 @@
         dounlink: function () {
             dialog = null;
             post("/unlink", {}, function (data) {
-                if (data && data.ok) showMessage("Unlinked. The books stay on the Kindle.");
+                if (data && data.ok) showMessage("Unlinked. Your books stay on the Kindle.");
             });
         },
         service: function (what) { post("/service", { action: what }); }

@@ -79,15 +79,18 @@
 
         <div class="card opts">
             <h2>Design variants</h2>
+            <div class="opt"><span class="k">First page</span>
+                <label><input type="radio" name="firstPage" value="welcome" checked /> Welcome</label>
+                <label><input type="radio" name="firstPage" value="find" /> Library list</label></div>
             <div class="opt"><span class="k">Changing library</span>
                 <label><input type="radio" name="changeFlow" value="choose" checked /> Change library button</label>
-                <label><input type="radio" name="changeFlow" value="unlink" /> Unlink first</label></div>
+                <label><input type="radio" name="changeFlow" value="unlink" /> Unlink only</label></div>
             <div class="opt"><span class="k">Confirm a replace</span>
                 <label><input type="radio" name="replaceConfirm" value="dialog" checked /> Dialog after Link</label>
                 <label><input type="radio" name="replaceConfirm" value="inline" /> Warning on the page</label></div>
             <div class="opt"><span class="k">Service controls</span>
                 <label><input type="radio" name="serviceControls" value="none" checked /> None</label>
-                <label><input type="radio" name="serviceControls" value="bottom" /> Stop/Restart at the bottom</label></div>
+                <label><input type="radio" name="serviceControls" value="settings" /> Restart/Stop in Settings</label></div>
             <div class="opt"><span class="k">Checking a library</span>
                 <label><input type="radio" name="probeMs" value="2500" checked /> Quick (2.5 s)</label>
                 <label><input type="radio" name="probeMs" value="12000" /> Realistic (12 s)</label></div>
@@ -147,7 +150,7 @@ for (const [key, label] of Object.entries(KWSMock.PRESETS)) {
     presets.appendChild(b);
 }
 
-for (const key of ["changeFlow", "replaceConfirm", "serviceControls"]) {
+for (const key of ["firstPage", "changeFlow", "replaceConfirm", "serviceControls"]) {
     document.querySelectorAll(`input[name=${key}]`).forEach((r) =>
         r.addEventListener("change", () => { mock.variants[key] = r.value; mock.onChange(); }));
 }

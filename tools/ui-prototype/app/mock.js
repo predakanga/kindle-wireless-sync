@@ -59,7 +59,7 @@
         this.onChange = onChange || function () {};
         this.log = [];
         this.timers = {};
-        this.variants = { changeFlow: "choose", replaceConfirm: "dialog", serviceControls: "none" };
+        this.variants = { firstPage: "welcome", changeFlow: "choose", replaceConfirm: "dialog", serviceControls: "none" };
         this.options = { probeMs: 2500, keyboard: true };
         this.preset("fresh");
     }
@@ -80,7 +80,7 @@
         this.timers = {};
         this.net = defaultNetwork();
         this.wifi = true;
-        this.svc = { running: true, autostart: name !== "fresh", paused: false, linked: null,
+        this.svc = { running: true, autostart: name !== "fresh", series: true, paused: false, linked: null,
                      state: "not_linked", detail: "" };
         this.found = [];
         this.finding = false;
@@ -161,7 +161,7 @@
         var s = this.svc, l = s.linked;
         return {
             ok: true, version: "0.3.0", state: s.state, detail: s.detail,
-            paused: s.paused, autostart: s.autostart,
+            paused: s.paused, autostart: s.autostart, series: s.series,
             library: l ? {
                 uuid: l.uuid, name: l.name, hostname: l.hostname, host: l.host, port: l.port,
                 has_password: !!l.password, writable: l.writable,
@@ -231,6 +231,7 @@
         }
         if (path === "/unlink") { s.linked = null; this.reconcile(); return { ok: true }; }
         if (path === "/autostart") { s.autostart = !!b.enabled; return { ok: true }; }
+        if (path === "/series") { s.series = !!b.enabled; return { ok: true }; }
         if (path === "/pause") { s.paused = true; this.reconcile(); return { ok: true }; }
         if (path === "/resume") { s.paused = false; this.reconcile(); return { ok: true }; }
         if (path === "/connect-now") { this.reconcile(); return { ok: true }; }

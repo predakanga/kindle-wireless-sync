@@ -55,7 +55,21 @@ body { padding: 0 1rem; }
     border-radius: 0.3rem;
     padding: 0;
 }
-.back:active { background: #000; color: #fff; }
+.back:active, .gear:active { background: #000; color: #fff; }
+.header .title.with-gear { right: 3.2rem; }
+.gear {
+    position: absolute;
+    right: 0;
+    top: 0.35rem;
+    width: 2.6rem;
+    height: 2.3rem;
+    font-size: 1.4rem;
+    background: #fff;
+    color: #000;
+    border: 2px solid #000;
+    border-radius: 0.3rem;
+    padding: 0;
+}
 
 h1 { font-size: 1.45rem; margin: 0.9rem 0 0.4rem; }
 
@@ -189,21 +203,23 @@ input[type=text], input[type=number], input[type=password] {
 
 .warning { margin: 0.6rem 0; padding: 0.5rem; border: 2px dashed #000; font-size: 0.9rem; }
 
-/* ---- pinned to the bottom of the screen ---- */
+/* ---- home: the linked library ---- */
 
-.bottom {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 0 1rem 0.5rem;
-    background: #fff;
+.card {
+    border: 2px solid #000;
+    border-radius: 0.4rem;
+    padding: 0.7rem 0.8rem;
+    margin: 0.2rem 0 0.4rem;
 }
-.bottom .rule { border-top: 2px solid #000; padding-top: 0.4rem; }
-.footer { font-size: 0.8rem; text-align: center; margin-top: 0.3rem; }
-.service { overflow: hidden; }
-.service .label { float: left; line-height: 1.9rem; font-size: 0.9rem; }
-.service .btn { float: right; margin-left: 0.5rem; }
+.card-name { font-size: 1.3rem; font-weight: bold; }
+.card-state { font-size: 1.1rem; font-weight: bold; margin: 0.3rem 0 0.4rem; }
+.card .sub { font-size: 0.9rem; margin-top: 0.15rem; }
+
+.steps { margin: 0.6rem 0 0.8rem; padding-left: 1.4rem; }
+.steps li { margin-bottom: 0.4rem; }
+
+h1.top { margin-top: 1.5rem; }
+.footer { font-size: 0.8rem; text-align: center; margin-top: 1.5rem; }
 
 /* ---- dialogs ---- */
 
