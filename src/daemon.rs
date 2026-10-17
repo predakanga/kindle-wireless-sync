@@ -345,7 +345,11 @@ impl Daemon {
     pub fn run(mut self) {
         // Reset whenever Wi-Fi cycles (ADR 0008).
         let mut ejected = false;
+        // Addresses serving a library other than the linked one, and which
+        // library was linked when they were added: linking another library
+        // makes them worth trying again.
         let mut skip: HashSet<SocketAddr> = HashSet::new();
+        let mut skip_for = String::new();
         // The library that rejected our password, until the user acts.
         let mut bad_password: Option<String> = None;
         let mut attempt = 0usize;
@@ -442,6 +446,11 @@ impl Daemon {
                     _ => {}
                 }
                 continue;
+            }
+
+            if skip_for != library.uuid {
+                skip.clear();
+                skip_for = library.uuid.clone();
             }
 
             // Our state may still belong to a library linked before.
@@ -1092,6 +1101,28 @@ mod tests {
         h.network_changed(true);
         wait_until("retry after wifi cycle", || {
             count.load(Ordering::SeqCst) == 2
+        });
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn linking_the_library_at_a_skipped_address_tries_it_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre("lib-2");
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        wait_until("not found", || h.status().state == State::NotFound);
+        assert_eq!(h.found()[0].uuid, "lib-2");
+
+        // What the app's Link does for a found library.
+        let found = h.found().remove(0);
+        assert!(matches!(
+            link_found(tmp.path(), &found, true).unwrap(),
+            Link::Replaced(_)
+        ));
+        h.reconnect();
+        wait_until("connected to the newly linked library", || {
+            count.load(Ordering::SeqCst) == 2 && h.status().state == State::Ejected
         });
         h.shutdown();
         thread.join().unwrap();
