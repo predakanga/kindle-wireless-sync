@@ -16,6 +16,16 @@ one.
   with `link --writable`. See the README.
 
 ### Changed
+- The **Wireless Sync** app is new: each page fits one screen, with no
+  scrolling. Linking a library first tests the connection (and asks for
+  Calibre's password if it has one), then lets you set up read status
+  sync, choosing from the library's own columns. The gear opens settings:
+  start automatically, group books into series, and restart or stop the
+  service.
+- If Calibre stops accepting the Kindle after too many failed connections,
+  the app says so and how to fix it (stop and start Calibre's wireless
+  device connection). Finding libraries no longer adds to that count when
+  repeated within 5 minutes.
 - The Kindle is linked to one Calibre library, instead of an allowlist of
   libraries. Link it with **Find libraries** or by address in the app, or
   with `link` on the command line, which replaces `allow` and `add-server`.
