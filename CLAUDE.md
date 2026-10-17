@@ -175,6 +175,39 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   `file://` `repo.json` (`kpm add-repo`, `kpm update`, `kpm install`), and
   remove the repo afterwards.
 
+### Emulated Kindle
+
+`../eink-emulator` runs Kindle firmware in QEMU; read its `AGENTS.md`
+first. Instance `pw6-5201-jb` matches the reference device: a Paperwhite
+12th Gen (`kindle-paperwhite-6`) on 5.20.1, jailbroken with `--jbsh`, so
+KPM is present. The developer's own `pw12` instance is theirs; leave it
+alone.
+
+- Start it in the background from `../eink-emulator`:
+  `./eink run pw6-5201-jb --headless --serial-socket --qmp-socket
+  --ssh-port 4022 --wifi-ssh-port 4023`. SSH host `kindle-emu`; every
+  device recipe takes it, e.g. `KINDLE_HOST=kindle-emu just kpm-install`.
+- Home is up when `lipc-get-prop com.lab126.appmgrd activeApp` says
+  `com.lab126.KPPMainApp` (Home and Library both live in it). Check with
+  `python3 scripts/eink-qmp.py --machine pw6-5201-jb screendump F.png`; a
+  capture can land mid-refresh (a dithered screen), so take another.
+- Join Wi-Fi over SSH: `echo '{ essid = "Kindle-QEMU", secured = "no" }' |
+  lipc-hash-prop com.lab126.wifid createProfile`, then `lipc-set-prop
+  com.lab126.wifid cmConnect Kindle-QEMU`. `wifid` reaches CONNECTED only
+  once its DNS probe passes, and the daemon waits for CONNECTED.
+- **QEMU's DNS proxies break on the developer's Mac** (2026-10-17). They
+  break when the real Kindle is plugged in: its USB network (`en7`) is on
+  the same 192.168.15.0/24 as the emulator's, and the Wi-Fi proxy
+  (10.0.2.3) times out. They also break while Tailscale manages DNS: both
+  proxies fail at once. Either one is enough. Check with `nslookup
+  example.com 10.0.2.3` in the guest, and ask the developer to unplug the
+  Kindle or quit Tailscale.
+- The guest reaches the Mac at 10.0.2.2 over Wi-Fi and 192.168.15.201 over
+  USB. UDP broadcast doesn't cross QEMU's network, so `find` can't see
+  Calibre. Link with `/add-server` (or `add-server`) by address.
+- `ping` in the guest is unreliable on macOS: replies arrive late and with
+  "wrong data byte" errors. Don't read anything into it.
+
 ## Gotchas
 
 - **zsh:** an argument starting with `=` (for example `echo =====`) aborts
