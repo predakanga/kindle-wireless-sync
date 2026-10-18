@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-16
+- Amended 2026-10-18: books whose key only the catalog knows (KFX) get it
+  once indexed, and a series waits for all its members' keys. See the end.
 
 ## Context
 Phase 5: show Calibre series as the Kindle's own series grouping, with one
@@ -226,3 +228,38 @@ On the reference device, with grouping turned on and Calibre 9.16.0:
   uuid rather than ASIN, so the cloud has nothing to match them to. This
   is absence of evidence, not proof. The Daemon series existed for only
   about 90 s, so it says nothing either way.
+
+## KFX books and their keys (2026-10-18)
+A series member is identified by its content key. AZW3 and MOBI files carry
+it (EXTH 113 and 501), but a KFX book's key is only known once the scanner
+has indexed it (`KeySource::AfterIndex`). The receiver used to wait up to
+10 s for that. The developer's first end-to-end test sent 8 books of one
+series, 4 of them KFX, about 10 s apart: the scanner takes about 15 s per
+book (research note, "Indexing time and the catalog's event") and works
+through a queue, so all 4 KFX books timed out. They were stored without
+keys, the series formed from the 4 AZW3 books alone ("4 out of 4"), and the
+KFX books got no Calibre cover.
+
+Now:
+- **No waiting while receiving.** The record is saved with
+  `_kws.key_pending` (when it started), and Calibre's cover is kept in
+  `state/covers/pending/` (named after the SHA-1 of the lpath).
+- **The key follows the catalog.** The service listens for
+  `com.lab126.ccat`'s `updated` event, which the catalog sends as the
+  scanner adds a book. At the next quiet moment (a keep-alive in a
+  session, or the daemon's idle wait), it looks pending keys up in
+  `cc.db`, read-only, writes the kept cover for each one found, and marks
+  series dirty. While any key is pending it also looks once a minute, in
+  case an event is missed, and gives up on a book after 30 minutes.
+- **A series waits for its members.** While any book in a series has its
+  key pending, the series pass postpones itself, so the Library never shows
+  a partial series.
+- **Books received before** this change (KFX records without a key) are
+  marked pending when the service starts, and looked up at once.
+
+Tested on the device: the 4 KFX books from the test got their keys at the
+first lookup after the upgrade, and the series pass made one series of all
+8 books. Its tile showed a grey cover, because a series takes its first
+book's cover and that book (a KFX without a cover of its own) only has the
+scanner's placeholder; Calibre's cover for it wasn't kept before this
+change.

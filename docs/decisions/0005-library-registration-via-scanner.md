@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended 2026-10-18 (ADR 0016, "KFX books and their keys"): for a book
+  whose key only the catalog knows (KFX), the cover can't be written
+  before the scanner sees it. It's written once the key is known, and the
+  Library shows it the next time it draws the grid.
 
 ## Context
 Requirement 4 says a synced book must appear in the Kindle library right

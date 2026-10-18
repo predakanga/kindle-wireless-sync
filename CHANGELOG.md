@@ -37,6 +37,12 @@ one.
   them. **After upgrading, link your library again.**
 
 ### Fixed
+- Books sent as KFX now get Calibre's cover and join their series. The
+  Kindle takes about 15 seconds to index each book, and longer when several
+  arrive at once, so the app now fills these in once the Kindle has indexed
+  the book, instead of giving up after 10 seconds. A transfer no longer
+  pauses on each KFX book, and a series appears once all its books are
+  indexed.
 - Switching libraries in Calibre while the Kindle was connected kept the
   Kindle connected to the new library, so it synced with a library it
   wasn't linked to. The Kindle now disconnects, and the app says which

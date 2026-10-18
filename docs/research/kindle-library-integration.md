@@ -290,6 +290,23 @@ AZW3) and a MOBI:
   "could not send any discovery probe". The daemon must wait for
   Wi-Fi (ADR 0004).
 
+### Indexing time and the catalog's event (2026-10-18)
+Measured by copying a file into `documents` (temp name, then `mv`) and
+reading `cc.db` every second:
+- A KFX copy was listed after 14.7 s, an AZW3 copy after 14.5 s. The
+  scanner works through new files one at a time, so books arriving about
+  10 s apart queue up.
+- `com.lab126.ccat` sends an `updated` event when the catalog changes:
+  12.8 s after the file arrived, about when the entry appeared, and again
+  3 s later. `com.lab126.scanner`, `com.lab126.indexer`,
+  `com.lab126.kpp.yjextractor` and `com.lab126.extractor.java` sent nothing
+  (`lipc-wait-event -m <service> '*'`). Nothing was logged in
+  `/var/log/messages` either.
+- `cc.db` is a single SQLite file (no `-wal`), so inotify on it in
+  `/var/local` would also see the change; the event is simpler.
+- A KFX copy of a book already in the library got a key made from its path
+  (`*58026a…`) instead of the original's ASIN.
+
 ### Verifying the UI from SSH
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to

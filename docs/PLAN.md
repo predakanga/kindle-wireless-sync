@@ -342,11 +342,13 @@ Not part of any phase. Pick these up after the base and stretch goals
    the Kindle disconnected (developer, 2026-10-17). Find out whether a
    shutdown eject can be told apart from a user's eject.
 9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
-   plugin, but it has never been tested (developer, 2026-10-17). Check
-   receiving a KFX book, its cover (`KeySource::AfterIndex`, which reads the
-   content key after indexing), deleting and replacing it, whether the file
-   carries Calibre's book UUID (so adoption, ADR 0013, could recover it), and
-   what linking a different library does to it (ADR 0018).
+   plugin (developer, 2026-10-17). Receiving works, and keys and covers now
+   follow indexing (ADR 0016, "KFX books and their keys", 2026-10-18).
+   Still to check: deleting and replacing a KFX book, whether the file
+   carries Calibre's book UUID (so adoption, ADR 0013, could recover it),
+   and what linking a different library does to it (ADR 0018). A KFX
+   file's own title shows in the Library (one test book showed
+   "Dungeon Crawler Carl - 01"), not Calibre's.
 10. **End connections more reliably than waiting for a quiet moment.**
     Several things end a session on purpose: new read-sync columns (ADR
     0017), new settings, a check of the same Calibre, and Calibre switching
