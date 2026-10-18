@@ -345,9 +345,12 @@ Not part of any phase. Pick these up after the base and stretch goals
    shutdown eject can be told apart from a user's eject. **Built**
    (2026-10-18, ADR 0021): after an eject, the service asks Calibre's
    address by datagram, and if Calibre no longer answers it reconnects once
-   it does. Still to test with the harness Calibre and on the Kindle (the
-   ADR's Consequences list the cases), and to check whether a datagram to
-   10.0.2.2 gets an answer on the emulated Kindle.
+   it does. The harness Calibre passed the ADR's four cases with the
+   service on the Mac (2026-10-18): an eject stays disconnected; a quit and
+   relaunch, and stopping and starting the wireless connection, reconnect
+   within one 10 s round; a restart on port 9191 connects there, and
+   `config.json` records it. Still to check on the Kindle, and whether a
+   datagram to 10.0.2.2 gets an answer on the emulated Kindle.
 9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
    plugin (developer, 2026-10-17). Receiving works, and keys and covers now
    follow indexing (ADR 0016, "KFX books and their keys", 2026-10-18).

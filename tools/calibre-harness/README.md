@@ -55,3 +55,8 @@ shows up in several sessions should become a command.
   made with `calibredb --library-path dev-calibre/library2 list`. Used
   2026-10-18.
   `gui.library_moved('/abs/path/dev-calibre/library2'); result = "ok"`
+- Eject the device, as Calibre's eject button does. Used 2026-10-18.
+  `dm.umount_device(); result = "ok"`
+- Go back to a non-fixed port after `wireless-start --port N` (the option
+  is saved). Used 2026-10-18.
+  `dm.set_option("smartdevice", "use_fixed_port", False); result = "ok"`
