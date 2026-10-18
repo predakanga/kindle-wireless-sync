@@ -397,7 +397,12 @@ Not part of any phase. Pick these up after the base and stretch goals
     For example, include each book's series in the book list the Kindle
     sends, so Calibre's device view shows it. Settle exactly what's wanted
     first: what Calibre does with series from the device, and whether that
-    differs for books Calibre already has in its library.
+    differs for books Calibre already has in its library. **Closed, nothing
+    to do** (2026-10-18): the book list already echoes Calibre's metadata,
+    series included, and Calibre shows a device book's series in its book
+    details. The device view simply has no Series column (`DeviceBooksModel`
+    in `gui2/library/models.py`). The developer had assumed we weren't
+    sending it.
 12. **Choose where books are stored** (developer, 2026-10-18): a setting
     for the folder under `/mnt/us/documents` that received books go into.
     Harder than the other settings in the app: what happens to books
