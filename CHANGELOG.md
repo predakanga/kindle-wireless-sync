@@ -8,6 +8,8 @@ one.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 - Choose the folder new books go into, inside the Kindle's `documents`
   folder: **Storage folder** in the app's settings opens a folder picker,
@@ -135,7 +137,8 @@ First release.
   on the device instead of sending them again.
 - Install, upgrade and uninstall through KPM. Uninstalling keeps your books.
 
-[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.2.0...v0.3.0
