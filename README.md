@@ -37,7 +37,7 @@ reader. KOReader and other third-party readers are out of scope.
   whose pages each fit one screen. It shows the status, checks a library
   before linking it, and lets you connect or disconnect, change library,
   set up read status sync, and choose whether the service starts with the
-  Kindle and groups series.
+  Kindle, groups series, and which folder new books go into.
 - **Native series.** Books in a Calibre series are grouped into one series
   tile, in series order, like series bought from Amazon. This needs the
   Kindle's "Group series" feature, which Amazon only offers in some
@@ -92,6 +92,12 @@ Books the new library doesn't have show in Calibre as on the device only.
 
 To stop the app managing series, turn off **Group books into series** in
 the app's settings (the gear). The series it created are dissolved.
+
+New books go into the Kindle's `documents` folder. To use a folder inside
+it instead, open the app's settings (the gear), tap **Change** next to
+**Books folder**, and pick or create one. Only books sent afterwards go
+there: books already on the Kindle stay where they are, and Calibre still
+updates them in place.
 
 ### Read status in Calibre
 

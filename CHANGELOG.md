@@ -8,6 +8,17 @@ one.
 
 ## [Unreleased]
 
+### Added
+- Choose the folder new books go into, inside the Kindle's `documents`
+  folder: **Books folder** in the app's settings opens a folder picker,
+  which can also create folders. Books already on the Kindle stay where
+  they are.
+
+### Changed
+- A book you send again from Calibre is updated in place, even if you
+  renamed it in Calibre or changed the books folder since, so its reading
+  progress is kept.
+
 ## [0.3.2] - 2026-10-18
 
 ### Changed
