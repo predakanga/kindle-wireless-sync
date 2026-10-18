@@ -19,7 +19,8 @@ one.
   password or linking another library now waits for Calibre to finish
   what it's doing (15 seconds at most), so Calibre no longer shows an
   error if it was in the middle of something. Home shows "Disconnecting…"
-  meanwhile.
+  meanwhile. Reconnecting after a change of sync settings, a library check
+  or a library switch in Calibre leaves Calibre more safely too.
 - The app's Home shows why the Kindle isn't connected directly under the
   status, with what to do: for example "Ejected by Calibre. Tap Connect
   below to reconnect."
