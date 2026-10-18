@@ -1,8 +1,8 @@
 # 0023: Choosing the folder received books go into
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-10-19)
 - Date: 2026-10-18
-- Amends, once accepted: [0005](0005-library-registration-via-scanner.md)
+- Amends: [0005](0005-library-registration-via-scanner.md)
   ("the subfolder layout is decided later") and
   [0020](0020-one-screen-pages-and-checking-a-library.md) (a new page).
 
@@ -67,8 +67,10 @@ the current one, with Change):
 - It starts at `documents`, the top: nothing outside it can be chosen.
 - It lists the subfolders of the folder shown, a page at a time
   (one screen per page, ADR 0020), leaving out hidden folders (starting
-  with `.`) and `.sdr` folders. Tapping one opens it; Back goes up, but
-  not above `documents`.
+  with `.`) and `.sdr` folders. Tapping one opens it. Below `documents`,
+  the list starts with a row "Up to *parent*", in italics, which opens the
+  folder above (the developer's suggestion, 2026-10-19). The header's Back
+  leaves the picker without saving.
 - **Use this folder** saves it. **New folder** asks for a name (the
   on-screen keyboard), creates it inside the folder shown, and opens it.
 - A folder whose name wouldn't pass lpath validation (ADR 0003) can't be
@@ -101,6 +103,5 @@ the current one, with Change):
   Library and gets its cover; updating it rewrites it in place; deleting it
   from Calibre removes it and its `.sdr`; changing the folder leaves older
   books where they are and updates still find them.
-- Open: "nothing under that should be accepted" (developer, 2026-10-18) is
-  read here as "nothing outside `documents`". If it meant something else,
-  this changes.
+- The developer confirmed that nothing outside `documents` can be chosen
+  (2026-10-19).
