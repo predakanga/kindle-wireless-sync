@@ -443,11 +443,11 @@
         var html = header("Settings", "back:" + appFrom)
             + toggleRow("Start automatically", s.autostart, "autostart")
             + '<div class="hint">Start Wireless Sync when the Kindle starts.</div>'
-            + toggleRow("Group books into series", s.series, "series")
-            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
             + '<div class="toggle-row"><span class="toggle-label">Storage folder</span>'
             + button("Change", "folders", { cls: "btn-small" }) + '</div>'
-            + '<div class="hint">Books are currently syncing to <i>' + esc(folderLabel(s.books_folder || "")) + '</i>.</div>';
+            + '<div class="hint">Books are currently syncing to <i>' + esc(folderLabel(s.books_folder || "")) + '</i>.</div>'
+            + toggleRow("Group books into series", s.series, "series")
+            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>';
         html += sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
             + '<div class="hint">The service will start again next time you open this app'

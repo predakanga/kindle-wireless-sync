@@ -467,11 +467,11 @@
             html += '<div class="warning">Autostart was turned off after the service failed to start '
                 + 'properly three times in a row. Turn it on again to retry.</div>';
         }
-        html += toggleRow("Group books into series", s.series, "series")
-            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
-            + '<div class="toggle-row"><span class="toggle-label">Storage folder</span>'
+        html += '<div class="toggle-row"><span class="toggle-label">Storage folder</span>'
             + button("Change", "folders", { cls: "btn-small" }) + '</div>'
             + '<div class="hint">Books are currently syncing to <i>' + esc(folderLabel(s.books_folder || "")) + '</i>.</div>'
+            + toggleRow("Group books into series", s.series, "series")
+            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
             + sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
             + '<div class="hint">The service will start again next time you open this app'
