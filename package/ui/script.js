@@ -239,7 +239,8 @@
         } else if (s.retry_at) {
             // While retrying, the countdown says it all, unless there's advice.
             if (s.advice) html += '<div class="hint">' + esc(s.advice) + '</div>';
-        } else if (s.state !== "connected" && s.state !== "paused" && s.detail) {
+        } else if ((s.state === "ejected" || s.state === "error") && s.detail) {
+            // Only where the detail adds to the state's own line.
             html += '<div class="hint">' + esc(s.detail) + '</div>';
         }
         html += '</div>'
