@@ -22,8 +22,10 @@ Hard constraints (from the requirements in `docs/PLAN.md`):
 
 ## Current status
 
-Phases 1–4 are done. **Start with `docs/PLAN.md`**: it has the phases, what
-comes next, the "Later" list of deferred items and the open questions.
+Phases 1–5 are done. **Start with `docs/PLAN.md`**: a status table, the
+phases, the "Later" list of deferred items and the open questions. Keep it
+short: full status notes go in `docs/progress-log.md` (or ADR implementation
+notes), with a one-line summary and a link in the plan.
 Decisions are in `docs/decisions/`. Research notes, including on-device
 probe results for FW 5.20.1, are in `docs/research/`. Read them before
 making design changes.
