@@ -82,6 +82,8 @@ h1 { font-size: 1.45rem; margin: 0.9rem 0 0.4rem; }
 }
 .toggle-row.boxed { border-top: 2px solid #000; margin-top: 0.6rem; }
 .toggle-label { float: left; line-height: 1.9rem; font-weight: bold; }
+/* A setting changed on another page: a button where a toggle would be. */
+.toggle-row .btn-small { float: right; }
 .toggle {
     float: right;
     position: relative;

@@ -10,7 +10,7 @@ one.
 
 ### Added
 - Choose the folder new books go into, inside the Kindle's `documents`
-  folder: **Books folder** in the app's settings opens a folder picker,
+  folder: **Storage folder** in the app's settings opens a folder picker,
   which can also create folders. Books already on the Kindle stay where
   they are.
 

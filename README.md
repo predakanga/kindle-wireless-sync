@@ -95,7 +95,7 @@ the app's settings (the gear). The series it created are dissolved.
 
 New books go into the Kindle's `documents` folder. To use a folder inside
 it instead, open the app's settings (the gear), tap **Change** next to
-**Books folder**, and pick or create one. Only books sent afterwards go
+**Storage folder**, and pick or create one. Only books sent afterwards go
 there: books already on the Kindle stay where they are, and Calibre still
 updates them in place.
 

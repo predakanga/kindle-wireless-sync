@@ -398,7 +398,7 @@
     // Where new books go (ADR 0023): a folder under documents, chosen by
     // browsing. "Up to …" goes up; Back leaves without changing anything.
     PAGES.folders = function () {
-        var html = header("Books folder", "back:app")
+        var html = header("Storage folder", "back:app")
             + '<div class="hint">New books go into the folder shown here. Books already on the Kindle '
             + 'stay where they are.</div>'
             + '<div class="folder-here">' + esc(folderLabel(browse.path)) + '</div>'
@@ -445,8 +445,9 @@
             + '<div class="hint">Start Wireless Sync when the Kindle starts.</div>'
             + toggleRow("Group books into series", s.series, "series")
             + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
-            + fact("Books folder", esc(folderLabel(s.books_folder || ""))
-                + button("Change", "folders", { cls: "btn-small" }));
+            + '<div class="toggle-row"><span class="toggle-label">Storage folder</span>'
+            + button("Change", "folders", { cls: "btn-small" }) + '</div>'
+            + '<div class="hint">Books are currently syncing to <i>' + esc(folderLabel(s.books_folder || "")) + '</i>.</div>';
         html += sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
             + '<div class="hint">The service will start again next time you open this app'
