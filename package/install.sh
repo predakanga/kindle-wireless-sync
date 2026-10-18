@@ -81,7 +81,9 @@ if [ "$remounted" = 1 ]; then
     remounted=0
 fi
 # upstart only sees a new or changed job after a reload.
-/sbin/initctl reload-configuration
+# initctl can time out waiting for upstart's reply (seen on the emulated
+# Kindle, 2026-10-17 and 2026-10-18); try once more before giving up.
+/sbin/initctl reload-configuration || { sleep 2; /sbin/initctl reload-configuration; }
 
 if [ "$running" = 1 ]; then
     echo "Restarting the service"

@@ -45,7 +45,9 @@ if [ "$remounted" = 1 ]; then
     /usr/sbin/mntroot ro
     remounted=0
 fi
-/sbin/initctl reload-configuration
+# initctl can time out waiting for upstart's reply (seen on the emulated
+# Kindle, 2026-10-17 and 2026-10-18); try once more before giving up.
+/sbin/initctl reload-configuration || { sleep 2; /sbin/initctl reload-configuration; }
 
 echo "Unregistering the Wireless Sync app"
 # The package's own copy: it works even if $DIR is already gone.
