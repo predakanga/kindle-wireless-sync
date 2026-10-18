@@ -8,6 +8,8 @@ one.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Added
 - The Kindle can send each book's read status and last-read date to your
   Calibre library, into a Yes/No and a Date column you create
@@ -95,7 +97,8 @@ First release.
   on the device instead of sending them again.
 - Install, upgrade and uninstall through KPM. Uninstalling keeps your books.
 
-[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/predakanga/kindle-wireless-sync/releases/tag/v0.1.0
