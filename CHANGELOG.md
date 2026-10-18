@@ -22,6 +22,8 @@ one.
   sync, choosing from the library's own columns. The gear opens settings:
   start automatically, group books into series, and restart or stop the
   service.
+- While Calibre can't be reached, the app shows "Library not available"
+  with a countdown to the next attempt, so there's no need to tap Connect.
 - If Calibre stops accepting the Kindle after too many failed connections,
   the app says so and how to fix it (stop and start Calibre's wireless
   device connection). Finding libraries no longer adds to that count when

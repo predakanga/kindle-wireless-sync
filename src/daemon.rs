@@ -76,6 +76,20 @@ pub struct Status {
     pub detail: String,
     /// Unix seconds.
     pub since: u64,
+    /// When the next attempt is due (Unix seconds), while waiting to
+    /// retry: the app counts down to it.
+    pub retry_at: Option<u64>,
+    /// What the app shows under the state while retrying, if anything
+    /// beyond "not available" (`detail` adds the retry delay, for the
+    /// command line).
+    pub advice: Option<String>,
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub enum Control {
@@ -127,18 +141,35 @@ struct Shared {
 
 impl Shared {
     fn set(&self, state: State, detail: String) {
+        self.set_full(state, detail, None, None);
+    }
+
+    /// A state while waiting `delay` to try again, with optional advice.
+    fn set_retrying(&self, state: State, detail: String, advice: Option<String>, delay: Duration) {
+        self.set_full(state, detail, advice, Some(unix_now() + delay.as_secs()));
+    }
+
+    fn set_full(
+        &self,
+        state: State,
+        detail: String,
+        advice: Option<String>,
+        retry_at: Option<u64>,
+    ) {
         let mut status = self.status.lock().unwrap();
         if status.state == state && status.detail == detail {
+            // Only the countdown moved on.
+            status.retry_at = retry_at;
+            status.advice = advice;
             return;
         }
         log::info!("status: {} - {detail}", state.as_str());
         *status = Status {
             state,
             detail,
-            since: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
+            since: unix_now(),
+            retry_at,
+            advice,
         };
         let body =
             json!({"state": status.state.as_str(), "detail": status.detail, "since": status.since});
@@ -428,6 +459,8 @@ impl Daemon {
                 state: State::Stopped,
                 detail: String::new(),
                 since: 0,
+                retry_at: None,
+                advice: None,
             }),
             active: Mutex::new(None),
             status_file: opts.state_dir.join(STATUS_FILE),
@@ -801,30 +834,43 @@ impl Daemon {
                 }
                 Outcome::NotFound => match skip.iter().next() {
                     // Calibre is there, serving another library: say so.
-                    Some((addr, other)) => self.set(
-                        State::NotFound,
-                        format!(
+                    Some((addr, other)) => {
+                        let advice = format!(
                             "Calibre at {} is serving {other}, not {name}. Switch back to {name} \
                              in Calibre, then use Connect.",
                             addr.ip()
-                        ),
-                    ),
-                    None => self.set(
+                        );
+                        self.shared.set_retrying(
+                            State::NotFound,
+                            advice.clone(),
+                            Some(advice),
+                            delay,
+                        )
+                    }
+                    None => self.shared.set_retrying(
                         State::NotFound,
                         format!("Calibre library {name} not found. Retrying in {secs}s."),
+                        None,
+                        delay,
                     ),
                 },
-                Outcome::Busy => self.set(
+                Outcome::Busy => self.shared.set_retrying(
                     State::NotFound,
                     format!("Calibre is busy with another device. Retrying in {secs}s."),
+                    Some("Calibre is busy with another device.".into()),
+                    delay,
                 ),
-                Outcome::Lost(name) => self.set(
+                Outcome::Lost(name) => self.shared.set_retrying(
                     State::NotFound,
                     format!("Lost the connection to {name}. Retrying in {secs}s."),
+                    Some(format!("Lost the connection to {name}.")),
+                    delay,
                 ),
-                Outcome::LockedOut => self.set(
+                Outcome::LockedOut => self.shared.set_retrying(
                     State::LockedOut,
                     format!("{} Retrying in {secs}s.", check::LOCKED_OUT),
+                    Some(check::LOCKED_OUT.into()),
+                    delay,
                 ),
             }
             attempt += 1;
@@ -1821,6 +1867,36 @@ mod tests {
         h.network_changed(true);
         assert!(matches!(&search()[0].1, FindResult::Answered(_)));
         assert_eq!(count.load(Ordering::SeqCst), 2);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn while_retrying_the_status_says_when_and_why() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dead = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let (h, thread) =
+            start_with_backoff(tmp.path(), Some(("lib-1", dead)), Duration::from_secs(60));
+        wait_until("not found", || h.status().state == State::NotFound);
+        let s = h.status();
+        let left = s.retry_at.unwrap() - unix_now();
+        assert!((58..=60).contains(&left), "{left}");
+        assert_eq!(s.advice, None, "nothing to add to \"not available\"");
+        h.shutdown();
+        thread.join().unwrap();
+
+        // A lockout: the advice says how to clear it.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || listener.incoming().for_each(drop));
+        let (h, thread) =
+            start_with_backoff(tmp.path(), Some(("lib-1", addr)), Duration::from_secs(60));
+        wait_until("the lockout", || h.status().state == State::LockedOut);
+        assert_eq!(h.status().advice.as_deref(), Some(check::LOCKED_OUT));
+        assert!(h.status().retry_at.is_some());
         h.shutdown();
         thread.join().unwrap();
     }

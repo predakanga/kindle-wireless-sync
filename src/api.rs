@@ -322,6 +322,8 @@ fn status_json(api: &Api) -> Value {
         "state": status.state.as_str(),
         "detail": status.detail,
         "since": status.since,
+        "retry_at": status.retry_at,
+        "advice": status.advice,
         "paused": status.state == State::Paused,
         "autostart": api.home_dir.join(AUTOSTART).exists(),
         "autostart_disabled_by_guard": api.home_dir.join(AUTOSTART_DISABLED).exists(),

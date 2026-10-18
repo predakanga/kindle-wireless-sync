@@ -195,7 +195,7 @@
     var STATE_LINES = {
         connected: "Connected",
         searching: "Connecting…",
-        not_found: "Not connected",
+        not_found: "Library not available",
         password_rejected: "Calibre rejected the password",
         waiting_for_wifi: "Waiting for Wi-Fi",
         paused: "Disconnected",
@@ -205,6 +205,14 @@
         not_linked: "No library linked",
         stopped: "Stopped"
     };
+
+    /// " (retrying in 23s)" while the service waits to try again. Counted
+    /// down here between polls, so the status itself stays unchanged.
+    function retryText(s) {
+        if (!s.retry_at) return "";
+        var left = s.retry_at - Math.floor(new Date().getTime() / 1000);
+        return left > 0 ? " (retrying in " + left + "s)" : " (retrying…)";
+    }
 
     function readSyncText(lib) {
         if (!lib.writable) return "Not syncing reading status";
@@ -221,12 +229,16 @@
         var trying = !s.paused && (s.state === "connected" || s.state === "searching" || s.state === "waiting_for_wifi");
         var html = header("Wireless Sync", null, true)
             + '<div class="card">'
-            + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.state) + '</b>')
+            + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.state)
+                + '<span id="retryIn">' + esc(retryText(s)) + '</span></b>')
             + fact("Linked to", esc(lib.name || lib.uuid))
             + fact("Address", esc(where(lib)))
             + '<div class="note">' + esc(readSyncText(lib)) + '</div>';
         if (s.state === "password_rejected") {
             html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
+        } else if (s.retry_at) {
+            // While retrying, the countdown says it all, unless there's advice.
+            if (s.advice) html += '<div class="hint">' + esc(s.advice) + '</div>';
         } else if (s.state !== "connected" && s.state !== "paused" && s.detail) {
             html += '<div class="hint">' + esc(s.detail) + '</div>';
         }
@@ -527,7 +539,7 @@
                 for (var i = 0; i < servers.length; i++) {
                     if (servers[i].status === "error") notes.push(servers[i].hostname + ": " + servers[i].error);
                 }
-                findNote = notes.length ? notes.join(" ") : (servers.length ? "" : "No Calibre found. Check that "
+                findNote = notes.length ? notes.join(" ") : (servers.length ? "" : "Calibre not found. Check that "
                     + "its wireless device connection is started and the Kindle is on the same network.");
             }
             lastStatusText = null;
@@ -667,11 +679,20 @@
         t.blur();
     }
 
+    /// Moves Home's retry countdown on, redrawing only that text.
+    function tick() {
+        var e = el("retryIn");
+        if (!e || !status || page !== "home") return;
+        var text = esc(retryText(status));
+        if (e.innerHTML !== text) e.innerHTML = text;
+    }
+
     function init() {
         document.addEventListener("click", onClick, false);
         document.addEventListener("keydown", onKeyDown, true);
         refresh();
         setInterval(refresh, POLL_MS);
+        setInterval(tick, 1000);
     }
 
     if (document.readyState === "complete" || document.readyState === "interactive") init();
