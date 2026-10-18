@@ -404,6 +404,12 @@ Not part of any phase. Pick these up after the base and stretch goals
     already received (move them, or leave them where they are and keep
     their paths), how lpaths (ADR 0003) and the Kindle's catalog entries
     follow a move, and what the app should offer as choices.
+13. **Fractional series positions** (developer, 2026-10-18): check that
+    series sync handles them, for example Mistborn 3.5. The code passes
+    Calibre's `series_index` through as `itemPosition` (3.5) with the label
+    "3.5" (`series.rs`, `index_label`), but nobody has checked on the
+    device whether the catalog keeps 3.5 and the Library orders and labels
+    the book correctly.
 
 ## Open questions
 
