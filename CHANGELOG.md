@@ -16,7 +16,7 @@ one.
 
 ### Changed
 - A book you send again from Calibre is updated in place, even if you
-  renamed it in Calibre or changed the books folder since, so its reading
+  renamed it in Calibre or changed the storage folder since, so its reading
   progress is kept.
 
 ## [0.3.2] - 2026-10-18
