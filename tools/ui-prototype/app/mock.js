@@ -68,7 +68,7 @@
         this.log = [];
         this.timers = {};
         this.variants = {};
-        this.options = { probeMs: 2500, keyboard: true, upIcon: "arrow" };
+        this.options = { probeMs: 2500, keyboard: true };
         this.preset("fresh");
     }
 
@@ -206,8 +206,7 @@
             } : null,
             found: clone(this.found), finding: this.finding,
             probe: clone(this.probe),
-            prototype: { variants: clone(this.variants), keyboard: this.options.keyboard,
-                         upIcon: this.options.upIcon }
+            prototype: { variants: clone(this.variants), keyboard: this.options.keyboard }
         };
     };
 

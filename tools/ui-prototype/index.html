@@ -83,10 +83,6 @@
                 <label><input type="radio" name="probeMs" value="2500" checked /> Quick (2.5 s)</label>
                 <label><input type="radio" name="probeMs" value="12000" /> Realistic (12 s)</label></div>
             <div class="opt"><label><input type="checkbox" id="keyboard" checked /> Show the keyboard's space when a field has focus</label></div>
-            <div class="opt"><span class="k">Up icon (folder picker)</span>
-                <label><input type="radio" name="upIcon" value="arrow" checked /> Arrow</label>
-                <label><input type="radio" name="upIcon" value="uturn" /> U-turn</label>
-                <label><input type="radio" name="upIcon" value="turn" /> Turn left</label></div>
         </div>
 
         <div class="card">
@@ -144,8 +140,6 @@ for (const [key, label] of Object.entries(KWSMock.PRESETS)) {
 
 document.querySelectorAll("input[name=probeMs]").forEach((r) =>
     r.addEventListener("change", () => { mock.options.probeMs = parseInt(r.value, 10); }));
-document.querySelectorAll("input[name=upIcon]").forEach((r) =>
-    r.addEventListener("change", () => { mock.options.upIcon = r.value; mock.onChange(); }));
 document.getElementById("keyboard").addEventListener("change", (e) => { mock.options.keyboard = e.target.checked; mock.onChange(); });
 document.getElementById("wifi").addEventListener("change", (e) => { mock.wifi = e.target.checked; mock.reconcile(); mock.note("Wi-Fi " + (e.target.checked ? "on" : "off")); });
 

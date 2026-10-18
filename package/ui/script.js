@@ -151,9 +151,10 @@
     // A folder outline for the folder picker (ADR 0023), drawn like the gear.
     var FOLDER = '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
         + '<path fill-rule="evenodd" d="M2 4h7.5l2 2.5H22V20H2zM4 9v9h16V9z"/></svg>';
-    // And an arrow for its "Up to …" row.
-    var UP = '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
-        + '<path d="M12 3l8 8.5h-5.5V21h-5V11.5H4z"/></svg>';
+    // And a U-turn arrow for its "Up to …" row.
+    var UP = '<svg class="folder-icon" viewBox="0 0 24 24">'
+        + '<path d="M5 20.5h9.5a6.25 6.25 0 0 0 0-12.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
+        + '<path d="M9 2.5v11l-7-5.5z" fill="currentColor"/></svg>';
 
     /// A page header: a back button (backAct) or none, and a gear for
     /// Settings on the first pages.

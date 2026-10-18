@@ -133,22 +133,10 @@
     // A folder outline for the folder picker (ADR 0023), drawn like the gear.
     var FOLDER = '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
         + '<path fill-rule="evenodd" d="M2 4h7.5l2 2.5H22V20H2zM4 9v9h16V9z"/></svg>';
-    // And an arrow for its "Up to …" row. The prototype compares three
-    // (Options → Up icon): the arrow, a U-turn and a left turn.
-    var UP_ICONS = {
-        arrow: '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
-            + '<path d="M12 3l8 8.5h-5.5V21h-5V11.5H4z"/></svg>',
-        uturn: '<svg class="folder-icon" viewBox="0 0 24 24">'
-            + '<path d="M5 20.5h9.5a6.25 6.25 0 0 0 0-12.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
-            + '<path d="M9 2.5v11l-7-5.5z" fill="currentColor"/></svg>',
-        turn: '<svg class="folder-icon" viewBox="0 0 24 24">'
-            + '<path d="M18 22V12a4.5 4.5 0 0 0-4.5-4.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
-            + '<path d="M9 2v11l-7-5.5z" fill="currentColor"/></svg>'
-    };
-    function upIcon() {
-        var v = status && status.prototype && status.prototype.upIcon;
-        return UP_ICONS[v] || UP_ICONS.arrow;
-    }
+    // And a U-turn arrow for its "Up to …" row.
+    var UP = '<svg class="folder-icon" viewBox="0 0 24 24">'
+        + '<path d="M5 20.5h9.5a6.25 6.25 0 0 0 0-12.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
+        + '<path d="M9 2.5v11l-7-5.5z" fill="currentColor"/></svg>';
 
     /// A page header: a back button (backAct) or none, and a gear for the
     /// app settings on the first pages.
@@ -424,7 +412,7 @@
             + '<div class="folder-here">Current folder: <b>' + esc(folderLabel(browse.path)) + '</b></div>'
             + '<div class="rows">';
         if (browse.path) {
-            html += '<div class="row plain up" data-act="folderup">' + upIcon() + '<i>Up to ' + esc(lastPart(parentOf(browse.path)))
+            html += '<div class="row plain up" data-act="folderup">' + UP + '<i>Up to ' + esc(lastPart(parentOf(browse.path)))
                 + '</i></div>';
         }
         var list = browse.folders || [];
