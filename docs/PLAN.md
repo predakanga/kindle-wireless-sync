@@ -358,6 +358,11 @@ Not part of any phase. Pick these up after the base and stretch goals
     (`smart_device_app/driver.py`): for example, whether the device can ask
     Calibre to eject it, or a reply that makes Calibre close the connection
     itself.
+11. **Present the Series field back to Calibre** (developer, 2026-10-18).
+    For example, include each book's series in the book list the Kindle
+    sends, so Calibre's device view shows it. Settle exactly what's wanted
+    first: what Calibre does with series from the device, and whether that
+    differs for books Calibre already has in its library.
 
 ## Open questions
 
