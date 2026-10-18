@@ -63,6 +63,27 @@ impl Catalog {
         Ok(())
     }
 
+    /// [`Catalog::change`], trying again while the catalog's database is
+    /// locked: the scanner holds it while it adds or removes a book. Up to
+    /// `attempts` tries, `wait` apart.
+    pub fn change_retrying(
+        &self,
+        commands: &[Value],
+        attempts: u32,
+        wait: Duration,
+    ) -> io::Result<()> {
+        let mut tries = 1;
+        loop {
+            match self.change(commands) {
+                Err(e) if tries < attempts && e.to_string().contains("database is locked") => {
+                    std::thread::sleep(wait);
+                    tries += 1;
+                }
+                result => return result,
+            }
+        }
+    }
+
     /// Runs a read-only query and returns its rows (`sqlite3 -json`).
     /// Fails if the catalog is busy (`database is locked`); callers retry.
     pub fn query(&self, sql: &str) -> io::Result<Vec<HashMap<String, Value>>> {
@@ -213,6 +234,32 @@ mod tests {
         let body2: Value = serde_json::from_str(seen[1].split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(body2["commands"].as_array().unwrap().len(), 50);
         assert_eq!(body2["commands"][0]["update"]["uuid"], 100);
+    }
+
+    #[test]
+    fn a_locked_catalog_is_tried_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let locked =
+            r#"{ "Error": "Failed to execute handler: {\"sqlite3_msg\":\"database is locked\"}" }"#;
+        let (addr, t) = fake(vec![
+            ("503", locked),
+            ("503", locked),
+            ("200", r#"{"ok":true}"#),
+        ]);
+        let c = catalog(addr, tmp.path());
+        c.change_retrying(&[json!({})], 5, Duration::ZERO).unwrap();
+        assert_eq!(t.join().unwrap().len(), 3);
+        // Other errors, and too many locks, fail.
+        let (addr, t) = fake(vec![("503", locked), ("503", locked)]);
+        assert!(catalog(addr, tmp.path())
+            .change_retrying(&[json!({})], 2, Duration::ZERO)
+            .is_err());
+        t.join().unwrap();
+        let (addr, t) = fake(vec![("401", r#"{ "Error": "Unauthorized request." }"#)]);
+        assert!(catalog(addr, tmp.path())
+            .change_retrying(&[json!({})], 5, Duration::ZERO)
+            .is_err());
+        assert_eq!(t.join().unwrap().len(), 1);
     }
 
     #[test]

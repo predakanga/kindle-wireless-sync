@@ -54,6 +54,9 @@ const KEYED_EXTS: [&str; 5] = ["azw3", "mobi", "azw", "prc", "kfx"];
 const KEY_CHECK_EVERY: Duration = Duration::from_secs(60);
 /// Stop waiting for a book's key after this long.
 const KEY_GIVE_UP: Duration = Duration::from_secs(30 * 60);
+/// Tries at removing deleted books' catalog entries, a second apart, while
+/// the scanner holds the database.
+const CATALOG_TRIES: u32 = 10;
 
 pub struct Library {
     books_dir: PathBuf,
@@ -70,6 +73,13 @@ pub struct Library {
     /// pending keys may be there now.
     catalog_changed: Arc<AtomicBool>,
     last_key_check: Instant,
+    /// Catalog entries of deleted books, removed together after Calibre's
+    /// delete (ADR 0005, amended): the scanner alone takes ~17 s for the
+    /// first, then ~3 s each.
+    catalog_deletes: Vec<String>,
+    /// Covers of deleted books, kept until the catalog drops each entry so
+    /// the Library doesn't show blank tiles meanwhile: (location, key).
+    doomed_covers: Vec<(PathBuf, BookKey)>,
 }
 
 /// How long to wait after the last book change before updating series
@@ -142,6 +152,8 @@ impl Library {
             catalog: None,
             catalog_changed: Arc::new(AtomicBool::new(false)),
             last_key_check: Instant::now(),
+            catalog_deletes: Vec::new(),
+            doomed_covers: Vec::new(),
         };
         if let Err(e) = remove_if_exists(fs::remove_file(state_dir.join(OLD_COLUMNS_FILE))) {
             log::warn!("cannot remove {OLD_COLUMNS_FILE}: {e}");
@@ -361,8 +373,7 @@ impl Library {
     /// How long until there's work for a quiet moment: a series pass, or a
     /// look at pending keys.
     pub fn next_work_in(&self) -> Option<Duration> {
-        let keys = self
-            .has_pending_keys()
+        let keys = (self.has_pending_keys() || !self.doomed_covers.is_empty())
             .then(|| KEY_CHECK_EVERY.saturating_sub(self.last_key_check.elapsed()));
         match (self.series_due_in(), keys) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -375,9 +386,13 @@ impl Library {
     /// the pass is retried after the next debounce.
     pub fn reconcile_series_if_due(&mut self) {
         let changed = self.catalog_changed.swap(false, Ordering::SeqCst);
-        if self.has_pending_keys() && (changed || self.last_key_check.elapsed() >= KEY_CHECK_EVERY)
-        {
+        let due = changed || self.last_key_check.elapsed() >= KEY_CHECK_EVERY;
+        if due && self.has_pending_keys() {
             self.resolve_pending_keys();
+        }
+        if due && !self.doomed_covers.is_empty() {
+            self.last_key_check = Instant::now();
+            self.clean_doomed_covers();
         }
         if self.series_due_in() == Some(Duration::ZERO) {
             self.reconcile_series();
@@ -706,6 +721,17 @@ impl Library {
         };
         let rel = lpath::validate(lpath, None).map_err(|e| other(e.to_string()))?;
         let path = self.books_dir.join(&rel);
+        // Its catalog entry, removed with the others once Calibre's delete
+        // is done (`flush_catalog_deletes`). Looked up before the file goes,
+        // which can start the scanner removing it.
+        let catalog_db = self.covers.as_ref().and_then(|c| c.catalog_db.clone());
+        if let Some(uuid) = catalog_db
+            .as_deref()
+            .zip(path.to_str())
+            .and_then(|(db, p)| kindle::lookup_entry_uuid(db, p))
+        {
+            self.catalog_deletes.push(uuid);
+        }
         remove_if_exists(fs::remove_file(&path))?;
         remove_if_exists(fs::remove_dir_all(path.with_extension("sdr")))?;
         let _ = fs::remove_file(self.pending_cover_path(lpath));
@@ -719,10 +745,14 @@ impl Library {
         }
 
         let record = self.books.remove(pos);
-        if let (Some(covers), Some(key)) = (&self.covers, record_key(&record)) {
-            let name = key.thumbnail_name();
-            remove_if_exists(fs::remove_file(covers.thumbnails_dir.join(&name)))?;
-            remove_if_exists(fs::remove_file(self.state_dir.join(COVERS_DIR).join(&name)))?;
+        if let Some(key) = record_key(&record) {
+            if catalog_db.is_some() {
+                // Until the catalog drops the entry, the Library still
+                // shows the book: keep its cover meanwhile.
+                self.doomed_covers.push((path.clone(), key));
+            } else {
+                self.remove_cover(&key)?;
+            }
         }
         self.mark_series_dirty();
         self.save()?;
@@ -733,6 +763,62 @@ impl Library {
                 .unwrap_or_default()
                 .to_owned(),
         ))
+    }
+
+    fn remove_cover(&self, key: &BookKey) -> io::Result<()> {
+        let Some(covers) = &self.covers else {
+            return Ok(());
+        };
+        let name = key.thumbnail_name();
+        remove_if_exists(fs::remove_file(covers.thumbnails_dir.join(&name)))?;
+        remove_if_exists(fs::remove_file(self.state_dir.join(COVERS_DIR).join(&name)))
+    }
+
+    /// Removes the catalog entries of the books just deleted, in one change,
+    /// so they leave the Library at once instead of one by one as the
+    /// scanner gets to them. Then removes their covers and updates series.
+    /// If the catalog won't take it, the scanner removes them in its time,
+    /// and the covers follow (`clean_doomed_covers`).
+    pub fn flush_catalog_deletes(&mut self) {
+        let uuids = std::mem::take(&mut self.catalog_deletes);
+        if !uuids.is_empty() {
+            if let Some(catalog) = &self.catalog {
+                let commands: Vec<Value> = uuids
+                    .iter()
+                    .map(|u| json!({"delete": {"uuid": u}}))
+                    .collect();
+                match catalog.change_retrying(&commands, CATALOG_TRIES, Duration::from_secs(1)) {
+                    Ok(()) => log::info!("removed {} books from the catalog", uuids.len()),
+                    Err(e) => log::warn!("the scanner will remove the deleted books: {e}"),
+                }
+            }
+        }
+        self.clean_doomed_covers();
+        if self.series.is_some() {
+            self.reconcile_series();
+        }
+    }
+
+    /// Removes the kept covers of deleted books whose catalog entry is gone.
+    fn clean_doomed_covers(&mut self) {
+        let Some(db) = self.covers.as_ref().and_then(|c| c.catalog_db.clone()) else {
+            return;
+        };
+        let doomed = std::mem::take(&mut self.doomed_covers);
+        for (location, key) in doomed {
+            let gone = location
+                .to_str()
+                .and_then(|l| kindle::entry_listed(&db, l))
+                .map(|listed| !listed);
+            match gone {
+                Some(true) => {
+                    if let Err(e) = self.remove_cover(&key) {
+                        log::warn!("cannot remove the cover of a deleted book: {e}");
+                    }
+                }
+                _ => self.doomed_covers.push((location, key)),
+            }
+        }
     }
 
     /// Records book files that Calibre's USB driver sent, so Calibre's
@@ -1266,6 +1352,59 @@ mod tests {
         assert_eq!(lib.book("Old.kfx").unwrap()["_kws"]["cde_key"], "B0OLD");
         assert_eq!(lib.book("Gone.kfx").unwrap()["_kws"], json!({}), "given up");
         assert!(!lib.has_pending_keys());
+        assert_eq!(lib.next_work_in(), None);
+    }
+
+    #[test]
+    fn deleted_books_leave_the_catalog_together_and_keep_covers_until_gone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake = fake_catalog(tmp.path(), "");
+        let db = tmp.path().join("cc.db");
+        let mut lib = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
+        let thumbs = tmp.path().join("thumbnails");
+        fs::create_dir_all(&thumbs).unwrap();
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir: thumbs.clone(),
+            catalog_db: Some(db.clone()),
+        })
+        .unwrap();
+        lib.set_catalog(fake.catalog.clone());
+        for (name, key) in [("One.azw3", "k1"), ("Two.azw3", "k2")] {
+            receive(
+                &mut lib,
+                name,
+                &mobi_with_key(key),
+                json!({"thumbnail": [1, 1, JPEG_B64]}),
+            );
+            index(&db, &lib.books_dir().join(name), key);
+        }
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 2);
+
+        // Calibre deletes both: files go at once, entries together after.
+        lib.delete_book("One.azw3").unwrap();
+        lib.delete_book("Two.azw3").unwrap();
+        assert!(!lib.books_dir().join("One.azw3").exists());
+        assert!(fake.requests.lock().unwrap().is_empty());
+        lib.flush_catalog_deletes();
+        let sent = fake.requests.lock().unwrap().clone();
+        assert_eq!(sent.len(), 1, "one change for the batch");
+        assert_eq!(
+            sent[0],
+            json!([{"delete": {"uuid": "u-k1"}}, {"delete": {"uuid": "u-k2"}}])
+        );
+
+        // The fake catalog doesn't apply it: covers stay while listed...
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 2);
+        // ...and go once the entries are gone.
+        assert!(std::process::Command::new("sqlite3")
+            .arg(&db)
+            .arg("DELETE FROM Entries;")
+            .status()
+            .unwrap()
+            .success());
+        lib.catalog_signal().store(true, Ordering::SeqCst);
+        lib.reconcile_series_if_due();
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
         assert_eq!(lib.next_work_in(), None);
     }
 

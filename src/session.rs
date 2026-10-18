@@ -414,6 +414,8 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     };
                     conn.send(Opcode::Ok, json!({"uuid": uuid}))?;
                 }
+                // All replied to: now take them out of the Library at once.
+                lib.flush_catalog_deletes();
             }
             Opcode::GetBookFileSegment => {
                 let l = str_field(p, "lpath");

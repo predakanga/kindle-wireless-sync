@@ -236,6 +236,44 @@ pub fn watch_catalog(on_change: impl Fn() + Send + 'static) {
     });
 }
 
+/// The catalog's entry for the book at `location` (its `p_uuid`), if
+/// indexed. Read-only; `None` also when the catalog is busy.
+pub fn lookup_entry_uuid(catalog_db: &Path, location: &str) -> Option<String> {
+    let sql = format!(
+        "select p_uuid from Entries where p_location = '{}' limit 1",
+        location.replace('\'', "''")
+    );
+    let out = Command::new("sqlite3")
+        .arg("-readonly")
+        .arg(catalog_db)
+        .arg(sql)
+        .output()
+        .ok()?;
+    let uuid = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+    (!uuid.is_empty() && uuid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+        .then_some(uuid)
+}
+
+/// Whether the catalog still has an entry at `location`. `None` when it
+/// can't be read (busy, say).
+pub fn entry_listed(catalog_db: &Path, location: &str) -> Option<bool> {
+    let sql = format!(
+        "select count(*) from Entries where p_location = '{}'",
+        location.replace('\'', "''")
+    );
+    let out = Command::new("sqlite3")
+        .arg("-readonly")
+        .arg(catalog_db)
+        .arg(sql)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let count: u64 = String::from_utf8(out.stdout).ok()?.trim().parse().ok()?;
+    Some(count > 0)
+}
+
 /// Longest device name we report to Calibre, in characters.
 const MAX_DEVICE_NAME: usize = 64;
 
