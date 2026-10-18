@@ -569,12 +569,8 @@ mod dev {
         }
         let state: PathBuf = required(state, "--state")?;
         std::fs::create_dir_all(state.join("books"))?;
-        let env = check::Env {
-            books_dir: state.join("books"),
-            state_dir: state,
-            device: DeviceConfig::default(),
-            quiet,
-        };
+        let mut env = check::Env::new(state.clone(), state.join("books"), DeviceConfig::default());
+        env.quiet = quiet;
         let target = Target::Address {
             host: required(host, "HOST")?,
             port,

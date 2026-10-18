@@ -297,6 +297,12 @@ impl Handle {
                 books_dir: shared.books_dir.clone(),
                 device: shared.device.lock().unwrap().clone(),
                 quiet: shared.quiet.min(check::QUIET),
+                // Tests run without the quiet wait; they need no long ones.
+                busy_wait: if shared.quiet.is_zero() {
+                    Duration::from_millis(20)
+                } else {
+                    check::BUSY_WAIT
+                },
             };
             let status = check::run(&env, &target, password, &|addr| shared.set_hold(addr, &tx));
             log::info!("check of {}: {}", status.name, status.state.as_str());
@@ -1501,7 +1507,42 @@ mod tests {
             books_dir: state.join("books"),
             device: DeviceConfig::default(),
             quiet: Duration::ZERO,
+            busy_wait: Duration::from_millis(20),
         }
+    }
+
+    #[test]
+    fn a_check_tries_again_while_calibre_is_busy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let env = check_env(tmp.path());
+        // Busy at first, as Calibre is until it notices the service left.
+        let (real, count) = fake_calibre("lib-1");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { continue };
+                if n < 2 {
+                    let _ = write_message(&mut stream, Opcode::CalibreBusy, &json!({}));
+                    continue;
+                }
+                // Then pass the connection to the real fake.
+                let mut upstream = TcpStream::connect(real).unwrap();
+                let mut down = stream.try_clone().unwrap();
+                let mut up = upstream.try_clone().unwrap();
+                std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut down, &mut up);
+                });
+                let _ = std::io::copy(&mut upstream, &mut stream);
+            }
+        });
+        let target = Target::Address {
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+        };
+        let status = check::run(&env, &target, None, &|_| {});
+        assert_eq!(status.state, CheckState::Ok, "{status:?}");
+        assert_eq!(count.load(Ordering::SeqCst), 1);
     }
 
     #[test]

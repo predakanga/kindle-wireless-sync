@@ -123,13 +123,26 @@
 
     // ---- building blocks ----
 
+    // The Kindle's fonts have no ⚙, so the gear is drawn: eight teeth round a
+    // ring. currentColor keeps it visible when the button is pressed.
+    var GEAR = '<svg class="gear-icon" viewBox="0 0 24 24" fill="currentColor">'
+        + (function () {
+            var teeth = "";
+            for (var a = 0; a < 360; a += 45) {
+                teeth += '<rect x="10.2" y="1.2" width="3.6" height="5" transform="rotate(' + a + ' 12 12)"/>';
+            }
+            return teeth;
+        })()
+        + '<path fill-rule="evenodd" d="M12 4.5a7.5 7.5 0 1 0 0 15a7.5 7.5 0 1 0 0-15zM12 9a3 3 0 1 1 0 6a3 3 0 1 1 0-6z"/>'
+        + '</svg>';
+
     /// A page header: a back button (backAct) or none, and a gear for
     /// Settings on the first pages.
     function header(title, backAct, gear) {
         return '<div class="header">'
             + (backAct ? '<button class="back" data-act="' + backAct + '">‹</button>' : '')
             + '<div class="title' + (backAct ? '' : ' no-back') + (gear ? ' with-gear' : '') + '">' + esc(title) + '</div>'
-            + (gear ? '<button class="gear" data-act="appsettings">⚙</button>' : '')
+            + (gear ? '<button class="gear" data-act="appsettings">' + GEAR + '</button>' : '')
             + '</div>';
     }
 

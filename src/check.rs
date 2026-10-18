@@ -30,6 +30,14 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// leaving at once never showed a dialog; 3 s is a margin (ADR 0020).
 pub const QUIET: Duration = Duration::from_secs(3);
 
+/// Calibre answers "busy" until it notices a device has gone, at its next
+/// keep-alive: just after the service stepped aside for a check, it still
+/// counts the Kindle as connected (seen on the emulated Kindle,
+/// 2026-10-18). Busy replies come from Calibre's listener, before it counts
+/// connections towards its lockout, so retrying is free.
+const BUSY_RETRIES: u32 = 5;
+pub const BUSY_WAIT: Duration = Duration::from_secs(3);
+
 /// What to tell the user when Calibre closes a connection before saying
 /// anything: most likely its lockout after 5 failed connections from this
 /// address, which only restarting its wireless connection clears.
@@ -153,6 +161,21 @@ pub struct Env {
     pub device: DeviceConfig,
     /// How long Calibre must be quiet before the check leaves.
     pub quiet: Duration,
+    /// How long to wait before trying again when Calibre says it's busy.
+    pub busy_wait: Duration,
+}
+
+impl Env {
+    /// The waits a check uses with a real Calibre.
+    pub fn new(state_dir: PathBuf, books_dir: PathBuf, device: DeviceConfig) -> Env {
+        Env {
+            state_dir,
+            books_dir,
+            device,
+            quiet: QUIET,
+            busy_wait: BUSY_WAIT,
+        }
+    }
 }
 
 /// Runs a check to the end. `hold` is called with the address before the
@@ -192,7 +215,15 @@ pub fn run(
     // Calibre's lockout (seen with the harness, 2026-10-18).
     hold(Some(addr));
     let _release = Release(hold);
-    match full_check(env, addr, password.as_deref()) {
+    let mut end = full_check(env, addr, password.as_deref());
+    for _ in 0..BUSY_RETRIES {
+        if !matches!(end, Ok(CheckEnd::Busy)) {
+            break;
+        }
+        std::thread::sleep(env.busy_wait);
+        end = full_check(env, addr, password.as_deref());
+    }
+    match end {
         Ok(CheckEnd::Done {
             info,
             columns,
