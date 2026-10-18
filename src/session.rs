@@ -756,10 +756,10 @@ fn receive_book<R: BufRead, W: Write>(
     let wants_ok = p["wantsSendOkToSendbook"].as_bool().unwrap_or(false);
     // Calibre takes the lpath in our OK as the book's, so the book can go
     // elsewhere than Calibre's template says, but only when it wants one.
-    let lpath = if wants_ok {
+    let (lpath, placed_in) = if wants_ok {
         place(lib, p, folder)
     } else {
-        str_field(p, "lpath")
+        (str_field(p, "lpath"), None)
     };
     let progress = format!(
         "{}/{}",
@@ -794,6 +794,9 @@ fn receive_book<R: BufRead, W: Write>(
             return Ok(());
         }
     };
+    if let Some(folder) = placed_in {
+        incoming.set_folder(folder);
+    }
     if wants_ok {
         conn.send(Opcode::Ok, json!({"lpath": lpath}))?;
     }
@@ -809,17 +812,18 @@ fn receive_book<R: BufRead, W: Write>(
 
 /// Where a book Calibre sends goes (ADR 0023): over the book we hold with
 /// the same uuid and format, wherever that is, or into the books folder.
-fn place(lib: &Library, p: &Value, folder: &str) -> String {
+/// Returns the lpath, and the books folder if the book goes into one.
+fn place<'f>(lib: &Library, p: &Value, folder: &'f str) -> (String, Option<&'f str>) {
     let lpath = str_field(p, "lpath");
     if let Some(held) = p["metadata"]["uuid"]
         .as_str()
         .and_then(|uuid| lib.lpath_of(uuid, &lpath))
     {
-        return held;
+        return (held, None);
     }
     match folder.trim_matches('/') {
-        "" => lpath,
-        folder => format!("{folder}/{lpath}"),
+        "" => (lpath, None),
+        folder => (format!("{folder}/{lpath}"), Some(folder)),
     }
 }
 
@@ -1503,6 +1507,28 @@ mod tests {
         assert_eq!(o.replies[3], (Opcode::Ok, json!({"uuid": "book-1"})));
         assert_eq!(o.replies[4], (Opcode::Ok, json!({"uuid": ""})));
         assert!(!lib.books_dir().join("a.azw3").exists());
+    }
+
+    #[test]
+    fn deleting_keeps_the_books_folder_but_not_calibres_own_folders() {
+        let (_tmp, mut lib) = setup();
+        let books = lib.books_dir().to_path_buf();
+        let script = send_book(Script::new().handshake(), "Martha Wells/a.azw3", b"x");
+        run_script_in(&mut lib, script, "Calibre/SF");
+        assert!(books.join("Calibre/SF/Martha Wells/a.azw3").exists());
+
+        // An update keeps the folder it was placed in.
+        let script = send_book(Script::new().handshake(), "Martha Wells/a.azw3", b"y");
+        run_script_in(&mut lib, script, "");
+
+        let script = Script::new().handshake().msg(
+            Opcode::DeleteBook,
+            json!({"lpaths": ["Calibre/SF/Martha Wells/a.azw3"]}),
+        );
+        run_script_in(&mut lib, script, "");
+        // Calibre's author folder goes once empty; the books folder stays.
+        assert!(!books.join("Calibre/SF/Martha Wells").exists());
+        assert!(books.join("Calibre/SF").is_dir());
     }
 
     #[test]

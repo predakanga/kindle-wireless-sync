@@ -43,6 +43,8 @@ const TEMP_SUFFIX: &str = ".part";
 const FREE_SPACE_MARGIN: u64 = 1024 * 1024;
 /// Our private key in each book record.
 const PRIVATE_KEY: &str = "_kws";
+/// In a book's private data: the books folder it was placed in (ADR 0023).
+const FOLDER_KEY: &str = "folder";
 const COVERS_DIR: &str = "covers";
 /// Covers of deleted books still listed in the catalog (`doomed_covers`).
 const DOOMED_COVERS_FILE: &str = "deleted_covers.json";
@@ -113,11 +115,18 @@ pub struct Incoming {
     temp_path: PathBuf,
     final_path: PathBuf,
     file: Option<File>,
+    folder: Option<String>,
 }
 
 impl Incoming {
     pub fn writer(&mut self) -> &mut dyn Write {
         self.file.as_mut().expect("incoming book already committed")
+    }
+
+    /// The books folder the book was placed in (ADR 0023): deleting it later
+    /// tidies emptied folders only below this one.
+    pub fn set_folder(&mut self, folder: &str) {
+        self.folder = Some(folder.to_owned());
     }
 }
 
@@ -531,6 +540,7 @@ impl Library {
             temp_path,
             final_path,
             file: Some(file),
+            folder: None,
         })
     }
 
@@ -590,11 +600,22 @@ impl Library {
         } else if pending {
             record[PRIVATE_KEY] = json!({"key_pending": unix_now()});
         }
-        match self
+        let slot = self
             .books
             .iter_mut()
-            .find(|b| record_lpath(b) == Some(l.as_str()))
-        {
+            .find(|b| record_lpath(b) == Some(l.as_str()));
+        // An update keeps the folder the book was first placed in.
+        let folder = incoming.folder.take().map(Value::String).or_else(|| {
+            slot.as_ref()
+                .and_then(|b| b[PRIVATE_KEY].get(FOLDER_KEY).cloned())
+        });
+        if let Some(folder) = folder {
+            if !record[PRIVATE_KEY].is_object() {
+                record[PRIVATE_KEY] = json!({});
+            }
+            record[PRIVATE_KEY][FOLDER_KEY] = folder;
+        }
+        match slot {
             Some(slot) => *slot = record,
             None => self.books.push(record),
         }
@@ -674,7 +695,13 @@ impl Library {
             if let Some(jpeg) = self.take_pending_cover(&l) {
                 self.write_cover_bytes(k, &jpeg);
             }
-            self.books[*i][PRIVATE_KEY] = json!({"cde_key": k.cde_key, "cde_type": k.cde_type});
+            // Keeps the rest of the private data (the books folder, ADR 0023).
+            let private = &mut self.books[*i][PRIVATE_KEY];
+            if let Some(o) = private.as_object_mut() {
+                o.remove("key_pending");
+            }
+            private["cde_key"] = json!(k.cde_key);
+            private["cde_type"] = json!(k.cde_type);
             log::info!("content key for {l}: {}", k.cde_key);
         }
         for i in &given_up {
@@ -769,10 +796,15 @@ impl Library {
         remove_if_exists(fs::remove_file(&path))?;
         remove_if_exists(fs::remove_dir_all(path.with_extension("sdr")))?;
         let _ = fs::remove_file(self.pending_cover_path(lpath));
-        // Calibre's templates create per-author folders; drop them once empty.
+        // Calibre's templates create per-author folders; drop them once
+        // empty, but not the books folder the book went into (ADR 0023).
+        let keep = match self.books[pos][PRIVATE_KEY][FOLDER_KEY].as_str() {
+            Some(folder) if !folder.is_empty() => self.books_dir.join(folder),
+            _ => self.books_dir.clone(),
+        };
         let mut dir = path.parent();
         while let Some(d) = dir {
-            if d == self.books_dir || fs::remove_dir(d).is_err() {
+            if d == keep || d == self.books_dir || fs::remove_dir(d).is_err() {
                 break;
             }
             dir = d.parent();
