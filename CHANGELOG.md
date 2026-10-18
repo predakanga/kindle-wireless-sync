@@ -15,6 +15,9 @@ one.
   it disconnected until Wi-Fi reconnects or you tap **Connect**. This also
   works for a Calibre on another network, linked by address, unless a
   firewall blocks Calibre's discovery ports.
+- The app's Home shows why the Kindle isn't connected directly under the
+  status, with what to do: for example "Ejected by Calibre. Tap Connect
+  below to reconnect."
 
 ## [0.3.1] - 2026-10-18
 

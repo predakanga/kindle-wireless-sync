@@ -199,7 +199,7 @@
         password_rejected: "Calibre rejected the password",
         waiting_for_wifi: "Waiting for Wi-Fi",
         paused: "Disconnected",
-        ejected: "Disconnected by Calibre",
+        ejected: "Disconnected",
         locked_out: "Calibre isn't accepting this Kindle",
         error: "Problem",
         not_linked: "No library linked",
@@ -212,6 +212,15 @@
         if (!s.retry_at) return "";
         var left = s.retry_at - Math.floor(new Date().getTime() / 1000);
         return left > 0 ? " (retrying in " + left + "s)" : " (retrying…)";
+    }
+
+    /// The line under Home's status, if any: the service's advice, or the
+    /// detail where it adds to the state's own line. Newlines break it.
+    function statusDetail(s) {
+        if (s.state === "password_rejected") return "";
+        if (s.advice) return s.advice;
+        if (!s.retry_at && s.state === "error") return s.detail || "";
+        return "";
     }
 
     function readSyncText(lib) {
@@ -227,21 +236,17 @@
         // One button: Disconnect while the service is trying, Connect
         // otherwise (resume, or try again now).
         var trying = !s.paused && (s.state === "connected" || s.state === "searching" || s.state === "waiting_for_wifi");
+        var detail = statusDetail(s);
         var html = header("Wireless Sync", null, true)
             + '<div class="card">'
             + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.state)
-                + '<span id="retryIn">' + esc(retryText(s)) + '</span></b>')
+                + '<span id="retryIn">' + esc(retryText(s)) + '</span></b>'
+                + (detail ? '<div class="status-detail">' + esc(detail).replace(/\n/g, "<br />") + '</div>' : ''))
             + fact("Linked to", esc(lib.name || lib.uuid))
             + fact("Address", esc(where(lib)))
             + '<div class="note">' + esc(readSyncText(lib)) + '</div>';
         if (s.state === "password_rejected") {
             html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
-        } else if (s.retry_at) {
-            // While retrying, the countdown says it all, unless there's advice.
-            if (s.advice) html += '<div class="hint">' + esc(s.advice) + '</div>';
-        } else if ((s.state === "ejected" || s.state === "error") && s.detail) {
-            // Only where the detail adds to the state's own line.
-            html += '<div class="hint">' + esc(s.detail) + '</div>';
         }
         html += '</div>'
             + btnRow([button(trying ? "Disconnect" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),

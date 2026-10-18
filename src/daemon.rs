@@ -479,8 +479,12 @@ impl Default for Away {
     }
 }
 
-/// What Home says while Calibre is away (ADR 0021).
-pub const CALIBRE_CLOSED: &str = "Calibre has closed. Wireless Sync reconnects when it's back.";
+/// What Home says under the status while Calibre is away (ADR 0021); a
+/// newline breaks the line.
+pub const CALIBRE_CLOSED: &str =
+    "Can't connect to Calibre.\nTap Connect below to retry immediately.";
+/// What Home says under the status after an eject.
+pub const EJECTED: &str = "Ejected by Calibre.\nTap Connect below to reconnect.";
 
 pub struct Daemon {
     lib: Library,
@@ -696,9 +700,12 @@ impl Daemon {
                 continue;
             }
             if ejected {
-                self.set(
+                self.shared.set_full(
                     State::Ejected,
-                    "Disconnected by Calibre. Will reconnect when Wi-Fi reconnects, or use Connect now.",
+                    "Ejected by Calibre. Will reconnect when Wi-Fi reconnects, or with Connect now."
+                        .into(),
+                    Some(EJECTED.into()),
+                    None,
                 );
                 match self.wait(None) {
                     Wake::Network(false) => self.net_up = false,
@@ -799,7 +806,7 @@ impl Daemon {
                     };
                     self.shared.set_retrying(
                         State::NotFound,
-                        format!("{CALIBRE_CLOSED} Looking again in {}s.", delay.as_secs()),
+                        format!("Calibre has closed. Looking again in {}s.", delay.as_secs()),
                         Some(CALIBRE_CLOSED.into()),
                         delay,
                     );
@@ -1620,6 +1627,7 @@ mod tests {
 
         // Calibre still answers after the eject: the user's eject.
         wait_until("first eject", || h.status().state == State::Ejected);
+        assert_eq!(h.status().advice.as_deref(), Some(EJECTED));
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after eject");
 

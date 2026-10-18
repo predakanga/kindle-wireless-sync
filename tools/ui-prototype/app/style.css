@@ -214,6 +214,8 @@ input[type=text], input[type=number], input[type=password] {
 }
 .card .fact:last-child { border-bottom: none; }
 .card .note { padding-top: 0.4rem; }
+/* The line under Home's status. */
+.status-detail { font-size: 0.85rem; line-height: 1.25rem; padding-bottom: 0.15rem; }
 
 h1.top { margin-top: 1.5rem; }
 .footer { font-size: 0.8rem; text-align: center; margin-top: 1.5rem; }

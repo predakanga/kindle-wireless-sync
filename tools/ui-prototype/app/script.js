@@ -172,13 +172,33 @@
     var STATE_LINES = {
         connected: "Connected",
         searching: "Connecting…",
-        not_found: "Not found on the network. Trying again shortly.",
-        password_rejected: "Calibre rejected the password.",
+        not_found: "Library not available",
+        password_rejected: "Calibre rejected the password",
         waiting_for_wifi: "Waiting for Wi-Fi",
         paused: "Disconnected",
-        ejected: "Disconnected by Calibre",
-        error: "Something went wrong."
+        ejected: "Disconnected",
+        locked_out: "Calibre isn't accepting this Kindle",
+        error: "Problem",
+        not_linked: "No library linked",
+        stopped: "Stopped"
     };
+
+    /// " (retrying in 23s)" while the service waits to try again. Counted
+    /// down here between polls, so the status itself stays unchanged.
+    function retryText(s) {
+        if (!s.retry_at) return "";
+        var left = s.retry_at - Math.floor(new Date().getTime() / 1000);
+        return left > 0 ? " (retrying in " + left + "s)" : " (retrying…)";
+    }
+
+    /// The line under Home's status, if any: the service's advice, or the
+    /// detail where it adds to the state's own line. Newlines break it.
+    function statusDetail(s) {
+        if (s.state === "password_rejected") return "";
+        if (s.advice) return s.advice;
+        if (!s.retry_at && s.state === "error") return s.detail || "";
+        return "";
+    }
 
     function readSyncText(lib) {
         if (!lib.writable) return "Not syncing reading status";
@@ -197,16 +217,17 @@
         // One button: Disconnect while the service is trying, Connect otherwise
         // (resume, or try again now).
         var trying = !s.paused && (s.state === "connected" || s.state === "searching" || s.state === "waiting_for_wifi");
+        var detail = statusDetail(s);
         var html = header("Wireless Sync", null, true)
             + '<div class="card">'
-            + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.detail) + '</b>')
-            + fact("Linked to", esc(lib.name))
+            + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.state)
+                + '<span id="retryIn">' + esc(retryText(s)) + '</span></b>'
+                + (detail ? '<div class="status-detail">' + esc(detail).replace(/\n/g, "<br />") + '</div>' : ''))
+            + fact("Linked to", esc(lib.name || lib.uuid))
             + fact("Address", esc(where(lib)))
             + '<div class="note">' + esc(readSyncText(lib)) + '</div>';
         if (s.state === "password_rejected") {
             html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
-        } else if (s.state === "not_found") {
-            html += '<div class="hint">Is Calibre open, with Connect/share → Start wireless device connection on?</div>';
         }
         html += '</div>'
             + btnRow([button(trying ? "Disconnect" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),
@@ -615,5 +636,14 @@
     document.addEventListener("focus", onFocus, true);
     document.addEventListener("blur", function () { setTimeout(function () { onFocus({ target: document.activeElement }); }, 0); }, true);
     refresh();
+    /// Moves Home's retry countdown on, redrawing only that text.
+    function tick() {
+        var e = el("retryIn");
+        if (!e || !status || page !== "home") return;
+        var text = esc(retryText(status));
+        if (e.innerHTML !== text) e.innerHTML = text;
+    }
+
     setInterval(refresh, POLL_MS);
+    setInterval(tick, 1000);
 })();

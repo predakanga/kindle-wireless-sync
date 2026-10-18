@@ -8,7 +8,7 @@
 - Amended 2026-10-18 (developer; see "Amendment: asking the last address
   directly" at the end): every search also sends the discovery datagram to
   the linked library's last address, so a Calibre on another network can
-  answer too.
+  answer too. Home's wording changed too (see "Amendment: Home's wording").
 
 ## Context
 **An eject keeps the service disconnected** until Wi-Fi cycles or the user
@@ -124,3 +124,14 @@ for a Calibre whose datagrams are dropped, by a firewall for example.
 
 The developer had assumed the reply was itself a broadcast, which wouldn't
 have crossed a router; it isn't.
+
+## Amendment: Home's wording (2026-10-18)
+The developer chose shorter lines with a call to action, shown directly
+under the status rather than at the bottom of the card:
+- **While Calibre is away:** "Library not available (retrying in 8s)",
+  then "Can't connect to Calibre." and "Tap Connect below to retry
+  immediately." (replacing "Calibre has closed. Wireless Sync reconnects
+  when it's back.").
+- **After an eject:** "Disconnected", then "Ejected by Calibre." and "Tap
+  Connect below to reconnect." The service still reconnects when Wi-Fi
+  does (ADR 0008), but Home doesn't direct the user to cycle Wi-Fi.

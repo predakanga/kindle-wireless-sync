@@ -26,6 +26,14 @@
 
     function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
 
+    /// Unix seconds, like the service's `retry_at`.
+    function now() { return Math.floor(new Date().getTime() / 1000); }
+
+    /// What Home says under the status while Calibre is away (ADR 0021),
+    /// and after an eject.
+    var CALIBRE_CLOSED = "Can't connect to Calibre.\nTap Connect below to retry immediately.";
+    var EJECTED = "Ejected by Calibre.\nTap Connect below to reconnect.";
+
     function columnsOf(lookups) {
         var out = { bool: [], datetime: [] };
         for (var kind in COLUMN_CATALOG) {
@@ -71,6 +79,8 @@
         connected: "Linked and connected",
         readsync: "Linked, read sync on",
         calibre_closed: "Linked, Calibre not running",
+        calibre_quit: "Linked, Calibre quit while connected",
+        ejected: "Linked, ejected in Calibre",
         password_changed: "Linked, Calibre's password changed",
         no_wifi: "Linked, Wi-Fi off"
     };
@@ -81,7 +91,8 @@
         this.net = defaultNetwork();
         this.wifi = true;
         this.svc = { running: true, autostart: name !== "fresh", series: true, paused: false, linked: null,
-                     state: "not_linked", detail: "" };
+                     state: "not_linked", detail: "", retry_at: null, advice: null,
+                     ejected: name === "ejected", away: false };
         this.found = [];
         this.finding = false;
         this.probe = null;
@@ -94,7 +105,8 @@
                 last_read_column: name === "readsync" ? "#kindle_last_read" : null,
                 columns: columnsOf(lib.columns)
             };
-            if (name === "calibre_closed") lib.running = false;
+            if (name === "calibre_closed" || name === "calibre_quit") lib.running = false;
+            if (name === "calibre_quit") this.svc.away = true;
             if (name === "password_changed") lib.password = "newpass";
             if (name === "no_wifi") this.wifi = false;
             this.svc.state = "connected";
@@ -132,21 +144,38 @@
     /// "searching" step (presets start in their final state).
     Mock.prototype.reconcile = function (instant) {
         var s = this.svc, linked = s.linked;
-        var target, detail;
+        var target, detail, advice = null, retry = false;
         if (!linked) { target = "not_linked"; detail = "No Calibre library is linked yet."; }
         else if (s.paused) { target = "paused"; detail = "Paused. Resume to connect to " + linked.name + "."; }
-        else if (!this.wifi) { target = "waiting_for_wifi"; detail = "Waiting for Wi-Fi."; }
-        else {
+        else if (!this.wifi) {
+            // A Wi-Fi cycle ends an eject's wait, and a wait for Calibre.
+            s.ejected = s.away = false;
+            target = "waiting_for_wifi"; detail = "Waiting for Wi-Fi.";
+        } else if (s.ejected) {
+            target = "ejected"; advice = EJECTED;
+            detail = "Ejected by Calibre. Will reconnect when Wi-Fi reconnects, or with Connect now.";
+        } else {
             var lib = this.libByUuid(linked.uuid);
             if (!lib || !lib.running) {
-                target = "not_found"; detail = linked.name + " not found. Retrying in 60s.";
+                // Calibre quitting mid-session: the service waits for it (ADR 0021).
+                if (s.state === "connected") s.away = true;
+                target = "not_found"; retry = true;
+                if (s.away) {
+                    advice = CALIBRE_CLOSED;
+                    detail = "Calibre has closed. Looking again in 10s.";
+                } else {
+                    detail = "Calibre library " + linked.name + " not found. Retrying in 10s.";
+                }
             } else if (lib.password && lib.password !== linked.password) {
                 target = "password_rejected"; detail = linked.name + " rejected the password.";
             } else {
+                s.away = false;
                 target = "connected"; detail = "Connected to " + linked.name + ".";
                 linked.columns = columnsOf(lib.columns);
             }
         }
+        s.advice = advice;
+        s.retry_at = retry ? (s.retry_at > now() ? s.retry_at : now() + 10) : null;
         if (target === "connected" && s.state !== "connected" && !instant) {
             s.state = "searching";
             s.detail = "Looking for " + linked.name + ".";
@@ -159,8 +188,11 @@
 
     Mock.prototype.status = function () {
         var s = this.svc, l = s.linked;
+        // The service tries again when the countdown ends, and waits again.
+        if (s.retry_at && s.retry_at <= now()) s.retry_at = now() + 10;
         return {
             ok: true, version: "0.3.0", state: s.state, detail: s.detail,
+            retry_at: s.retry_at, advice: s.advice,
             paused: s.paused, autostart: s.autostart, series: s.series, wifi: this.wifi,
             library: l ? {
                 uuid: l.uuid, name: l.name, hostname: l.hostname, host: l.host, port: l.port,
@@ -234,7 +266,7 @@
         if (path === "/series") { s.series = !!b.enabled; return { ok: true }; }
         if (path === "/pause") { s.paused = true; this.reconcile(); return { ok: true }; }
         if (path === "/resume") { s.paused = false; this.reconcile(); return { ok: true }; }
-        if (path === "/connect-now") { this.reconcile(); return { ok: true }; }
+        if (path === "/connect-now") { s.ejected = s.away = false; this.reconcile(); return { ok: true }; }
         if (path === "/service") {
             if (b.action === "stop") {
                 this.later("stop", 300, function () { s.running = false; });
