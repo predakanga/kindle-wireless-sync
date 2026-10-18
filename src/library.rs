@@ -254,6 +254,25 @@ impl Library {
     }
 
     /// A book's metadata as Calibre should see it (without our private data).
+    /// The lpath of the book we hold with Calibre's `uuid`, in the format of
+    /// `lpath` (its extension), if any: Calibre sends an update under the
+    /// lpath its template gives, which may not be where we keep the book
+    /// (ADR 0023).
+    pub fn lpath_of(&self, uuid: &str, lpath: &str) -> Option<String> {
+        let ext = |p: &str| {
+            Path::new(p)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+        };
+        let wanted = ext(lpath)?;
+        self.books
+            .iter()
+            .filter(|b| b["uuid"].as_str() == Some(uuid))
+            .filter_map(|b| b["lpath"].as_str())
+            .find(|p| ext(p).as_deref() == Some(wanted.as_str()))
+            .map(str::to_owned)
+    }
+
     pub fn calibre_metadata(&self, index: usize) -> Option<Value> {
         let mut record = self.books.get(index)?.clone();
         if let Some(obj) = record.as_object_mut() {

@@ -110,6 +110,12 @@ pub trait Admit {
     fn leave_now(&mut self) -> bool {
         false
     }
+
+    /// Where new books go, relative to the books folder (ADR 0023). Asked
+    /// for each book, so a change applies at once.
+    fn books_folder(&mut self) -> String {
+        String::new()
+    }
 }
 
 impl<F: FnMut(&CalibreInfo) -> Admission> Admit for F {
@@ -407,7 +413,10 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                     lib.save()?;
                 }
             }
-            Opcode::SendBook => receive_book(conn, lib, cfg, p)?,
+            Opcode::SendBook => {
+                let folder = admit.books_folder();
+                receive_book(conn, lib, cfg, p, &folder)?
+            }
             Opcode::DeleteBook => {
                 conn.send(Opcode::Ok, json!({}))?;
                 let lpaths = p["lpaths"].as_array().cloned().unwrap_or_default();
@@ -739,12 +748,19 @@ fn receive_book<R: BufRead, W: Write>(
     lib: &mut Library,
     cfg: &DeviceConfig,
     p: &Value,
+    folder: &str,
 ) -> io::Result<()> {
     let length = p["length"]
         .as_u64()
         .ok_or_else(|| protocol_error("SEND_BOOK without length"))?;
-    let lpath = str_field(p, "lpath");
     let wants_ok = p["wantsSendOkToSendbook"].as_bool().unwrap_or(false);
+    // Calibre takes the lpath in our OK as the book's, so the book can go
+    // elsewhere than Calibre's template says, but only when it wants one.
+    let lpath = if wants_ok {
+        place(lib, p, folder)
+    } else {
+        str_field(p, "lpath")
+    };
     let progress = format!(
         "{}/{}",
         p["thisBook"].as_u64().unwrap_or(0) + 1,
@@ -789,6 +805,22 @@ fn receive_book<R: BufRead, W: Write>(
         Err(e) => log::error!("failed to store {lpath}: {e}"),
     }
     Ok(())
+}
+
+/// Where a book Calibre sends goes (ADR 0023): over the book we hold with
+/// the same uuid and format, wherever that is, or into the books folder.
+fn place(lib: &Library, p: &Value, folder: &str) -> String {
+    let lpath = str_field(p, "lpath");
+    if let Some(held) = p["metadata"]["uuid"]
+        .as_str()
+        .and_then(|uuid| lib.lpath_of(uuid, &lpath))
+    {
+        return held;
+    }
+    match folder.trim_matches('/') {
+        "" => lpath,
+        folder => format!("{folder}/{lpath}"),
+    }
 }
 
 fn str_field(v: &Value, key: &str) -> String {
@@ -883,6 +915,7 @@ mod tests {
         password: Option<&'a str>,
         columns: Option<Columns>,
         known: &'a mut Map<String, Value>,
+        folder: &'a str,
     }
 
     impl Admit for TestAdmit<'_> {
@@ -902,6 +935,10 @@ mod tests {
             *self.known = columns.clone();
             Ok(())
         }
+
+        fn books_folder(&mut self) -> String {
+            self.folder.to_owned()
+        }
     }
 
     /// [`run_script_with`], waiting `quiet` before a reconnect.
@@ -914,6 +951,36 @@ mod tests {
         known: &mut Map<String, Value>,
         quiet: Duration,
     ) -> Outcome {
+        run_script_full(lib, cfg, script, password, columns, known, quiet, "")
+    }
+
+    /// [`run_script`], with new books going into `folder` (ADR 0023).
+    fn run_script_in(lib: &mut Library, script: Script, folder: &str) -> Outcome {
+        let cfg = DeviceConfig::default();
+        let mut known = Map::new();
+        run_script_full(
+            lib,
+            &cfg,
+            script,
+            None,
+            None,
+            &mut known,
+            Duration::ZERO,
+            folder,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_script_full(
+        lib: &mut Library,
+        cfg: &DeviceConfig,
+        script: Script,
+        password: Option<&str>,
+        columns: Option<Columns>,
+        known: &mut Map<String, Value>,
+        quiet: Duration,
+        folder: &str,
+    ) -> Outcome {
         let mut out = Vec::new();
         let end = {
             let mut conn = Connection::new(Cursor::new(script.0), &mut out);
@@ -921,6 +988,7 @@ mod tests {
                 password,
                 columns,
                 known,
+                folder,
             };
             run_with_quiet(&mut conn, lib, cfg, &mut admit, quiet).unwrap()
         };
@@ -1346,6 +1414,48 @@ mod tests {
         assert_eq!(o.replies.len(), 5);
         assert_eq!(o.replies[4].1["title"], "Rogue Protocol");
         assert_eq!(o.replies[4].1["thumbnail"], Value::Null);
+    }
+
+    #[test]
+    fn new_books_go_into_the_books_folder_and_updates_stay_put() {
+        let (_tmp, mut lib) = setup();
+        let books = lib.books_dir().to_path_buf();
+        let send = |lpath: &str, data: &[u8]| send_book(Script::new().handshake(), lpath, data);
+
+        // A new book goes into the folder, and Calibre is told its lpath.
+        let o = run_script_in(&mut lib, send("Rogue Protocol.azw3", b"ONE"), "Calibre/SF");
+        assert_eq!(
+            o.replies[1].1,
+            json!({"lpath": "Calibre/SF/Rogue Protocol.azw3"})
+        );
+        assert_eq!(
+            std::fs::read(books.join("Calibre/SF/Rogue Protocol.azw3")).unwrap(),
+            b"ONE"
+        );
+        assert!(lib.book("Calibre/SF/Rogue Protocol.azw3").is_some());
+
+        // The folder changes. An update to the same book (same uuid and
+        // format) stays where it is, even under a new name from Calibre.
+        let o = run_script_in(&mut lib, send("Rogue Protocol (new).azw3", b"TWO"), "Other");
+        assert_eq!(
+            o.replies[1].1,
+            json!({"lpath": "Calibre/SF/Rogue Protocol.azw3"})
+        );
+        assert_eq!(
+            std::fs::read(books.join("Calibre/SF/Rogue Protocol.azw3")).unwrap(),
+            b"TWO"
+        );
+        assert!(!books.join("Other").exists());
+        assert_eq!(lib.books().len(), 1);
+
+        // Another format of it is a new file, in the current folder.
+        let o = run_script_in(&mut lib, send("Rogue Protocol.pdf", b"PDF"), "Other");
+        assert_eq!(o.replies[1].1, json!({"lpath": "Other/Rogue Protocol.pdf"}));
+        assert_eq!(lib.books().len(), 2);
+
+        // No folder: the books folder itself, as Calibre names it.
+        let o = run_script_in(&mut lib, send("Rogue Protocol.txt", b"TXT"), "");
+        assert_eq!(o.replies[1].1, json!({"lpath": "Rogue Protocol.txt"}));
     }
 
     #[test]

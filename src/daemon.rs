@@ -1240,6 +1240,12 @@ impl Admit for LinkedAdmit<'_> {
     fn leave_now(&mut self) -> bool {
         self.shared.leaving.load(Ordering::SeqCst)
     }
+
+    fn books_folder(&mut self) -> String {
+        Config::load(self.state_dir)
+            .map(|c| c.books_folder)
+            .unwrap_or_default()
+    }
 }
 
 /// Addresses worth connecting to in the background: discovered servers that

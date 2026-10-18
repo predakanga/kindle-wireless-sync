@@ -110,6 +110,9 @@ pub struct Config {
     pub library: Option<LinkedLibrary>,
     /// Calibre series as native series (ADR 0016). On unless set to false.
     pub series: bool,
+    /// Where new books go, relative to the books folder; empty for the books
+    /// folder itself (ADR 0023).
+    pub books_folder: String,
     path: PathBuf,
 }
 
@@ -158,6 +161,7 @@ impl Config {
         Ok(Config {
             library,
             series: value.get("series").and_then(Value::as_bool).unwrap_or(true),
+            books_folder: opt_s(&value, "books_folder").unwrap_or_default(),
             path,
         })
     }
@@ -171,6 +175,7 @@ impl Config {
                 "last_read_column": a.last_read_column, "columns": a.columns,
             })),
             "series": self.series,
+            "books_folder": self.books_folder,
         });
         let tmp = self.path.with_extension("json.tmp");
         fs::write(
@@ -441,6 +446,16 @@ mod tests {
         }
         let name = Config::load(&dir).unwrap().library.unwrap().name;
         assert_eq!(name.split_whitespace().count(), 2 + 80);
+    }
+
+    #[test]
+    fn books_folder_round_trips_and_defaults_to_the_books_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Config::load(tmp.path()).unwrap();
+        assert_eq!(c.books_folder, "");
+        c.books_folder = "Calibre/SF".into();
+        c.save().unwrap();
+        assert_eq!(Config::load(tmp.path()).unwrap().books_folder, "Calibre/SF");
     }
 
     #[test]
