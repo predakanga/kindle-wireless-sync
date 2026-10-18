@@ -52,6 +52,8 @@ just kpm-install | kpm-uninstall   # install/remove the package with the device'
 just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
 just calibre launch|status|wireless-start|wait-device|send|delete|field|device-books|dialogs|exec|quit ...
                           # dev: an isolated Calibre in dev-calibre/, driven by a plugin (ADR 0019)
+just compat MODEL VERSION # check a model/firmware on eink-emulator; appends JSON to compat.jsonl
+                          # (tools/compat/README.md)
 just release X.Y.Z        # prepare a release: bump, date the changelog, commit (no push)
 just publish-release [-y] # tag the prepared version and push main + tag (publishes; ask first)
 ```

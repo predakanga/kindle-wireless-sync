@@ -175,6 +175,11 @@ device-connect *args: deploy
 device-discover: deploy
     ssh {{kindle_host}} "{{kindle_dir}}/kindle-wireless-sync discover"
 
+# Check a model and firmware for compatibility on eink-emulator; appends a JSON line to compat.jsonl
+[positional-arguments]
+compat model version *args:
+    python3 tools/compat/compat.py "$@" >> compat.jsonl
+
 # Dev: native series grouping on the Kindle: status (default), enable or disable. Not packaged.
 series-grouping action="status":
     ssh {{kindle_host}} "sh -s -- {{action}}" < tools/series-grouping.sh
