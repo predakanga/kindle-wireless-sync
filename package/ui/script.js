@@ -11,7 +11,7 @@
     var API = "http://127.0.0.1:8325";
     var POLL_MS = 3000;
     var MESSAGE_MS = 6000;
-    var FOLDERS_PER_PAGE = 7;
+    var FOLDERS_PER_PAGE = 10;
 
     var status = null;          // last /status, or {error} when the service is down
     var lastStatusText = null;

@@ -96,6 +96,9 @@
         this.found = [];
         this.finding = false;
         this.probe = null;
+        // Folders under documents, for the books folder picker (ADR 0023).
+        this.dirs = ["Calibre", "Calibre/SF", "Calibre/Fantasy", "comics", "Kindle Notes", "Elsewhere"];
+        for (var n = 1; n <= 8; n++) this.dirs.push("Zz folder 0" + n);
         if (name !== "fresh") {
             var lib = this.net[0];
             this.svc.linked = {
@@ -194,6 +197,7 @@
             ok: true, version: "0.3.0", state: s.state, detail: s.detail,
             retry_at: s.retry_at, advice: s.advice,
             paused: s.paused, autostart: s.autostart, series: s.series, wifi: this.wifi,
+            books_folder: s.books_folder || "",
             library: l ? {
                 uuid: l.uuid, name: l.name, hostname: l.hostname, host: l.host, port: l.port,
                 has_password: !!l.password, writable: l.writable,
@@ -239,6 +243,13 @@
             });
             return { ok: true };
         }
+        if (path === "/folders") return this.listFolders(b.path || "");
+        if (path === "/folders/new") return this.newFolder(b.path || "", b.name || "");
+        if (path === "/books-folder") {
+            if (b.path && this.dirs.indexOf(b.path) < 0) return { ok: false, error: "Cannot use that folder." };
+            s.books_folder = b.path || "";
+            return { ok: true };
+        }
         if (path === "/probe") return this.startProbe(b);
         if (path === "/probe/cancel") { this.probe = null; return { ok: true }; }
         if (path === "/link") return this.link(b);
@@ -277,6 +288,32 @@
             return { ok: true };
         }
         return { ok: false, error: "No such API call: " + path };
+    };
+
+    /// The folders inside `path`, as the service lists them. "Elsewhere"
+    /// stands for a link out of documents, which can't be used.
+    Mock.prototype.listFolders = function (path) {
+        if (path && this.dirs.indexOf(path) < 0) return { ok: false, error: "Cannot open that folder: " + path + " isn't there." };
+        var prefix = path ? path + "/" : "", out = [];
+        for (var i = 0; i < this.dirs.length; i++) {
+            var d = this.dirs[i];
+            if (d.indexOf(prefix) !== 0 || d.substring(prefix.length).indexOf("/") >= 0) continue;
+            var name = d.substring(prefix.length);
+            out.push({ name: name, problem: name === "Elsewhere" ? "Elsewhere leads outside the books folder" : null });
+        }
+        out.sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+        return { ok: true, path: path, folders: out };
+    };
+
+    Mock.prototype.newFolder = function (path, name) {
+        name = name.replace(/^\s+|\s+$/g, "");
+        if (!name) return { ok: false, error: "Enter a name for the folder." };
+        if (name.indexOf("/") >= 0) return { ok: false, error: "A folder name can't contain \"/\"." };
+        if (name.charAt(0) === ".") return { ok: false, error: name + ": forbidden path component" };
+        var full = path ? path + "/" + name : name;
+        if (this.dirs.indexOf(full) >= 0) return { ok: false, error: "There's already a folder called " + name + "." };
+        this.dirs.push(full);
+        return { ok: true, path: full };
     };
 
     /// Connect to a library, check the password and read its columns, then
