@@ -1763,14 +1763,18 @@ mod tests {
 
     /// A fake Calibre for one connection: the handshake, library info and
     /// book count, then a keep-alive every `every` (none if `None`) until
-    /// the device hangs up. Sends how many keep-alives were answered, and
-    /// whether the device closed the connection cleanly.
+    /// the device hangs up. Counts the keep-alives answered so far, and
+    /// sends that count and whether the device closed the connection
+    /// cleanly once it has.
+    #[allow(clippy::type_complexity)]
     fn fake_calibre_keeping_alive(
         every: Option<Duration>,
-    ) -> (SocketAddr, Receiver<(usize, bool)>) {
+    ) -> (SocketAddr, Arc<AtomicUsize>, Receiver<(usize, bool)>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (tx, rx) = mpsc::channel();
+        let answered_so_far = Arc::new(AtomicUsize::new(0));
+        let so_far = answered_so_far.clone();
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -1801,7 +1805,10 @@ mod tests {
                     return;
                 }
                 match read_message(&mut reader) {
-                    Ok(Some(_)) => answered += 1,
+                    Ok(Some(_)) => {
+                        answered += 1;
+                        so_far.store(answered, Ordering::SeqCst);
+                    }
                     other => {
                         let _ = tx.send((answered, matches!(other, Ok(None))));
                         return;
@@ -1809,16 +1816,20 @@ mod tests {
                 }
             }
         });
-        (addr, rx)
+        (addr, answered_so_far, rx)
     }
 
     #[test]
     fn disconnect_leaves_at_a_keep_alive_without_answering_it() {
         let tmp = tempfile::tempdir().unwrap();
-        let (addr, ended) = fake_calibre_keeping_alive(Some(Duration::from_millis(400)));
+        let (addr, answered_so_far, ended) =
+            fake_calibre_keeping_alive(Some(Duration::from_millis(400)));
         let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
-        wait_until("connected", || h.status().state == State::Connected);
-        std::thread::sleep(Duration::from_millis(500));
+        // Wait until the session is answering keep-alives rather than for a
+        // fixed time: a slow machine (CI) may still be in the handshake.
+        wait_until("a keep-alive answered", || {
+            answered_so_far.load(Ordering::SeqCst) >= 1
+        });
 
         h.pause();
         assert_eq!(h.status().state, State::Disconnecting);
@@ -1835,7 +1846,7 @@ mod tests {
     #[test]
     fn disconnect_cuts_the_connection_when_no_keep_alive_comes() {
         let tmp = tempfile::tempdir().unwrap();
-        let (addr, ended) = fake_calibre_keeping_alive(None);
+        let (addr, _, ended) = fake_calibre_keeping_alive(None);
         let (h, thread) = launch(tmp.path(), Some(("lib-1", addr)), |opts| {
             opts.leave_within = Duration::from_millis(200);
         });
