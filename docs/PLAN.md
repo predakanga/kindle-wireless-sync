@@ -295,6 +295,11 @@ published.
   registration, collections, progress storage, service hooks, UI) exist on
   firmware and models other than the reference device. Record what differs.
   See [0001](decisions/0001-target-device-and-firmware.md).
+- Specific checks found so far:
+  - **Books in subfolders of `documents` are indexed** like books in
+    `documents` itself. The books folder (ADR 0023) depends on it, and it's
+    only been checked on 5.20.1 (developer, 2026-10-19; research note,
+    "Books in subfolders are indexed").
 
 ## Later: to revisit once the goals above are met
 

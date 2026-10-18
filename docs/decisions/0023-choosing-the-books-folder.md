@@ -107,6 +107,8 @@ to stay inside `documents` after resolving symlinks (`folders.rs`).
   books where they are and updates still find them.
 - The developer confirmed that nothing outside `documents` can be chosen
   (2026-10-19).
+- **Subfolder indexing is only known for 5.20.1.** On other firmware or
+  models, check it before relying on this (`PLAN.md`, Phase 6).
 
 ## Implementation notes (2026-10-19)
 - **Checked on the reference Kindle** (5.20.1) with the developer's
