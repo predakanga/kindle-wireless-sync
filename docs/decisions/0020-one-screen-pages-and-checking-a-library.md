@@ -394,5 +394,31 @@ dev-only `check` command that runs the same code as the app's check
     error, which Calibre reports as a failed job.
   - A check while the service is connected to the same Calibre. A unit
     test covers it with a fake Calibre; it needs a real device.
-  - Anything on the Kindle: the fit and text size, the ⚙ character, the
-    keyboard over the forms, Restart and Stop.
+  - The real Kindle: text size and the e-ink refresh.
+
+## On the emulated Kindle (2026-10-18)
+The package installed with KPM on `pw6-5201-jb` (Paperwhite 12th gen,
+5.20.1), against the harness Calibre at 10.0.2.2:
+- **Every page fits** the screen with room to spare, and the float layout
+  holds. Pages seen: the library list, Connect by address, Testing
+  connection, Couldn't connect, setup with read sync on, the column picker
+  (Check again stays on it), Home, Library settings, Settings, the Forget
+  dialog and Service not running.
+- **The keyboard** covers the bottom third: the address form and its
+  Connect button stay above it. Enter moved through the fields and closed
+  the keyboard on the last one.
+- **The ⚙ character isn't in the Kindle's fonts:** it showed as an empty
+  box. The button now draws a gear in SVG, which mesquite renders.
+- **Checking the connected Calibre** first came back "busy": the service
+  stepped aside, but Calibre only notices a device has gone at its next
+  keep-alive. Busy replies come from Calibre's listener, which doesn't
+  count them towards the lockout (`driver.py`, the listener thread), so a
+  check now tries again up to five times, 3 s apart. With that, the check
+  succeeded after about 20 s and the service reconnected 4 s later, with
+  no dialog in Calibre.
+- **Restart and Stop** work through upstart: Restart gave a new process,
+  Stop left the job stopped, and neither touched the boot counter. After
+  Stop the app showed "Service not running"; the tile's scriptlet started
+  the service again and the open app recovered by itself.
+- **Linking** stored the checked library's columns and the chosen ones in
+  `config.json`, and the old `allowed`/`seen` keys were dropped.

@@ -213,8 +213,8 @@ series (ADR 0018, amended).
 
 **Built (2026-10-18, unreleased): ADR 0020.** The check, the API, the new
 app and the command-line options. Tested with unit tests, the harness
-Calibre, and end to end on the Mac (ADR 0020, implementation notes). Next:
-the emulated Kindle, then the device, then release 0.3.0, which also
+Calibre, end to end on the Mac, and on the emulated Kindle (ADR 0020,
+implementation notes). Next: the device, then release 0.3.0, which also
 carries read sync (ADR 0017) and ADR 0018.
 
 ### Phase 5: Stretch goals
