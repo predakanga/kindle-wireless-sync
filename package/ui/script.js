@@ -11,6 +11,7 @@
     var API = "http://127.0.0.1:8325";
     var POLL_MS = 3000;
     var MESSAGE_MS = 6000;
+    var FOLDERS_PER_PAGE = 7;
 
     var status = null;          // last /status, or {error} when the service is down
     var lastStatusText = null;
@@ -26,6 +27,7 @@
     var appFrom = "home";       // where Back goes from Settings
     var addressFrom = "choose"; // where Back goes from Connect by address
     var addr = { host: "", port: "9090", password: "" };
+    var browse = null;          // the folder picker: {path, folders, at, loading} (ADR 0023)
     var finding = false;        // /find is running
     var findNote = "";          // what the last search couldn't reach
     var messageTimer = null;
@@ -92,6 +94,16 @@
         if (messageTimer) clearTimeout(messageTimer);
         messageTimer = setTimeout(function () { m.className = "message"; }, MESSAGE_MS);
     }
+
+    /// A books folder as the user sees it: "documents" or "documents/…".
+    function folderLabel(path) { return "documents" + (path ? "/" + path : ""); }
+
+    function parentOf(path) {
+        var i = path.lastIndexOf("/");
+        return i < 0 ? "" : path.substring(0, i);
+    }
+
+    function lastPart(path) { return path ? path.substring(path.lastIndexOf("/") + 1) : "documents"; }
 
     function address(lib) { return lib.host + (lib.port ? ":" + lib.port : ""); }
     function where(lib) { return (lib.hostname ? lib.hostname + " · " : "") + address(lib); }
@@ -403,6 +415,50 @@
             + btnRow([button("Save", "savepw", { cls: "btn-strong" }), button("No password", "clearpw")]);
     };
 
+    // Where new books go (ADR 0023): a folder under documents, chosen by
+    // browsing. "Up to …" goes up; Back leaves without changing anything.
+    PAGES.folders = function () {
+        var html = header("Books folder", "back:app")
+            + '<div class="hint">New books go into the folder shown here. Books already on the Kindle '
+            + 'stay where they are.</div>'
+            + '<div class="folder-here">' + esc(folderLabel(browse.path)) + '</div>'
+            + '<div class="rows">';
+        if (browse.path) {
+            html += '<div class="row plain up" data-act="folderup"><i>Up to ' + esc(lastPart(parentOf(browse.path)))
+                + '</i></div>';
+        }
+        var list = browse.folders || [];
+        var pages = Math.max(1, Math.ceil(list.length / FOLDERS_PER_PAGE));
+        if (browse.at >= pages) browse.at = pages - 1;
+        var shown = list.slice(browse.at * FOLDERS_PER_PAGE, (browse.at + 1) * FOLDERS_PER_PAGE);
+        for (var i = 0; i < shown.length; i++) {
+            var f = shown[i];
+            html += f.problem
+                ? '<div class="row unusable" data-act="folderproblem" data-arg="' + esc(f.problem) + '">'
+                    + '<div class="name">' + esc(f.name) + '</div><div class="sub">Can\'t be used</div></div>'
+                : '<div class="row" data-act="folderopen" data-arg="' + esc(f.name) + '">'
+                    + '<div class="name">' + esc(f.name) + '</div><span class="chev">›</span></div>';
+        }
+        html += '</div>';
+        if (browse.loading) html += '<div class="empty">Loading…</div>';
+        else if (!list.length) html += '<div class="hint">No folders in here.</div>';
+        if (pages > 1) {
+            html += btnRow([button("‹ Previous", "folderpage", { arg: -1, disabled: browse.at === 0 }),
+                            button("Next ›", "folderpage", { arg: 1, disabled: browse.at >= pages - 1 })])
+                + '<div class="hint">Page ' + (browse.at + 1) + ' of ' + pages + '</div>';
+        }
+        return html + btnRow([button("New folder", "go", { arg: "newfolder" }),
+                              button("Use this folder", "usefolder", { cls: "btn-strong",
+                                     disabled: browse.loading || browse.path === (status.books_folder || "") })]);
+    };
+
+    PAGES.newfolder = function () {
+        return header("New folder", "back:folders")
+            + '<div class="detail">A new folder inside <b>' + esc(folderLabel(browse.path)) + '</b>.</div>'
+            + field("inFolder", "Name", "text", "")
+            + wide("Create", "createfolder", { cls: "btn-strong" });
+    };
+
     PAGES.app = function (s) {
         var html = header("Settings", "back:" + appFrom)
             + toggleRow("Start automatically", s.autostart, "autostart")
@@ -413,6 +469,8 @@
         }
         html += toggleRow("Group books into series", s.series, "series")
             + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
+            + fact("Books folder", esc(folderLabel(s.books_folder || ""))
+                + button("Change", "folders", { cls: "btn-small" }))
             + sectionLabel("Service")
             + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
             + '<div class="hint">The service will start again next time you open this app'
@@ -502,7 +560,7 @@
         if (page === "picker" && !form) page = rootPage();
     }
 
-    var FORM_PAGES = { address: true, password: true };
+    var FORM_PAGES = { address: true, password: true, newfolder: true };
 
     function render() {
         if (!status) return;
@@ -557,6 +615,25 @@
 
     // ---- actions ----
 
+    /// Shows the folder at `path` in the picker; an unusable one falls back
+    /// to documents.
+    function openFolder(path) {
+        browse.loading = true;
+        redraw();
+        request("POST", "/folders", { path: path }, function (data, err) {
+            browse.loading = false;
+            if (err || !data.ok) {
+                showMessage(err || data.error);
+                if (path) { openFolder(""); return; }
+            } else {
+                browse.path = data.path;
+                browse.folders = data.folders;
+                browse.at = 0;
+            }
+            if (page === "folders") redraw();
+        });
+    }
+
     function startProbe(body, from, stay) {
         lastProbe = body;
         probeFrom = from;
@@ -593,6 +670,28 @@
             });
         },
         series: function () { post("/series", { enabled: !status.series }); },
+        folders: function () {
+            browse = { path: status.books_folder || "", folders: [], at: 0 };
+            page = "folders";
+            openFolder(browse.path);
+        },
+        folderopen: function (name) { openFolder((browse.path ? browse.path + "/" : "") + name); },
+        folderup: function () { openFolder(parentOf(browse.path)); },
+        folderpage: function (step) { browse.at += parseInt(step, 10); redraw(); },
+        folderproblem: function (why) { showMessage(why); },
+        usefolder: function () {
+            var path = browse.path;
+            post("/books-folder", { path: path }, function (data) {
+                if (data && data.ok) { showMessage("New books will go into " + folderLabel(path) + "."); page = "app"; }
+            });
+        },
+        createfolder: function () {
+            var name = el("inFolder").value.replace(/^\s+|\s+$/g, "");
+            if (!name) { showMessage("Enter a name for the folder."); return; }
+            post("/folders/new", { path: browse.path, name: name }, function (data) {
+                if (data && data.ok) { page = "folders"; openFolder(data.path); }
+            });
+        },
         connect: function () { post(status.paused ? "/resume" : "/connect-now"); },
         disconnect: function () { post("/pause"); },
         find: function () { startFind(); },
