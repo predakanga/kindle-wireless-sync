@@ -8,6 +8,14 @@ one.
 
 ## [Unreleased]
 
+### Changed
+- Quitting or restarting Calibre no longer leaves the Kindle disconnected.
+  Wireless Sync notices that Calibre has closed and connects again when
+  it's back, even on a new port. Ejecting the Kindle in Calibre still keeps
+  it disconnected until Wi-Fi reconnects or you tap **Connect**. This needs
+  the Kindle to have found Calibre by broadcast: a library linked by
+  address on another network keeps the old behaviour.
+
 ## [0.3.1] - 2026-10-18
 
 ### Fixed

@@ -1,6 +1,6 @@
 # 0021: Telling Calibre quitting from an eject
 
-- Status: Accepted
+- Status: Accepted (developer, 2026-10-18)
 - Date: 2026-10-18
 - Amends: [0008](0008-daemon-behaviour.md) (an eject keeps
   the service disconnected) and [0020](0020-one-screen-pages-and-checking-a-library.md)

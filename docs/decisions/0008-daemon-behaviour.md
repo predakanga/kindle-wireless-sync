@@ -8,6 +8,10 @@
   connects only to the one linked library, not to any allowed library.
   Password failures are tracked for that library alone. Libraries found by
   Find libraries are kept in memory, not in the config.
+- Amended by [0021](0021-calibre-quitting-versus-ejecting.md) (2026-10-18):
+  after an eject, the service asks Calibre's address by datagram whether
+  Calibre is still running. If it no longer answers, Calibre quit, and the
+  service reconnects when it's back.
 
 ## Context
 ADR 0004 runs the client as a long-lived upstart job that waits for Wi-Fi.

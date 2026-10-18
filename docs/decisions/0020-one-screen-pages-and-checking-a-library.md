@@ -6,6 +6,9 @@
   [0011](0011-localhost-api.md) (the API), [0017](0017-read-status-sync.md)
   (the user chooses the columns, which move into `config.json`) and
   [0018](0018-one-linked-library.md) (linking checks the library first).
+- Amended by [0021](0021-calibre-quitting-versus-ejecting.md) (2026-10-18):
+  the Find cache drops an address's entries when Calibre there quits, or
+  when a broadcast answer from it names another port.
 
 ## Context
 **Scrolling.** The developer's UI review (2026-10-17) started from one

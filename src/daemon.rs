@@ -3,14 +3,16 @@
 //!
 //! Waits for Wi-Fi, connects only to the linked Calibre library (ADR 0018),
 //! runs sessions, and keeps a status for the UI. After Calibre ejects us it
-//! stays disconnected until Wi-Fi cycles or "Connect now". Other libraries
+//! stays disconnected until Wi-Fi cycles or "Connect now", unless Calibre
+//! has quit: then it waits for Calibre to answer broadcasts again
+//! (ADR 0021). Other libraries
 //! are only contacted by the explicit [`find_libraries`] and
 //! [`link_address`] actions, and what they find is kept in memory.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufReader, BufWriter};
-use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -225,6 +227,24 @@ impl Shared {
         found.retain(|f| f.uuid != lib.uuid);
         found.push(lib);
     }
+
+    /// Drops what Find cached for an address whose broadcast answers name
+    /// other ports now (ADR 0021).
+    fn note_servers(&self, servers: &[CalibreServer]) {
+        self.find_cache.lock().unwrap().retain(|addr, _| {
+            let mut at = servers.iter().filter(|s| s.addr == addr.ip()).peekable();
+            at.peek().is_none() || at.any(|s| s.port == addr.port())
+        });
+    }
+
+    /// Drops what Find cached for an address, on any port: Calibre there
+    /// quit (ADR 0021).
+    fn forget_address(&self, ip: IpAddr) {
+        self.find_cache
+            .lock()
+            .unwrap()
+            .retain(|addr, _| addr.ip() != ip);
+    }
 }
 
 /// A Calibre library that answered, but isn't linked.
@@ -372,6 +392,12 @@ impl Handle {
         cache.insert(addr, (Instant::now(), info));
     }
 
+    /// Tells the Find cache what a broadcast found: an address answering
+    /// on another port loses its old entries (ADR 0021).
+    pub fn note_servers(&self, servers: &[CalibreServer]) {
+        self.shared.note_servers(servers);
+    }
+
     pub fn wifi(&self) -> bool {
         self.shared.wifi.load(Ordering::SeqCst)
     }
@@ -396,6 +422,9 @@ impl Handle {
     }
 }
 
+/// Finds Calibre servers: see [`Options::discover`].
+pub type Discover = dyn FnMut(&[IpAddr]) -> Vec<CalibreServer> + Send;
+
 pub struct Options {
     pub device: DeviceConfig,
     pub state_dir: PathBuf,
@@ -403,8 +432,14 @@ pub struct Options {
     pub backoff: Vec<Duration>,
     /// Silence on a session this long means the connection is dead.
     pub read_timeout: Duration,
-    /// Finds Calibre servers by broadcast.
-    pub discover: Box<dyn FnMut() -> Vec<CalibreServer> + Send>,
+    /// Finds Calibre servers by broadcast, also sending to each of the
+    /// given addresses.
+    pub discover: Box<Discover>,
+    /// Asks one address directly, and briefly, whether Calibre still
+    /// answers there (ADR 0021).
+    pub ask: Box<dyn FnMut(IpAddr) -> Vec<CalibreServer> + Send>,
+    /// How the service waits for a Calibre that quit (ADR 0021).
+    pub away: Away,
     /// The device name to give Calibre, read before each session so a
     /// rename on the Kindle shows at the next connect (ADR 0015).
     pub device_name: Box<dyn FnMut() -> String + Send>,
@@ -419,6 +454,34 @@ impl Options {
     }
 }
 
+/// Telling Calibre quitting from a user's eject, and waiting for it to
+/// come back (ADR 0021).
+#[derive(Debug, Clone)]
+pub struct Away {
+    /// How long a quitting Calibre takes to close its sockets, before it's
+    /// asked whether it's still there.
+    pub settle: Duration,
+    /// While it's away, broadcast this often...
+    pub every: Duration,
+    /// ...for this long, then every `then`.
+    pub fast_for: Duration,
+    pub then: Duration,
+}
+
+impl Default for Away {
+    fn default() -> Away {
+        Away {
+            settle: Duration::from_secs(2),
+            every: Duration::from_secs(10),
+            fast_for: Duration::from_secs(5 * 60),
+            then: Duration::from_secs(60),
+        }
+    }
+}
+
+/// What Home says while Calibre is away (ADR 0021).
+pub const CALIBRE_CLOSED: &str = "Calibre has closed. Wireless Sync reconnects when it's back.";
+
 pub struct Daemon {
     lib: Library,
     opts: Options,
@@ -426,6 +489,9 @@ pub struct Daemon {
     shared: Arc<Shared>,
     net_up: bool,
     paused: bool,
+    /// Addresses that answered a broadcast since Wi-Fi came up: only their
+    /// silence after an eject means Calibre quit (ADR 0021).
+    heard: HashSet<IpAddr>,
 }
 
 enum Wake {
@@ -446,7 +512,8 @@ struct Candidate {
 enum Outcome {
     NotFound,
     Busy,
-    Ejected,
+    /// Calibre at this address ejected us: a user's eject, or quitting.
+    Ejected(SocketAddr),
     PasswordRejected(String),
     Lost(String),
     /// The library's sync columns changed: reconnect at once (ADR 0017).
@@ -495,6 +562,7 @@ impl Daemon {
                 shared,
                 net_up,
                 paused: false,
+                heard: HashSet::new(),
             },
             handle,
         )
@@ -502,6 +570,25 @@ impl Daemon {
 
     fn set(&self, state: State, detail: impl Into<String>) {
         self.shared.set(state, detail.into());
+    }
+
+    /// Broadcasts for Calibre servers, also asking `also` directly, and
+    /// notes who answered.
+    fn discover(&mut self, also: Option<IpAddr>) -> Vec<CalibreServer> {
+        let found = (self.opts.discover)(also.as_slice());
+        self.heard.extend(found.iter().map(|s| s.addr));
+        self.shared.note_servers(&found);
+        found
+    }
+
+    /// Whether Calibre at `ip` still answers (ADR 0021).
+    fn ask(&mut self, ip: IpAddr) -> bool {
+        let found: Vec<CalibreServer> = (self.opts.ask)(ip)
+            .into_iter()
+            .filter(|s| s.addr == ip)
+            .collect();
+        self.shared.note_servers(&found);
+        !found.is_empty()
     }
 
     /// Waits for a control message. Pause and resume are applied here, so
@@ -551,6 +638,9 @@ impl Daemon {
     pub fn run(mut self) {
         // Reset whenever Wi-Fi cycles (ADR 0008).
         let mut ejected = false;
+        // Calibre at this address quit, and since when: wait for its
+        // broadcast answers before connecting (ADR 0021).
+        let mut away: Option<(IpAddr, Instant)> = None;
         // Addresses serving a library other than the linked one, and which
         // library was linked when they were added: linking another library
         // makes them worth trying again, as do a Wi-Fi cycle and Connect now
@@ -569,6 +659,8 @@ impl Daemon {
                     Wake::Network(up) => {
                         if up && !self.net_up {
                             ejected = false;
+                            away = None;
+                            self.heard.clear();
                             skip.clear();
                             bad_password = None;
                         }
@@ -577,6 +669,7 @@ impl Daemon {
                     Wake::ConnectNow => {
                         skip.clear();
                         ejected = false;
+                        away = None;
                         bad_password = None;
                         attempt = 0;
                     }
@@ -591,6 +684,8 @@ impl Daemon {
                     Wake::Network(true) => {
                         self.net_up = true;
                         ejected = false;
+                        away = None;
+                        self.heard.clear();
                         skip.clear();
                         bad_password = None;
                         attempt = 0;
@@ -610,6 +705,7 @@ impl Daemon {
                     Wake::ConnectNow => {
                         skip.clear();
                         ejected = false;
+                        away = None;
                         bad_password = None;
                         attempt = 0;
                     }
@@ -680,7 +776,40 @@ impl Daemon {
 
             let name = library.display_name().to_owned();
             self.set(State::Searching, format!("Looking for {name}."));
-            let found = (self.opts.discover)();
+            let found = self.discover(away.map(|(ip, _)| ip));
+            if let Some((ip, since)) = away {
+                if found.iter().any(|s| s.addr == ip || serves(&library, s)) {
+                    log::info!("Calibre is back");
+                    away = None;
+                    attempt = 0;
+                } else {
+                    // Nothing to connect to until it answers (ADR 0021).
+                    let a = &self.opts.away;
+                    let delay = if since.elapsed() < a.fast_for {
+                        a.every
+                    } else {
+                        a.then
+                    };
+                    self.shared.set_retrying(
+                        State::NotFound,
+                        format!("{CALIBRE_CLOSED} Looking again in {}s.", delay.as_secs()),
+                        Some(CALIBRE_CLOSED.into()),
+                        delay,
+                    );
+                    match self.wait(Some(delay)) {
+                        Wake::Network(false) => self.net_up = false,
+                        Wake::ConnectNow => {
+                            away = None;
+                            skip.clear();
+                            bad_password = None;
+                            attempt = 0;
+                        }
+                        Wake::Shutdown => break,
+                        Wake::Network(true) | Wake::Timeout | Wake::Pause => {}
+                    }
+                    continue;
+                }
+            }
             let candidates = candidates(&library, &found, &skip);
 
             let mut outcome = Outcome::NotFound;
@@ -698,7 +827,7 @@ impl Daemon {
                             .unwrap_or_else(|| name.clone());
                         match end {
                             Ok(SessionEnd::Ejected) => {
-                                outcome = Outcome::Ejected;
+                                outcome = Outcome::Ejected(cand.addr);
                                 break;
                             }
                             // Another library at this address: from the
@@ -764,6 +893,7 @@ impl Daemon {
                     Control::Network(true) => self.net_up = true,
                     Control::ConnectNow => {
                         skip.clear();
+                        away = None;
                         bad_password = None;
                         attempt = 0;
                         connect_now = true;
@@ -787,6 +917,8 @@ impl Daemon {
                 if self.net_up {
                     // Down and back up already: a Wi-Fi cycle.
                     ejected = false;
+                    away = None;
+                    self.heard.clear();
                     skip.clear();
                     bad_password = None;
                     attempt = 0;
@@ -804,9 +936,38 @@ impl Daemon {
                     attempt = 0;
                     continue;
                 }
-                Outcome::Ejected => {
-                    ejected = true;
+                Outcome::Ejected(addr) => {
                     attempt = 0;
+                    let ip = addr.ip();
+                    if !self.heard.contains(&ip) {
+                        // Calibre there never answered a broadcast, so its
+                        // silence would prove nothing (ADR 0021).
+                        ejected = true;
+                        continue;
+                    }
+                    // A user's eject, or Calibre quitting? A quitting
+                    // Calibre stops answering broadcasts.
+                    self.set(
+                        State::Searching,
+                        "Disconnected by Calibre. Checking whether Calibre is still open.",
+                    );
+                    match self.wait(Some(self.opts.away.settle)) {
+                        Wake::Network(false) => {
+                            self.net_up = false;
+                            continue;
+                        }
+                        Wake::Shutdown => break,
+                        // Connect now, or Pause (resuming connects anyway).
+                        Wake::ConnectNow | Wake::Pause => continue,
+                        Wake::Network(true) | Wake::Timeout => {}
+                    }
+                    if self.ask(ip) {
+                        ejected = true;
+                    } else {
+                        log::info!("Calibre at {ip} no longer answers: it quit");
+                        self.shared.forget_address(ip);
+                        away = Some((ip, Instant::now()));
+                    }
                     continue;
                 }
                 Outcome::Held => {
@@ -1019,13 +1180,8 @@ fn candidates(
             out.push(Candidate { addr, hostname });
         }
     };
-    for s in found {
-        let ip = s.addr.to_string();
-        if library.hostname.as_deref() == Some(s.hostname.as_str())
-            || library.host.as_deref() == Some(ip.as_str())
-        {
-            push(SocketAddr::new(s.addr, s.port), s.hostname.clone());
-        }
+    for s in found.iter().filter(|s| serves(library, s)) {
+        push(SocketAddr::new(s.addr, s.port), s.hostname.clone());
     }
     if let (Some(host), Some(port)) = (&library.host, library.port) {
         match (host.as_str(), port).to_socket_addrs() {
@@ -1038,6 +1194,13 @@ fn candidates(
         }
     }
     out
+}
+
+/// Whether a discovered server is where the linked library was: the same
+/// hostname, or the same address.
+fn serves(library: &LinkedLibrary, s: &CalibreServer) -> bool {
+    library.hostname.as_deref() == Some(s.hostname.as_str())
+        || library.host.as_deref() == Some(s.addr.to_string().as_str())
 }
 
 /// Why [`probe`] failed, when it's Calibre's doing rather than the network's.
@@ -1317,6 +1480,40 @@ mod tests {
         backoff: Duration,
         device_name: Box<dyn FnMut() -> String + Send>,
     ) -> (Handle, std::thread::JoinHandle<()>) {
+        launch(state, linked, |opts| {
+            opts.backoff = vec![backoff];
+            opts.device_name = device_name;
+        })
+    }
+
+    /// Starts a daemon whose broadcasts get `answers`, as they stand at
+    /// each broadcast, and that waits for a quit Calibre in milliseconds.
+    fn start_answering(
+        state: &Path,
+        linked: (&str, SocketAddr),
+        answers: Arc<Mutex<Vec<CalibreServer>>>,
+    ) -> (Handle, std::thread::JoinHandle<()>) {
+        launch(state, Some(linked), |opts| {
+            let a = answers.clone();
+            opts.discover = Box::new(move |_| a.lock().unwrap().clone());
+            opts.ask = Box::new(move |ip| {
+                let answers = answers.lock().unwrap();
+                answers.iter().filter(|s| s.addr == ip).cloned().collect()
+            });
+            opts.away = Away {
+                settle: Duration::from_millis(10),
+                every: Duration::from_millis(50),
+                fast_for: Duration::from_secs(1),
+                then: Duration::from_millis(50),
+            };
+        })
+    }
+
+    fn launch(
+        state: &Path,
+        linked: Option<(&str, SocketAddr)>,
+        edit: impl FnOnce(&mut Options),
+    ) -> (Handle, std::thread::JoinHandle<()>) {
         let mut config = Config::load(state).unwrap();
         if let Some((uuid, addr)) = linked {
             config.link(
@@ -1332,15 +1529,18 @@ mod tests {
         }
         config.save().unwrap();
         let lib = Library::open(&state.join("books"), state).unwrap();
-        let opts = Options {
+        let mut opts = Options {
             device: DeviceConfig::default(),
             state_dir: state.to_path_buf(),
-            backoff: vec![backoff],
+            backoff: vec![Duration::from_millis(50)],
             read_timeout: Duration::from_secs(5),
-            discover: Box::new(Vec::new),
-            device_name,
+            discover: Box::new(|_| Vec::new()),
+            ask: Box::new(|_| Vec::new()),
+            away: Away::default(),
+            device_name: Box::new(|| "Test Kindle".into()),
             quiet: Duration::ZERO,
         };
+        edit(&mut opts);
         let (daemon, handle) = Daemon::new(lib, opts, true);
         (handle, std::thread::spawn(move || daemon.run()))
     }
@@ -1357,6 +1557,8 @@ mod tests {
     fn after_eject_waits_for_wifi_cycle_or_connect_now() {
         let tmp = tempfile::tempdir().unwrap();
         let (addr, count) = fake_calibre("lib-1");
+        // Broadcasts get no answers, so an eject can't be told from a quit
+        // and keeps the service disconnected (ADR 0021, rule 5).
         let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
 
         wait_until("first eject", || h.status().state == State::Ejected);
@@ -1385,6 +1587,73 @@ mod tests {
         let status: serde_json::Value =
             serde_json::from_slice(&fs::read(tmp.path().join(STATUS_FILE)).unwrap()).unwrap();
         assert_eq!(status["state"], "stopped");
+    }
+
+    #[test]
+    fn a_calibre_that_quit_is_waited_for_and_one_that_ejected_is_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre("lib-1");
+        let server = |port| CalibreServer {
+            addr: addr.ip(),
+            hostname: "pc".into(),
+            port,
+            content_server_port: None,
+        };
+        let answers = Arc::new(Mutex::new(vec![server(addr.port())]));
+        let (h, thread) = start_answering(tmp.path(), ("lib-1", addr), answers.clone());
+
+        // Calibre still answers after the eject: the user's eject.
+        wait_until("first eject", || h.status().state == State::Ejected);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after eject");
+
+        // Calibre quits: it ejects us and stops answering.
+        answers.lock().unwrap().clear();
+        let other = SocketAddr::new(addr.ip(), 1);
+        h.remember_find(other, CalibreInfo::default());
+        h.connect_now();
+        wait_until("Calibre closed", || {
+            h.status().advice.as_deref() == Some(CALIBRE_CLOSED)
+        });
+        let s = h.status();
+        assert_eq!(s.state, State::NotFound);
+        assert!(s.retry_at.is_some());
+        assert_eq!(h.cached_find(other), None, "Find forgets the address");
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(count.load(Ordering::SeqCst), 2, "no connection while away");
+
+        // It comes back on another port: connect there, and record it.
+        let (moved, moved_count) = fake_calibre("lib-1");
+        *answers.lock().unwrap() = vec![server(moved.port())];
+        wait_until("reconnected", || moved_count.load(Ordering::SeqCst) == 1);
+        wait_until("ejected again", || h.status().state == State::Ejected);
+        let config = Config::load(tmp.path()).unwrap();
+        assert_eq!(config.linked("lib-1").unwrap().port, Some(moved.port()));
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn find_drops_answers_from_an_address_that_moved_port() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (h, thread) = start(tmp.path(), None);
+        let old: SocketAddr = "10.0.0.7:9090".parse().unwrap();
+        let elsewhere: SocketAddr = "10.0.0.8:9090".parse().unwrap();
+        h.remember_find(old, CalibreInfo::default());
+        h.remember_find(elsewhere, CalibreInfo::default());
+        let at = |a: &str, port| CalibreServer {
+            addr: a.parse().unwrap(),
+            hostname: "pc".into(),
+            port,
+            content_server_port: None,
+        };
+        h.note_servers(&[at("10.0.0.7", 9090)]);
+        assert!(h.cached_find(old).is_some(), "same port: kept");
+        h.note_servers(&[at("10.0.0.7", 4242)]);
+        assert_eq!(h.cached_find(old), None);
+        assert!(h.cached_find(elsewhere).is_some(), "silent: kept");
+        h.shutdown();
+        thread.join().unwrap();
     }
 
     #[test]

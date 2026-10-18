@@ -9,7 +9,7 @@ use std::time::Duration;
 use kws::api::{self, Api};
 use kws::catalog::Catalog;
 use kws::config::{self, Config, Link};
-use kws::daemon::{self, Daemon, FindResult, LinkError, Options};
+use kws::daemon::{self, Away, Daemon, FindResult, LinkError, Options};
 use kws::discovery;
 use kws::kindle::{self, CoverConfig};
 use kws::library::Library;
@@ -69,6 +69,8 @@ check       check a library as the app does before linking it (ADR 0020):
 /// the connection is dead.
 const READ_TIMEOUT: Duration = Duration::from_secs(300);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long to wait for Calibre's answer after an eject (ADR 0021).
+const ASK_TIMEOUT: Duration = Duration::from_secs(2);
 /// Calibre's default port for wireless device connections.
 const CALIBRE_PORT: u16 = 9090;
 
@@ -190,14 +192,22 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         state_dir: state.clone(),
         backoff: Options::default_backoff(),
         read_timeout: READ_TIMEOUT,
-        discover: Box::new(|| {
-            discovery::discover(DISCOVERY_TIMEOUT, &discovery::default_targets()).unwrap_or_else(
-                |e| {
-                    log::warn!("discovery failed: {e}");
-                    Vec::new()
-                },
-            )
+        discover: Box::new(|also| {
+            let mut targets = discovery::default_targets();
+            targets.extend_from_slice(also);
+            discovery::discover(DISCOVERY_TIMEOUT, &targets).unwrap_or_else(|e| {
+                log::warn!("discovery failed: {e}");
+                Vec::new()
+            })
         }),
+        // Two sends, a second apart (ADR 0021).
+        ask: Box::new(|ip| {
+            discovery::discover(ASK_TIMEOUT, &[ip]).unwrap_or_else(|e| {
+                log::warn!("cannot ask {ip}: {e}");
+                Vec::new()
+            })
+        }),
+        away: Away::default(),
         // --name wins; otherwise the name set on the Kindle (ADR 0015).
         device_name: Box::new(move || {
             name.clone()

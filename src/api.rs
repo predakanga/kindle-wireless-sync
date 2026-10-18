@@ -400,6 +400,7 @@ fn set_autostart(home: &Path, enabled: bool) -> io::Result<()> {
 
 fn find(api: &Api) -> (u16, Value) {
     let found = (api.discover)();
+    api.handle.note_servers(&found);
     let config = match Config::load(&api.state_dir) {
         Ok(c) => c,
         Err(e) => return fail(format!("Cannot read settings: {e}")),
@@ -749,7 +750,7 @@ fn display_info(info: &CalibreInfo) -> &str {
 mod tests {
     use super::*;
     use crate::config::LinkedLibrary;
-    use crate::daemon::{Daemon, Options};
+    use crate::daemon::{Away, Daemon, Options};
     use crate::library::Library;
     use crate::session::DeviceConfig;
 
@@ -774,7 +775,9 @@ mod tests {
             state_dir: state.clone(),
             backoff: Options::default_backoff(),
             read_timeout: Duration::from_secs(5),
-            discover: Box::new(Vec::new),
+            discover: Box::new(|_| Vec::new()),
+            ask: Box::new(|_| Vec::new()),
+            away: Away::default(),
             device_name: Box::new(|| "Kindle".into()),
             quiet: Duration::ZERO,
         };
