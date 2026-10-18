@@ -574,8 +574,8 @@ impl Daemon {
 
     /// Broadcasts for Calibre servers, also asking `also` directly, and
     /// notes who answered.
-    fn discover(&mut self, also: Option<IpAddr>) -> Vec<CalibreServer> {
-        let found = (self.opts.discover)(also.as_slice());
+    fn discover(&mut self, also: &[IpAddr]) -> Vec<CalibreServer> {
+        let found = (self.opts.discover)(also);
         self.heard.extend(found.iter().map(|s| s.addr));
         self.shared.note_servers(&found);
         found
@@ -776,7 +776,14 @@ impl Daemon {
 
             let name = library.display_name().to_owned();
             self.set(State::Searching, format!("Looking for {name}."));
-            let found = self.discover(away.map(|(ip, _)| ip));
+            // Also ask the library's last address directly: Calibre answers
+            // the sender, so this crosses routers, where broadcasts don't
+            // (ADR 0021, amendment).
+            let mut also: Vec<IpAddr> = away.map(|(ip, _)| ip).into_iter().collect();
+            if let Some(ip) = last_ip(&library).filter(|ip| !also.contains(ip)) {
+                also.push(ip);
+            }
+            let found = self.discover(&also);
             if let Some((ip, since)) = away {
                 if found.iter().any(|s| s.addr == ip || serves(&library, s)) {
                     log::info!("Calibre is back");
@@ -1194,6 +1201,15 @@ fn candidates(
         }
     }
     out
+}
+
+/// The address the linked library last answered at, if it has one.
+fn last_ip(library: &LinkedLibrary) -> Option<IpAddr> {
+    let host = library.host.as_deref()?;
+    host.parse().ok().or_else(|| {
+        let mut addrs = (host, library.port.unwrap_or(0)).to_socket_addrs().ok()?;
+        addrs.next().map(|a| a.ip())
+    })
 }
 
 /// Whether a discovered server is where the linked library was: the same
@@ -1629,6 +1645,25 @@ mod tests {
         wait_until("ejected again", || h.status().state == State::Ejected);
         let config = Config::load(tmp.path()).unwrap();
         assert_eq!(config.linked("lib-1").unwrap().port, Some(moved.port()));
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn searches_also_ask_the_last_address_directly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dead: SocketAddr = "127.0.0.1:1".parse().unwrap();
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let a = asked.clone();
+        let (h, thread) = launch(tmp.path(), Some(("lib-1", dead)), |opts| {
+            opts.discover = Box::new(move |also| {
+                a.lock().unwrap().push(also.to_vec());
+                Vec::new()
+            })
+        });
+        wait_until("a search", || !asked.lock().unwrap().is_empty());
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        assert_eq!(asked.lock().unwrap()[0], vec![ip]);
         h.shutdown();
         thread.join().unwrap();
     }

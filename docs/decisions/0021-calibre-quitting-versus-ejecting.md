@@ -5,6 +5,10 @@
 - Amends: [0008](0008-daemon-behaviour.md) (an eject keeps
   the service disconnected) and [0020](0020-one-screen-pages-and-checking-a-library.md)
   (the Find cache).
+- Amended 2026-10-18 (developer; see "Amendment: asking the last address
+  directly" at the end): every search also sends the discovery datagram to
+  the linked library's last address, so a Calibre on another network can
+  answer too.
 
 ## Context
 **An eject keeps the service disconnected** until Wi-Fi cycles or the user
@@ -104,3 +108,19 @@ connected to once. Two additions keep it from serving stale answers:
   (10.0.2.2) gets an answer through QEMU's network. Broadcasts don't cross
   it. If unicast doesn't either, the emulator always takes rule 5.
 - **Later item 8** in `PLAN.md` is answered by this ADR once it's built.
+
+## Amendment: asking the last address directly (2026-10-18)
+**Every search also sends the discovery datagram to the linked library's
+last address**, not only to the broadcast address. Calibre binds its
+broadcast socket to all interfaces and answers with `sendto(message,
+remote)` to whoever sent the datagram (`ConnectionListener.run` in
+`smart_device_app/driver.py`), so a datagram sent to its address crosses
+routers, VPNs and subnets, where a broadcast doesn't.
+
+So a Calibre on another network, linked by address, now counts as having
+answered (rule 5 above no longer applies to it), and the eject check and
+the wait after a quit work for it as on the local network. Rule 5 remains
+for a Calibre whose datagrams are dropped, by a firewall for example.
+
+The developer had assumed the reply was itself a broadcast, which wouldn't
+have crossed a router; it isn't.

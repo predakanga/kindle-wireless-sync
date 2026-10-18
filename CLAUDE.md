@@ -184,9 +184,9 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   `just screensaver-off`, and `just screensaver-on` afterwards (a reboot also
   turns it back on).
 - **Quitting Calibre ejects the Kindle.** The daemon then broadcasts until
-  Calibre is back (ADR 0021), unless Calibre never answered a broadcast
-  (the emulator, a library linked by address): then it waits, as after a
-  user's eject (ADR 0008). To reconnect from SSH, run `curl -s -X POST
+  Calibre is back (ADR 0021), unless Calibre never answered a discovery
+  datagram (a firewall; maybe the emulator, still to check): then it
+  waits, as after a user's eject (ADR 0008). To reconnect from SSH, run `curl -s -X POST
   http://127.0.0.1:8325/connect-now` on the Kindle. Connect now does nothing
   while a session is open: for a fresh book list, run `just restart`.
 - To run the daemon by hand (for example with `RUST_LOG=debug`), stop the
