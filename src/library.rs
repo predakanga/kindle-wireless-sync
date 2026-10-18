@@ -44,6 +44,8 @@ const FREE_SPACE_MARGIN: u64 = 1024 * 1024;
 /// Our private key in each book record.
 const PRIVATE_KEY: &str = "_kws";
 const COVERS_DIR: &str = "covers";
+/// Covers of deleted books still listed in the catalog (`doomed_covers`).
+const DOOMED_COVERS_FILE: &str = "deleted_covers.json";
 /// Calibre's covers for books whose key is still pending, inside
 /// `COVERS_DIR`: written once the scanner has indexed the book.
 const PENDING_COVERS_DIR: &str = "pending";
@@ -153,7 +155,20 @@ impl Library {
             catalog_changed: Arc::new(AtomicBool::new(false)),
             last_key_check: Instant::now(),
             catalog_deletes: Vec::new(),
-            doomed_covers: Vec::new(),
+            doomed_covers: load_json(&state_dir.join(DOOMED_COVERS_FILE))?
+                .as_ref()
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|d| {
+                    let location = PathBuf::from(d["location"].as_str()?);
+                    let key = BookKey {
+                        cde_key: d["cde_key"].as_str()?.to_owned(),
+                        cde_type: d["cde_type"].as_str()?.to_owned(),
+                    };
+                    Some((location, key))
+                })
+                .collect(),
         };
         if let Err(e) = remove_if_exists(fs::remove_file(state_dir.join(OLD_COLUMNS_FILE))) {
             log::warn!("cannot remove {OLD_COLUMNS_FILE}: {e}");
@@ -750,6 +765,7 @@ impl Library {
                 // Until the catalog drops the entry, the Library still
                 // shows the book: keep its cover meanwhile.
                 self.doomed_covers.push((path.clone(), key));
+                self.save_doomed_covers();
             } else {
                 self.remove_cover(&key)?;
             }
@@ -799,11 +815,33 @@ impl Library {
         }
     }
 
+    /// Keeps the list of covers to remove across restarts.
+    fn save_doomed_covers(&self) {
+        let list: Vec<Value> = self
+            .doomed_covers
+            .iter()
+            .map(|(location, key)| {
+                json!({"location": location.to_string_lossy(), "cde_key": key.cde_key,
+                       "cde_type": key.cde_type})
+            })
+            .collect();
+        let path = self.state_dir.join(DOOMED_COVERS_FILE);
+        let result = if list.is_empty() {
+            remove_if_exists(fs::remove_file(&path))
+        } else {
+            write_json_atomic(&path, &Value::Array(list))
+        };
+        if let Err(e) = result {
+            log::warn!("cannot save the covers of deleted books: {e}");
+        }
+    }
+
     /// Removes the kept covers of deleted books whose catalog entry is gone.
     fn clean_doomed_covers(&mut self) {
         let Some(db) = self.covers.as_ref().and_then(|c| c.catalog_db.clone()) else {
             return;
         };
+        let before = self.doomed_covers.len();
         let doomed = std::mem::take(&mut self.doomed_covers);
         for (location, key) in doomed {
             let gone = location
@@ -818,6 +856,9 @@ impl Library {
                 }
                 _ => self.doomed_covers.push((location, key)),
             }
+        }
+        if self.doomed_covers.len() != before {
+            self.save_doomed_covers();
         }
     }
 
@@ -1393,8 +1434,16 @@ mod tests {
             json!([{"delete": {"uuid": "u-k1"}}, {"delete": {"uuid": "u-k2"}}])
         );
 
-        // The fake catalog doesn't apply it: covers stay while listed...
+        // The fake catalog doesn't apply it: covers stay while listed, and
+        // the list survives a restart...
         assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 2);
+        drop(lib);
+        let mut lib = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir: thumbs.clone(),
+            catalog_db: Some(db.clone()),
+        })
+        .unwrap();
         // ...and go once the entries are gone.
         assert!(std::process::Command::new("sqlite3")
             .arg(&db)
@@ -1406,6 +1455,7 @@ mod tests {
         lib.reconcile_series_if_due();
         assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
         assert_eq!(lib.next_work_in(), None);
+        assert!(!tmp.path().join("state").join(DOOMED_COVERS_FILE).exists());
     }
 
     #[test]

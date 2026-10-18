@@ -99,5 +99,6 @@ the tiles within a couple of seconds. In a batch of 4, one delete waited
 about 9 s for the lock; all 4 were gone within 10 s, against about 27 s
 for the scanner alone.
 
-Covers of deleted books are only kept in memory: if the service restarts
-before an entry is gone, that cover stays behind.
+The list of covers waiting for their entry to go is kept in
+`state/deleted_covers.json`, so a restart in between doesn't leave covers
+behind.
