@@ -165,3 +165,25 @@ its files, with `lipc-set-prop com.lab126.appmgrd stop app://<app id>`,
 the same graceful unload `uninstall.sh` uses (killing mesquite makes
 appmgrd report a crash). Tested on the device: with the app backgrounded
 behind Home, a repository upgrade closed it and Home stayed in front.
+
+## `initctl reload-configuration` failing (2026-10-18)
+Twice on the emulated Kindle (2026-10-17 and 2026-10-18), a KPM install
+stopped at `initctl reload-configuration`: "initctl: Did not receive a
+reply", so KPM recorded the install as failed. Installing again worked.
+
+Measured with the same three rounds on both machines: 50 reloads in a row
+with the service running; 50 with the service stopped or started between
+reloads; and 12 alternating with creating, editing and deleting a test job
+in `/etc/upstart` (each change its own `mntroot rw` and `ro`):
+- **The Kindle** (up 1.5 days): 112 reloads, none failed, the slowest
+  0.17 s.
+- **The emulated Kindle**, in its first minutes after boot (load average
+  about 3): 1 failure in those 112, and 1 in 100 more. Each failed within
+  half a second, so upstart's reply was lost rather than late.
+- **The emulated Kindle once settled** (up 8 minutes, load 0.1): 200
+  reloads, none failed.
+
+So it's the emulator while busy after boot, which is when both failed
+installs ran. `install.sh` and `uninstall.sh` now try once more after 2 s
+before giving up, which covers that case, and costs nothing when the first
+attempt works.
