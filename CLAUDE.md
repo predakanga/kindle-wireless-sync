@@ -261,6 +261,15 @@ quit Tailscale; don't change either yourself.
   incomplete handshakes until one succeeds.
 - Calibre CLI tools are in `/Applications/calibre.app/Contents/MacOS/` (not
   on PATH). Test books are in `~/Calibre Library/`.
+- **The Kindle's busybox `sleep` takes whole seconds only** (`sleep 0.5`
+  fails). zsh doesn't split unquoted variables, so `t $xy` passes one
+  argument: write coordinates out.
+- **`scp` to the Kindle once failed repeatedly** ("Connection closed by
+  remote host") while plain SSH worked. `ssh kindle 'cat > FILE' < FILE`
+  is a reliable fallback.
+- **Testing a KPM upgrade needs a higher version** than the device has,
+  including earlier test builds (the developer's Kindle reached 0.2.9 that
+  way). Bump `Cargo.toml` only for the package build, then revert it.
 
 ## Debugging Calibre
 
