@@ -107,3 +107,23 @@ to stay inside `documents` after resolving symlinks (`folders.rs`).
   books where they are and updates still find them.
 - The developer confirmed that nothing outside `documents` can be chosen
   (2026-10-19).
+
+## Implementation notes (2026-10-19)
+- **Checked on the reference Kindle** (5.20.1) with the developer's
+  Calibre. With the folder set to `kws-folder-test` (made with the
+  picker's New folder): a new book (*The Rithmatist*) went into it, was
+  catalogued and got its cover; a book already in `documents` (*The Alloy
+  of Law*) was rewritten in place there, keeping its `.sdr`, with no second
+  copy; deleting the new book from Calibre removed it, its `.sdr` and its
+  catalog entry.
+- **Deleting the folder's only book first removed the folder too.**
+  `delete_book` tidies emptied parent folders up to `documents`, for the
+  per-author folders Calibre's templates can make. A book now records the
+  books folder it was placed in (`_kws.folder` in `books.json`, kept
+  across updates and key lookups), and the tidying stops there. Retested:
+  the folder stayed. Books received before this have no record of it and
+  tidy up to `documents`, as before.
+- **The picker pages ten folders at a time.** The real app was checked end
+  to end in headless Chrome against the service on the Mac, driven over
+  the DevTools protocol (hidden and `.sdr` folders left out, a link out of
+  `documents` listed as unusable, paging, Up, New folder, Use this folder).

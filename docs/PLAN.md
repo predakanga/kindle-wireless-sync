@@ -413,7 +413,8 @@ Not part of any phase. Pick these up after the base and stretch goals
     received stay where they are. Subfolders of `documents` are indexed on
     5.20.1 (research note, "Books in subfolders are indexed"), so the books
     root can stay `documents` with the folder as a path prefix, which
-    Calibre accepts (`canSupportLpathChanges`).
+    Calibre accepts (`canSupportLpathChanges`). **Built and checked on the
+    Kindle** (ADR 0023, 2026-10-19). Done.
 13. **Fractional series positions** (developer, 2026-10-18): check that
     series sync handles them, for example Mistborn 3.5. The code passes
     Calibre's `series_index` through as `itemPosition` (3.5) with the label
