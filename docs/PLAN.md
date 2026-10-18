@@ -138,6 +138,15 @@ Details: [progress log](progress-log.md#phase-5).
   registration, collections, progress storage, service hooks, UI) exist on
   firmware and models other than the reference device. Record what differs.
   See [0001](decisions/0001-target-device-and-firmware.md).
+- **`just compat MODEL VERSION`** (`tools/compat/`) boots the model and
+  firmware on eink-emulator and runs every integration check: architecture,
+  commands, lipc, catalog and app-registry schemas, ChangeRequest, KPM
+  install and uninstall, the service, indexing, series, Wi-Fi events, the
+  app, and whether each page fits the screen. It prints a JSON line per run.
+  Results so far (2026-10-19): Paperwhite 6 on 5.20.1 passes everything; a
+  Basic 2016 on 5.16.2.1.1 fails, as a soft-float device with sqlite3
+  3.26 (no `-json`). One open oddity there: catalog errors after a KPM
+  install. [Details](progress-log.md#phase-6).
 - Specific checks found so far:
   - **Books in subfolders of `documents` are indexed** like books in
     `documents` itself. The books folder (ADR 0023) depends on it, and it's

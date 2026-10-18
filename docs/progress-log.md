@@ -257,6 +257,41 @@ staying in place (ADR 0023).
   - Which characters and lengths does Calibre accept? Sanitize the name, and
     fall back to "Kindle" if it is empty or unusable.
 
+<a id="phase-6"></a>
+## Phase 6: Other firmware
+
+**Compatibility harness** (2026-10-19): `tools/compat/compat.py` (`just
+compat MODEL VERSION`, README there) boots a model and firmware on
+eink-emulator, creating and jailbreaking the instance on first use, and
+prints one JSON line of check results.
+
+- **Paperwhite 6, 5.20.1** (`pw6-5201-jb`): all 25 checks pass. Every page
+  fits; the tightest, the storage folder picker with ten folders and
+  paging, has 95 px to spare in the app's 1272×1480 viewport. The
+  on-screen keyboard starts 896 px down the app. mesquite doesn't shrink
+  the viewport for it, so the harness finds it in the screenshot.
+- **Basic 2016 (KT3), 5.16.2.1.1** (`kws-kt2016-516211`): not
+  compatible, as expected for a soft-float device:
+  - No `/lib/ld-linux-armhf.so.3`; jb.sh installs the `kindlepw2` KPM.
+    KPM 0.2.2 still installed our kindlehf-only package from a local file,
+    and the static binary ran: the service started and the app opened.
+  - sqlite3 is 3.26.0, which has no `-json`, so every catalog query in
+    `catalog.rs` fails (series retries every 15 s).
+  - `Entries` has no `p_lastOpenTime` (read sync, ADR 0017).
+  - The screen is 600×800; the app gets 600×680. Every page fits, the
+    tightest with 22 px to spare. Focusing a field from script doesn't open
+    the keyboard there, so the keyboard check can't measure it.
+  - **Open:** after a KPM install of the package, every ChangeRequest the
+    scanner posts fails with `SQL logic error` (`change.lua:2054`) until a
+    reboot. New books in `documents/` are still indexed, but books in a
+    new subfolder aren't. None of these alone triggered it: copying the
+    scriptlet, registering the app, running the daemon, `mntroot rw`/`ro`,
+    `initctl reload-configuration`, or extracting the package under
+    `/mnt/us`. The subfolder check failed once on 5.20.1 too, on a run
+    that reinstalled over an existing install, and passed on every clean
+    snapshot boot; that run didn't record the scanner's errors. The check
+    now records the refused-post count from `/var/log/messages`.
+
 ## Later items
 
 <a id="later-1"></a>
