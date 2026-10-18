@@ -130,6 +130,10 @@
 
     // ---- building blocks ----
 
+    // A folder outline for the folder picker (ADR 0023), drawn like the gear.
+    var FOLDER = '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
+        + '<path fill-rule="evenodd" d="M2 4h7.5l2 2.5H22V20H2zM4 9v9h16V9z"/></svg>';
+
     /// A page header: a back button (backAct) or none, and a gear for the
     /// app settings on the first pages.
     function header(title, backAct, gear) {
@@ -401,7 +405,7 @@
         var html = header("Storage folder", "back:app")
             + '<div class="hint">New books go into the folder shown here. Books already on the Kindle '
             + 'stay where they are.</div>'
-            + '<div class="folder-here">' + esc(folderLabel(browse.path)) + '</div>'
+            + '<div class="folder-here">Currently in: <b>' + esc(folderLabel(browse.path)) + '</b></div>'
             + '<div class="rows">';
         if (browse.path) {
             html += '<div class="row plain up" data-act="folderup"><i>Up to ' + esc(lastPart(parentOf(browse.path)))
@@ -415,9 +419,9 @@
             var f = shown[i];
             html += f.problem
                 ? '<div class="row unusable" data-act="folderproblem" data-arg="' + esc(f.problem) + '">'
-                    + '<div class="name">' + esc(f.name) + '</div><div class="sub">Can\'t be used</div></div>'
+                    + '<div class="name">' + FOLDER + esc(f.name) + '</div><div class="sub">Can\'t be used</div></div>'
                 : '<div class="row" data-act="folderopen" data-arg="' + esc(f.name) + '">'
-                    + '<div class="name">' + esc(f.name) + '</div><span class="chev">›</span></div>';
+                    + '<div class="name">' + FOLDER + esc(f.name) + '</div><span class="chev">›</span></div>';
         }
         html += '</div>';
         if (browse.loading) html += '<div class="empty">Loading…</div>';

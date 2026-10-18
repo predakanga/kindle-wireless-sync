@@ -152,7 +152,9 @@ h1 { font-size: 1.45rem; margin: 0.9rem 0 0.4rem; }
 .row .value { float: right; font-weight: normal; }
 .row.plain { padding-right: 0; }
 /* The folder picker (ADR 0023). */
-.folder-here { font-weight: bold; margin: 0.4rem 0 0.5rem; word-wrap: break-word; }
+.folder-here { margin: 0.4rem 0 0.5rem; word-wrap: break-word; }
+.folder-icon { width: 1.3rem; height: 1.3rem; vertical-align: -0.25rem; margin-right: 0.5rem; }
+.row.unusable .sub { margin-left: 1.8rem; }
 .row.unusable { color: #555; }
 .mark {
     display: inline-block;
