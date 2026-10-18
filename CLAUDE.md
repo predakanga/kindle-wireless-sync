@@ -75,10 +75,18 @@ developer's own Calibre closed, so ask them to quit it. When you use `just calib
 snippet to that README's "`exec` snippets in use" list with the date. Snippets
 that recur become named commands.
 
-`discover` and `connect` exist only with the `dev-tools` cargo feature (ADR
-0009). The packaged binary has `daemon`, `find`, `link`, `unlink`,
-`status` and `series`. In Calibre, run *Connect/share → Start wireless device
-connection* first.
+`discover`, `connect` and `check` exist only with the `dev-tools` cargo
+feature (ADR 0009). `check --state DIR HOST [PORT] [--password PW] [--quiet
+SECS]` runs the app's library check (ADR 0020) from the Mac. The packaged
+binary has `daemon`, `find`, `link`, `unlink`, `status` and `series`. In
+Calibre, run *Connect/share → Start wireless device connection* first.
+
+**The whole service runs on the Mac** with scratch folders: `daemon --books
+DIR --state DIR`. Without lipc it assumes Wi-Fi is up. With the harness
+Calibre, this tests the app (`package/ui/`) end to end in headless Chrome.
+Load the app from a `file://` URL, or the API refuses it (ADR 0011), and
+drive it in real time: `--virtual-time-budget` races ahead of real network
+requests.
 
 ## Code layout
 
@@ -166,6 +174,8 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   `/mnt/us/kindle-button-mapper/scripts/tap.sh 76 96` taps the Library tab.
 - Name test files `kws-*`. When cleaning up, also remove the `.sdr/` folder
   the indexer creates for each file, because it is not removed automatically.
+- **Make test files TXT, never copies of real books.** A copy shares the
+  original's EXTH key, and so its asset-store row.
 - Ask the developer before writes to the root filesystem (`mntroot`),
   reboots, or anything else hard to undo.
 - When you ask the developer to check something on the device, wait for
@@ -224,6 +234,9 @@ quit Tailscale; don't change either yourself.
   `com.lab126.KPPMainApp` (Home and Library both live in it). Check with
   `python3 scripts/eink-qmp.py --machine pw6-5201-jb screendump F.png`; a
   capture can land mid-refresh (a dithered screen), so take another.
+- `eink-qmp.py tap X Y` takes screen pixels (1272×1696). In a screenshot
+  scaled to height H, multiply by 1696/H. On the on-screen keyboard, "123"
+  switches to digits, and Enter is at the bottom right.
 - Join Wi-Fi over SSH: `echo '{ essid = "Kindle-QEMU", secured = "no" }' |
   lipc-hash-prop com.lab126.wifid createProfile`, then `lipc-set-prop
   com.lab126.wifid cmConnect Kindle-QEMU`. `wifid` reaches CONNECTED only

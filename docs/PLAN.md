@@ -342,7 +342,10 @@ Not part of any phase. Pick these up after the base and stretch goals
    device, and an eject keeps us disconnected until Wi-Fi cycles or Connect
    now (ADR 0008). Restarting Calibre, which adding columns requires, left
    the Kindle disconnected (developer, 2026-10-17). Find out whether a
-   shutdown eject can be told apart from a user's eject.
+   shutdown eject can be told apart from a user's eject. ADR 0021
+   (Proposed, 2026-10-18) answers it: after an eject, broadcast at
+   Calibre's address and reconnect once it answers again. Build it once
+   accepted.
 9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
    plugin (developer, 2026-10-17). Receiving works, and keys and covers now
    follow indexing (ADR 0016, "KFX books and their keys", 2026-10-18).
