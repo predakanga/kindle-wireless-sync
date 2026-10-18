@@ -9,3 +9,6 @@
 
 # IDE settings
 /.idea/
+
+# Python bytecode (tools/)
+__pycache__/
