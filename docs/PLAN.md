@@ -214,8 +214,10 @@ series (ADR 0018, amended).
 **Built (2026-10-18, unreleased): ADR 0020.** The check, the API, the new
 app and the command-line options. Tested with unit tests, the harness
 Calibre, end to end on the Mac, and on the emulated Kindle (ADR 0020,
-implementation notes). Next: the device, then release 0.3.0, which also
-carries read sync (ADR 0017) and ADR 0018.
+implementation notes). Checked on the device, then **released as 0.3.0**
+(2026-10-18), with read sync (ADR 0017) and ADR 0018. The device test also
+fixed KFX keys and covers (ADR 0016). **0.3.1** followed the same day:
+deleted books leave the Library at once (ADR 0005).
 
 ### Phase 5: Stretch goals
 
