@@ -5,6 +5,9 @@
 - Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
   (2026-10-18): the app checks a library (password, columns) before linking
   it, and links it with the settings chosen.
+- Amended by [0022](0022-leaving-at-a-keep-alive.md) (2026-10-18): a
+  library switch in Calibre ends the session at the keep-alive without
+  replying to it.
 
 ## Context
 ADR 0003 made the Kindle connect only to Calibre libraries the user has

@@ -104,6 +104,12 @@ pub trait Admit {
     fn end_when_quiet(&mut self) -> bool {
         false
     }
+
+    /// Asked at each keep-alive: whether to end the session now, quiet or
+    /// not, because the user asked to (ADR 0022).
+    fn leave_now(&mut self) -> bool {
+        false
+    }
 }
 
 impl<F: FnMut(&CalibreInfo) -> Admission> Admit for F {
@@ -130,6 +136,8 @@ pub enum SessionEnd {
     ColumnsChanged,
     /// Ended at a quiet moment because [`Admit::end_when_quiet`] asked.
     Yielded,
+    /// Ended at a keep-alive because [`Admit::leave_now`] asked.
+    Left,
     /// Calibre closed the connection before sending anything: most likely
     /// its lockout after too many failed connections (ADR 0020).
     ClosedAtOnce,
@@ -356,19 +364,26 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
                 } else if p.get("count").is_some() {
                     // Announces how many priKey requests follow; no reply.
                 } else {
-                    conn.send(Opcode::Ok, json!({}))?;
-                    // Calibre takes a failed keep-alive quietly.
-                    if last_busy.elapsed() >= quiet {
-                        if let Some(info) = switched.take() {
-                            return Ok(SessionEnd::LibraryChanged(info));
-                        }
-                        if reconnect {
-                            return Ok(SessionEnd::ColumnsChanged);
-                        }
-                        if admit.end_when_quiet() {
-                            return Ok(SessionEnd::Yielded);
-                        }
+                    // Calibre's keep-alive comes only between its jobs, from
+                    // a check that takes a failure as the device leaving.
+                    // So end here without replying (ADR 0022).
+                    let end = if admit.leave_now() {
+                        Some(SessionEnd::Left)
+                    } else if last_busy.elapsed() < quiet {
+                        None
+                    } else if let Some(info) = switched.take() {
+                        Some(SessionEnd::LibraryChanged(info))
+                    } else if reconnect {
+                        Some(SessionEnd::ColumnsChanged)
+                    } else if admit.end_when_quiet() {
+                        Some(SessionEnd::Yielded)
+                    } else {
+                        None
+                    };
+                    if let Some(end) = end {
+                        return Ok(end);
                     }
+                    conn.send(Opcode::Ok, json!({}))?;
                     // Calibre's keep-alive: a quiet moment between its
                     // operations, so run a due series pass (ADR 0016).
                     lib.reconcile_series_if_due();
@@ -582,7 +597,7 @@ pub fn check<R: BufRead, W: Write>(
                 } else if p.get("count").is_some() {
                     // Announces how many priKey requests follow; no reply.
                 } else {
-                    conn.send(Opcode::Ok, json!({}))?;
+                    // Leave at a quiet keep-alive, without replying (ADR 0022).
                     if listed && last_busy.elapsed() >= quiet {
                         if let (Some(info), Some(columns)) = (info.take(), columns.take()) {
                             return Ok(CheckEnd::Done {
@@ -592,6 +607,7 @@ pub fn check<R: BufRead, W: Write>(
                             });
                         }
                     }
+                    conn.send(Opcode::Ok, json!({}))?;
                 }
             }
             Opcode::DisplayMessage => {
@@ -1033,7 +1049,7 @@ mod tests {
         known.clear();
 
         // First connection: not seen yet, so not named; seeing them ends it
-        // at the keep-alive, after replying to it.
+        // at the keep-alive, without answering it (ADR 0022).
         let o = run_script_with(
             &mut lib,
             &cfg,
@@ -1044,7 +1060,8 @@ mod tests {
         );
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
-        assert_eq!(o.replies.last().unwrap().1, json!({}));
+        // Init and the library info only.
+        assert_eq!(o.replies.len(), 2);
         assert_eq!(known["#kindle_read"]["datatype"], "bool");
 
         // The reconnect names them, and the same list doesn't end it again.
@@ -1064,6 +1081,52 @@ mod tests {
         let o = run_script_with(&mut lib, &cfg, script(), None, None, &mut known);
         assert_eq!(o.end, SessionEnd::Ejected);
         assert!(o.replies[0].1.get("isReadSyncCol").is_none());
+    }
+
+    #[test]
+    fn leave_now_ends_at_the_next_keep_alive_even_when_busy() {
+        struct Leaving;
+        impl Admit for Leaving {
+            fn admit(&mut self, _: &CalibreInfo) -> Admission {
+                Admission::Accept {
+                    password: None,
+                    columns: None,
+                    known_columns: Map::new(),
+                }
+            }
+            fn leave_now(&mut self) -> bool {
+                true
+            }
+        }
+        let (_tmp, mut lib) = setup();
+        let script = Script::new()
+            .handshake()
+            .msg(Opcode::FreeSpace, json!({}))
+            .msg(Opcode::Noop, json!({"count": 0}))
+            .msg(Opcode::Noop, json!({}))
+            .msg(Opcode::FreeSpace, json!({}));
+        let mut out = Vec::new();
+        let end = {
+            let mut conn = Connection::new(Cursor::new(script.0), &mut out);
+            // Calibre was busy a moment ago; leaving doesn't wait for quiet.
+            run_with_quiet(
+                &mut conn,
+                &mut lib,
+                &DeviceConfig::default(),
+                &mut Leaving,
+                Duration::from_secs(3600),
+            )
+            .unwrap()
+        };
+        assert_eq!(end, SessionEnd::Left);
+        // Init and free space; the keep-alive isn't answered, and nothing
+        // after it is read.
+        let mut cur = Cursor::new(out);
+        let mut replies = 0;
+        while let Ok(Some(_)) = read_message(&mut cur) {
+            replies += 1;
+        }
+        assert_eq!(replies, 2);
     }
 
     #[test]
@@ -1092,8 +1155,9 @@ mod tests {
             "{:?}",
             o.end
         );
-        // Every request answered, the keep-alive included.
-        assert_eq!(o.replies.len(), 4);
+        // Every request answered but the keep-alive, where it leaves
+        // without a reply (ADR 0022).
+        assert_eq!(o.replies.len(), 3);
         // The other library's columns aren't kept as the linked one's.
         assert!(known.contains_key("#kindle_read"));
         assert!(!known.contains_key("#x"));
@@ -1141,9 +1205,10 @@ mod tests {
             "named from the old record"
         );
         // The session carries on (Calibre skips its sync, as a column is
-        // missing), then ends at the keep-alive.
+        // missing), then ends at the keep-alive without answering it: the
+        // last reply is the book count.
         assert_eq!(o.end, SessionEnd::ColumnsChanged);
-        assert_eq!(o.replies.last().unwrap().1, json!({}));
+        assert_eq!(o.replies.last().unwrap().1["count"], 0);
 
         let o = run_script_with(
             &mut lib,
@@ -1428,9 +1493,9 @@ mod tests {
         assert_eq!(columns["#kindle_read"]["name"], "Kindle read");
         // No ID was given, so Calibre's is returned for next time.
         assert_eq!(device_uuid.as_deref(), Some("assigned-1"));
-        // Init, device info, driveinfo, free space, library info, book
-        // count, then one keep-alive: the second is never answered.
-        assert_eq!(replies.len(), 7);
+        // Init, device info, driveinfo, free space, library info and book
+        // count; it leaves at the first keep-alive without answering it.
+        assert_eq!(replies.len(), 6);
         assert!(replies[0].1.get("isReadSyncCol").is_none());
         assert!(replies[1].1["device_info"]
             .get("device_store_uuid")

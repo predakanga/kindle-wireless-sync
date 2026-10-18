@@ -15,6 +15,11 @@ one.
   it disconnected until Wi-Fi reconnects or you tap **Connect**. This also
   works for a Calibre on another network, linked by address, unless a
   firewall blocks Calibre's discovery ports.
+- Disconnecting from the app, forgetting the library, changing its
+  password or linking another library now waits for Calibre to finish
+  what it's doing (15 seconds at most), so Calibre no longer shows an
+  error if it was in the middle of something. Home shows "Disconnecting…"
+  meanwhile.
 - The app's Home shows why the Kindle isn't connected directly under the
   status, with what to do: for example "Ejected by Calibre. Tap Connect
   below to reconnect."

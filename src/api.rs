@@ -780,6 +780,7 @@ mod tests {
             away: Away::default(),
             device_name: Box::new(|| "Kindle".into()),
             quiet: Duration::ZERO,
+            leave_within: daemon::LEAVE_WITHIN,
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

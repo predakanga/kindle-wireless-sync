@@ -8,6 +8,8 @@
 - Amended by [0020](0020-one-screen-pages-and-checking-a-library.md)
   (2026-10-18): the user chooses the columns from the library's own, and
   the library's column list moves from `columns.json` into `config.json`.
+- Amended by [0022](0022-leaving-at-a-keep-alive.md) (2026-10-18): the
+  session ends at the quiet keep-alive by not replying to it.
 
 ## Context
 Phase 5, stretch goal 2, is to send reading progress and ratings from the

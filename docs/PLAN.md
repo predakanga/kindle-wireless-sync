@@ -383,8 +383,10 @@ Not part of any phase. Pick these up after the base and stretch goals
     but closing the connection *instead of* replying to the keep-alive is
     safer than replying and then closing. Calibre treats it like a device
     that left Wi-Fi, and no job can be running then. Jobs queued in the 2 s
-    before it are still aborted with an error dialog. Next: decide whether
-    to switch (an ADR amending 0017 and 0020), and test it with the harness.
+    before it are still aborted with an error dialog. **Built** (ADR 0022):
+    the session and checks leave that way, and Disconnect, Forget library, a
+    new password and relinking leave at the next keep-alive (15 s at most).
+    Still to test with the harness.
 11. **Present the Series field back to Calibre** (developer, 2026-10-18).
     For example, include each book's series in the book list the Kindle
     sends, so Calibre's device view shows it. Settle exactly what's wanted

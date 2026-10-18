@@ -215,6 +215,7 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
                 .unwrap_or_else(|| DeviceConfig::default().device_name)
         }),
         quiet: kws::session::QUIET_BEFORE_RECONNECT,
+        leave_within: daemon::LEAVE_WITHIN,
     };
     let catalog_changed = lib.catalog_signal();
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));

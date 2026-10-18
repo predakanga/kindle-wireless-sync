@@ -14,7 +14,7 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -51,6 +51,8 @@ pub enum State {
     Stopped,
     /// Calibre closes our connections at once: its lockout (ADR 0020).
     LockedOut,
+    /// Disconnect was tapped: leaving at Calibre's next keep-alive (ADR 0022).
+    Disconnecting,
 }
 
 impl State {
@@ -67,6 +69,7 @@ impl State {
             State::Paused => "paused",
             State::Stopped => "stopped",
             State::LockedOut => "locked_out",
+            State::Disconnecting => "disconnecting",
         }
     }
 }
@@ -135,6 +138,13 @@ struct Shared {
     settings_changed: AtomicBool,
     /// Turns series on and off while running (ADR 0016), if managed.
     series_switch: Option<Arc<AtomicBool>>,
+    /// The running session's number, counted from 1, so a late fallback
+    /// cut can tell it's still the same session.
+    session: AtomicU64,
+    /// The user asked to end the running session: it ends at Calibre's next
+    /// keep-alive, or is cut after `leave_within` (ADR 0022).
+    leaving: AtomicBool,
+    leave_within: Duration,
     /// What Find libraries learned from each server, and when: reused for
     /// 5 minutes so searches don't count towards Calibre's lockout
     /// (ADR 0020). Cleared when Wi-Fi changes.
@@ -187,6 +197,28 @@ impl Shared {
         if let Some(stream) = self.active.lock().unwrap().as_ref() {
             let _ = stream.shutdown(Shutdown::Both);
         }
+    }
+
+    /// Ends the running session at Calibre's next keep-alive, when it's
+    /// between jobs, or cuts it after `leave_within` if none comes
+    /// (ADR 0022). Returns whether a session was running.
+    fn leave(self: &Arc<Self>) -> bool {
+        if self.active.lock().unwrap().is_none() {
+            return false;
+        }
+        let session = self.session.load(Ordering::SeqCst);
+        self.leaving.store(true, Ordering::SeqCst);
+        let shared = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(shared.leave_within);
+            if shared.session.load(Ordering::SeqCst) == session
+                && shared.active.lock().unwrap().is_some()
+            {
+                log::warn!("no keep-alive from calibre; cutting the connection");
+                shared.interrupt();
+            }
+        });
+        true
     }
 
     fn is_held(&self, addr: SocketAddr) -> bool {
@@ -295,17 +327,24 @@ impl Handle {
         let _ = self.tx.send(Control::ConnectNow);
     }
 
-    /// Ends the current session (if any) and connects again at once, so a
-    /// changed link or password takes effect.
+    /// Ends the current session (if any) when Calibre is between jobs and
+    /// connects again, so a changed link or password takes effect
+    /// (ADR 0022).
     pub fn reconnect(&self) {
-        self.shared.interrupt();
+        self.shared.leave();
         let _ = self.tx.send(Control::ConnectNow);
     }
 
-    /// Disconnects and stops syncing until [`Handle::resume`]. The process
-    /// and its API keep running (ADR 0011).
+    /// Disconnects, when Calibre is between jobs, and stops syncing until
+    /// [`Handle::resume`]. The process and its API keep running (ADR 0011,
+    /// ADR 0022).
     pub fn pause(&self) {
-        self.shared.interrupt();
+        if self.shared.leave() {
+            self.shared.set(
+                State::Disconnecting,
+                "Disconnecting once Calibre has finished what it's doing.".into(),
+            );
+        }
         let _ = self.tx.send(Control::Pause);
     }
 
@@ -446,7 +485,15 @@ pub struct Options {
     /// How long Calibre must be quiet before a session or a check may leave
     /// without an error dialog: [`session::QUIET_BEFORE_RECONNECT`].
     pub quiet: Duration,
+    /// How long Disconnect and the like wait for a keep-alive before cutting
+    /// the connection: [`LEAVE_WITHIN`].
+    pub leave_within: Duration,
 }
+
+/// How long the user's Disconnect waits for Calibre's next keep-alive before
+/// cutting the connection anyway (ADR 0022). Idle, Calibre sends one about
+/// every 10 s.
+pub const LEAVE_WITHIN: Duration = Duration::from_secs(15);
 
 impl Options {
     pub fn default_backoff() -> Vec<Duration> {
@@ -552,6 +599,9 @@ impl Daemon {
             wifi: AtomicBool::new(net_up),
             settings_changed: AtomicBool::new(false),
             series_switch: lib.series_switch(),
+            session: AtomicU64::new(0),
+            leaving: AtomicBool::new(false),
+            leave_within: opts.leave_within,
             find_cache: Mutex::new(HashMap::new()),
         });
         let handle = Handle {
@@ -867,7 +917,9 @@ impl Daemon {
                                 break;
                             }
                             Ok(SessionEnd::Busy) => outcome = Outcome::Busy,
-                            Ok(SessionEnd::ColumnsChanged) => {
+                            // Left for Disconnect and the like: the
+                            // control message that asked is waiting.
+                            Ok(SessionEnd::ColumnsChanged | SessionEnd::Left) => {
                                 outcome = Outcome::Reconnect;
                                 break;
                             }
@@ -1083,7 +1135,12 @@ impl Daemon {
         *self.shared.device.lock().unwrap() = self.opts.device.clone();
         stream.set_read_timeout(Some(self.opts.read_timeout))?;
         stream.set_nodelay(true)?;
-        *self.shared.active.lock().unwrap() = Some(stream.try_clone()?);
+        {
+            let mut active = self.shared.active.lock().unwrap();
+            self.shared.session.fetch_add(1, Ordering::SeqCst);
+            self.shared.leaving.store(false, Ordering::SeqCst);
+            *active = Some(stream.try_clone()?);
+        }
         let mut conn = Connection::new(BufReader::new(stream.try_clone()?), BufWriter::new(stream));
 
         let mut admit = LinkedAdmit {
@@ -1178,6 +1235,10 @@ impl Admit for LinkedAdmit<'_> {
 
     fn end_when_quiet(&mut self) -> bool {
         self.shared.is_held(self.addr) || self.shared.settings_changed.swap(false, Ordering::SeqCst)
+    }
+
+    fn leave_now(&mut self) -> bool {
+        self.shared.leaving.load(Ordering::SeqCst)
     }
 }
 
@@ -1562,6 +1623,7 @@ mod tests {
             away: Away::default(),
             device_name: Box::new(|| "Test Kindle".into()),
             quiet: Duration::ZERO,
+            leave_within: LEAVE_WITHIN,
         };
         edit(&mut opts);
         let (daemon, handle) = Daemon::new(lib, opts, true);
@@ -1695,6 +1757,99 @@ mod tests {
         h.note_servers(&[at("10.0.0.7", 4242)]);
         assert_eq!(h.cached_find(old), None);
         assert!(h.cached_find(elsewhere).is_some(), "silent: kept");
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    /// A fake Calibre for one connection: the handshake, library info and
+    /// book count, then a keep-alive every `every` (none if `None`) until
+    /// the device hangs up. Sends how many keep-alives were answered, and
+    /// whether the device closed the connection cleanly.
+    fn fake_calibre_keeping_alive(
+        every: Option<Duration>,
+    ) -> (SocketAddr, Receiver<(usize, bool)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let init = json!({"serverProtocolVersion": 1, "currentLibraryUUID": "lib-1",
+                              "currentLibraryName": "Test Library", "passwordChallenge": ""});
+            write_message(&mut stream, Opcode::GetInitializationInfo, &init).unwrap();
+            read_message(&mut reader).unwrap();
+            write_message(
+                &mut stream,
+                Opcode::SetLibraryInfo,
+                &json!({"fieldMetadata": {}}),
+            )
+            .unwrap();
+            read_message(&mut reader).unwrap();
+            let count = json!({"willUseCachedMetadata": true});
+            write_message(&mut stream, Opcode::GetBookCount, &count).unwrap();
+            read_message(&mut reader).unwrap();
+            let Some(every) = every else {
+                let clean = matches!(read_message(&mut reader), Ok(None));
+                let _ = tx.send((0, clean));
+                return;
+            };
+            let mut answered = 0;
+            loop {
+                std::thread::sleep(every);
+                if write_message(&mut stream, Opcode::Noop, &json!({})).is_err() {
+                    let _ = tx.send((answered, false));
+                    return;
+                }
+                match read_message(&mut reader) {
+                    Ok(Some(_)) => answered += 1,
+                    other => {
+                        let _ = tx.send((answered, matches!(other, Ok(None))));
+                        return;
+                    }
+                }
+            }
+        });
+        (addr, rx)
+    }
+
+    #[test]
+    fn disconnect_leaves_at_a_keep_alive_without_answering_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, ended) = fake_calibre_keeping_alive(Some(Duration::from_millis(400)));
+        let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
+        wait_until("connected", || h.status().state == State::Connected);
+        std::thread::sleep(Duration::from_millis(500));
+
+        h.pause();
+        assert_eq!(h.status().state, State::Disconnecting);
+        wait_until("paused", || h.status().state == State::Paused);
+        // The fallback cut (15 s) can't have happened yet: it left at a
+        // keep-alive, which it didn't answer, and closed cleanly.
+        let (answered, clean) = ended.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(answered >= 1, "keep-alives before Disconnect were answered");
+        assert!(clean);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn disconnect_cuts_the_connection_when_no_keep_alive_comes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, ended) = fake_calibre_keeping_alive(None);
+        let (h, thread) = launch(tmp.path(), Some(("lib-1", addr)), |opts| {
+            opts.leave_within = Duration::from_millis(200);
+        });
+        wait_until("connected", || h.status().state == State::Connected);
+        let asked = Instant::now();
+        h.pause();
+        wait_until("paused", || h.status().state == State::Paused);
+        // Well before the 5 s read timeout.
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert!(ended.recv_timeout(Duration::from_secs(5)).is_ok());
         h.shutdown();
         thread.join().unwrap();
     }

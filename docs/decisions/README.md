@@ -49,3 +49,4 @@ What this commits us to, and any follow-up work or risks.
 - [0019: Drive Calibre through a development-only plugin](0019-calibre-test-harness.md)
 - [0020: One screen per page, and checking a library before linking it](0020-one-screen-pages-and-checking-a-library.md)
 - [0021: Telling Calibre quitting from an eject](0021-calibre-quitting-versus-ejecting.md)
+- [0022: Leaving a session at a keep-alive, without replying](0022-leaving-at-a-keep-alive.md)

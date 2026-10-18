@@ -118,7 +118,8 @@ track individual bytes.
   has shown they exist (kept with the linked library in `config.json`, ADR
   0020). When they change, it
   ends with `SessionEnd::ColumnsChanged` at the first keep-alive after 10 s
-  of idleness, and the daemon reconnects. Dropping the connection while
+  of idleness, without replying to it (ADR 0022), and the daemon
+  reconnects. Dropping the connection while
   Calibre is mid-job makes it show an error dialog.
   `Library::read_sync_fields` reads `cc.db` and adds `_is_read_` and
   `_last_read_date_` to the book list. Only when the linked library has

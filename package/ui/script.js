@@ -200,6 +200,7 @@
         waiting_for_wifi: "Waiting for Wi-Fi",
         paused: "Disconnected",
         ejected: "Disconnected",
+        disconnecting: "Disconnecting…",
         locked_out: "Calibre isn't accepting this Kindle",
         error: "Problem",
         not_linked: "No library linked",

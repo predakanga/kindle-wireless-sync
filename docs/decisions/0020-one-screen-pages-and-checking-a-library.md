@@ -9,6 +9,9 @@
 - Amended by [0021](0021-calibre-quitting-versus-ejecting.md) (2026-10-18):
   the Find cache drops an address's entries when Calibre there quits, or
   when a broadcast answer from it names another port.
+- Amended by [0022](0022-leaving-at-a-keep-alive.md) (2026-10-18): a
+  check, and a session ending for a check or new settings, leave at the
+  keep-alive without replying to it.
 
 ## Context
 **Scrolling.** The developer's UI review (2026-10-17) started from one
