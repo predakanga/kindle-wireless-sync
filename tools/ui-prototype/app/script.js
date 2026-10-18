@@ -429,7 +429,7 @@
         }
         return html + btnRow([button("New folder", "go", { arg: "newfolder" }),
                               button("Use this folder", "usefolder", { cls: "btn-strong",
-                                     disabled: browse.loading || browse.path === (status.books_folder || "") })]);
+                                     disabled: browse.loading })]);
     };
 
     PAGES.newfolder = function () {
