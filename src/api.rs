@@ -20,6 +20,7 @@ use crate::config::{self, Config};
 use crate::config::{Link, LinkedLibrary};
 use crate::daemon::{self, FindResult, FoundLibrary, Handle, LinkError, State};
 use crate::discovery::CalibreServer;
+use crate::folders;
 use crate::readsync::Columns;
 use crate::session::CalibreInfo;
 
@@ -221,6 +222,9 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
     let uuid = || body.get("uuid").and_then(Value::as_str).map(str::to_owned);
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/status") => (200, status_json(api)),
+        ("POST", "/folders") => list_folders(api, &body),
+        ("POST", "/folders/new") => new_folder(api, &body),
+        ("POST", "/books-folder") => set_books_folder(api, &body),
         ("POST", "/connect-now") => {
             api.handle.connect_now();
             ok()
@@ -308,9 +312,55 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
             _,
             "/status" | "/connect-now" | "/reconnect" | "/pause" | "/resume" | "/autostart"
             | "/find" | "/probe" | "/probe/cancel" | "/link" | "/settings" | "/series" | "/service"
-            | "/unlink" | "/password",
+            | "/unlink" | "/password" | "/folders" | "/folders/new" | "/books-folder",
         ) => (405, json!({"ok": false, "error": "method not allowed"})),
         _ => (404, json!({"ok": false, "error": "not found"})),
+    }
+}
+
+fn path_field(body: &Value) -> &str {
+    body.get("path").and_then(Value::as_str).unwrap_or_default()
+}
+
+/// `/folders`: the folders inside `path` (ADR 0023).
+fn list_folders(api: &Api, body: &Value) -> (u16, Value) {
+    let path = path_field(body);
+    match folders::list(api.handle.books_dir(), path) {
+        Ok(list) => {
+            let list: Vec<Value> = list
+                .iter()
+                .map(|f| json!({"name": f.name, "problem": f.problem}))
+                .collect();
+            (
+                200,
+                json!({"ok": true, "path": path.trim_matches('/'), "folders": list}),
+            )
+        }
+        Err(e) => fail(format!("Cannot open that folder: {e}")),
+    }
+}
+
+/// `/folders/new`: creates the folder `name` inside `path`.
+fn new_folder(api: &Api, body: &Value) -> (u16, Value) {
+    let Some(name) = body.get("name").and_then(Value::as_str) else {
+        return bad_request("expected {\"path\": ..., \"name\": ...}");
+    };
+    match folders::create(api.handle.books_dir(), path_field(body), name) {
+        Ok(path) => (200, json!({"ok": true, "path": path})),
+        Err(e) => fail(e.to_string()),
+    }
+}
+
+/// `/books-folder`: where new books go from now on. Takes effect with the
+/// next book; nothing already received moves.
+fn set_books_folder(api: &Api, body: &Value) -> (u16, Value) {
+    let path = path_field(body).trim_matches('/').to_owned();
+    if let Err(e) = folders::resolve(api.handle.books_dir(), &path) {
+        return fail(format!("Cannot use that folder: {e}"));
+    }
+    match config::update(&api.state_dir, |c| c.books_folder = path) {
+        Ok(()) => ok(),
+        Err(e) => fail(format!("Cannot save settings: {e}")),
     }
 }
 
@@ -328,14 +378,15 @@ fn status_json(api: &Api) -> Value {
         "autostart": api.home_dir.join(AUTOSTART).exists(),
         "autostart_disabled_by_guard": api.home_dir.join(AUTOSTART_DISABLED).exists(),
     });
-    let (linked, series) = match Config::load(&api.state_dir) {
-        Ok(c) => (c.library, c.series),
+    let (linked, series, books_folder) = match Config::load(&api.state_dir) {
+        Ok(c) => (c.library, c.series, c.books_folder),
         Err(e) => {
             out["config_error"] = json!(e.to_string());
-            (None, true)
+            (None, true, String::new())
         }
     };
     out["series"] = json!(series);
+    out["books_folder"] = json!(books_folder);
     out["wifi"] = json!(api.handle.wifi());
     out["probe"] = api
         .handle
@@ -865,6 +916,39 @@ mod tests {
         // The linked library isn't listed as found.
         assert_eq!(v["found"].as_array().unwrap().len(), 1);
         assert_eq!(v["found"][0]["uuid"], "lib-2");
+    }
+
+    #[test]
+    fn folders_can_be_listed_created_and_chosen() {
+        let f = start();
+        let books = f.home.join("books");
+        fs::create_dir_all(books.join("Calibre")).unwrap();
+        fs::create_dir_all(books.join("Book.sdr")).unwrap();
+
+        let (code, v) = post(&f, "/folders", r#"{"path": ""}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["folders"], json!([{"name": "Calibre", "problem": null}]));
+
+        let (_, v) = post(&f, "/folders/new", r#"{"path": "Calibre", "name": "SF"}"#);
+        assert_eq!(v, json!({"ok": true, "path": "Calibre/SF"}));
+        let (_, v) = post(&f, "/folders/new", r#"{"path": "Calibre", "name": "SF"}"#);
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("already"));
+
+        assert_eq!(get(&f, "/status", None).1["books_folder"], "");
+        assert_eq!(
+            post(&f, "/books-folder", r#"{"path": "Calibre/SF"}"#).1["ok"],
+            true
+        );
+        assert_eq!(get(&f, "/status", None).1["books_folder"], "Calibre/SF");
+
+        // Nothing outside the books folder, or that isn't there.
+        for path in ["..", "missing", "Book.sdr"] {
+            let body = json!({"path": path}).to_string();
+            assert_eq!(post(&f, "/books-folder", &body).1["ok"], false, "{path}");
+            assert_eq!(post(&f, "/folders", &body).1["ok"], false, "{path}");
+        }
+        assert_eq!(get(&f, "/status", None).1["books_folder"], "Calibre/SF");
     }
 
     #[test]

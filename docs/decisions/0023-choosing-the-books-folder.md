@@ -76,10 +76,12 @@ the current one, with Change):
 - A folder whose name wouldn't pass lpath validation (ADR 0003) can't be
   chosen; the picker says why.
 
-**API** (ADR 0011): `GET /folders?path=REL` lists subfolders, `POST
-/folders` with `path` and `name` creates one, and `POST /books-folder` with
-`path` saves the setting. Every path is checked to stay inside
-`documents`, after resolving symlinks.
+**API** (ADR 0011), with paths in JSON bodies rather than URLs, since
+folder names can need encoding: `POST /folders` with `path` lists its
+folders (each with a `problem` if it can't be used), `POST /folders/new`
+with `path` and `name` creates one, and `POST /books-folder` with `path`
+saves the setting. `/status` reports `books_folder`. Every path is checked
+to stay inside `documents` after resolving symlinks (`folders.rs`).
 
 ## Alternatives considered
 - **Make the chosen folder the books root,** so lpaths are relative to it.

@@ -437,6 +437,11 @@ impl Handle {
         self.shared.note_servers(servers);
     }
 
+    /// The books folder, the top of the folder picker (ADR 0023).
+    pub fn books_dir(&self) -> &Path {
+        &self.shared.books_dir
+    }
+
     pub fn wifi(&self) -> bool {
         self.shared.wifi.load(Ordering::SeqCst)
     }
