@@ -191,6 +191,14 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   while a session is open: for a fresh book list, run `just restart`.
 - To run the daemon by hand (for example with `RUST_LOG=debug`), stop the
   service, then start the binary with the arguments from `service.sh`.
+- **Closing the app doesn't stop it.** Its mesquite process keeps running
+  in the background with the page it loaded, through ✕ and app switches,
+  until a reboot. `just deploy-ui` and `install.sh` stop it with
+  `lipc-set-prop com.lab126.appmgrd stop app://com.kindlewirelesssync.app`;
+  killing mesquite instead makes appmgrd report a crash. appmgrd starts a
+  fresh process at once, but it reads the files only when the app opens,
+  so stopping before copying works. If the app shows old wording after a
+  deploy, that's why (2026-10-18).
 - **Library menus change size.** A book's ⋮ menu gains items ("Search this
   book" appears once the book has been opened), so "Mark as read/unread"
   moves. Take a screenshot before tapping. The first tile's ⋮ button is at

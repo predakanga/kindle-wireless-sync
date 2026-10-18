@@ -125,6 +125,9 @@ scriptlet:
 
 # Deploy the WAF app and scriptlet, register the app, restart the service
 deploy-ui: deploy deploy-scripts scriptlet
+    # A closed app keeps running in the background with its old page; stop it
+    # so reopening loads the new one, as install.sh does.
+    ssh {{kindle_host}} "lipc-set-prop com.lab126.appmgrd stop app://com.kindlewirelesssync.app 2>/dev/null || true"
     ssh {{kindle_host}} "mkdir -p {{kindle_dir}}/ui"
     scp -O -q package/ui/* {{kindle_host}}:{{kindle_dir}}/ui/
     # mesquite runs as the framework user: the app must be readable (see install.sh).
