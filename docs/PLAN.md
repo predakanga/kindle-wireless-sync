@@ -353,7 +353,9 @@ Not part of any phase. Pick these up after the base and stretch goals
    linked address directly, so this works across networks too (ADR 0021,
    amendment). The emulated Kindle, linked at 10.0.2.2, passed the eject
    and the quit-and-relaunch cases (2026-10-18): QEMU passes the datagram
-   and Calibre's answer. Still to check on the Kindle.
+   and Calibre's answer. The reference Kindle passed the quit and relaunch
+   with the developer's own Calibre (2026-10-18): "Calibre has closed",
+   then connected 4 s after Calibre answered, with no tap. Done.
 9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
    plugin (developer, 2026-10-17). Receiving works, and keys and covers now
    follow indexing (ADR 0016, "KFX books and their keys", 2026-10-18).
