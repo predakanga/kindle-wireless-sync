@@ -11,9 +11,10 @@ one.
 ### Added
 - The Kindle can send each book's read status and last-read date to your
   Calibre library, into a Yes/No and a Date column you create
-  (`#kindle_read` and `#kindle_last_read`, or others named with
-  `--read-column` and `--last-read-column`). It's off by default: turn it on
-  with `link --writable`. See the README.
+  and choose in the app. It's off by default: turn it on when linking a
+  library, or later under **Library settings** (on the command line, `link
+  --writable`, with `--read-column` and `--last-read-column`). See the
+  README.
 
 ### Changed
 - The **Wireless Sync** app is new: each page fits one screen, with no
@@ -23,18 +24,17 @@ one.
   start automatically, group books into series, and restart or stop the
   service.
 - While Calibre can't be reached, the app shows "Library not available"
-  with a countdown to the next attempt, so there's no need to tap Connect.
+  with a countdown to the service's next attempt.
 - If Calibre stops accepting the Kindle after too many failed connections,
   the app says so and how to fix it (stop and start Calibre's wireless
   device connection). Finding libraries no longer adds to that count when
   repeated within 5 minutes.
 - The Kindle is linked to one Calibre library, instead of an allowlist of
-  libraries. Link it with **Find libraries** or by address in the app, or
-  with `link` on the command line, which replaces `allow` and `add-server`.
+  libraries. Choose it from the libraries the app finds, or by address, or
+  use `link` on the command line, which replaces `allow` and `add-server`.
   Linking a different library asks first, keeps your books and their series
   on the Kindle, and forgets the rest of what the old library knew about
-  them. **After upgrading, link
-  your library again.**
+  them. **After upgrading, link your library again.**
 
 ### Fixed
 - Switching libraries in Calibre while the Kindle was connected kept the
