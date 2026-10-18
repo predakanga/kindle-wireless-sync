@@ -200,6 +200,10 @@ impl Library {
         if marked > 0 {
             log::info!("looking up the content keys of {marked} books in the catalog");
             self.save()?;
+            // They're most likely indexed already: look at the first chance.
+            self.last_key_check = Instant::now()
+                .checked_sub(KEY_CHECK_EVERY)
+                .unwrap_or_else(Instant::now);
         }
         Ok(())
     }
@@ -1251,6 +1255,11 @@ mod tests {
         assert!(
             lib.book("Doc.pdf").unwrap().get("_kws").is_none(),
             "no key to find"
+        );
+        assert_eq!(
+            lib.next_work_in(),
+            Some(Duration::ZERO),
+            "looked up at once"
         );
 
         assert_eq!(lib.resolve_pending_keys(), 1);
