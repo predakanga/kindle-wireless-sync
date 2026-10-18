@@ -363,6 +363,12 @@ Not part of any phase. Pick these up after the base and stretch goals
     sends, so Calibre's device view shows it. Settle exactly what's wanted
     first: what Calibre does with series from the device, and whether that
     differs for books Calibre already has in its library.
+12. **Choose where books are stored** (developer, 2026-10-18): a setting
+    for the folder under `/mnt/us/documents` that received books go into.
+    Harder than the other settings in the app: what happens to books
+    already received (move them, or leave them where they are and keep
+    their paths), how lpaths (ADR 0003) and the Kindle's catalog entries
+    follow a move, and what the app should offer as choices.
 
 ## Open questions
 
