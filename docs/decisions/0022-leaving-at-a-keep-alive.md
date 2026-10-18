@@ -85,3 +85,27 @@ once.
 - **To test with the harness:** a column change, a settings change and a
   check, all ending without a dialog and reconnecting; and Disconnect
   while idle and during a send.
+
+## Implementation notes (2026-10-18)
+Against the harness Calibre (9.16.0), with the service on the Mac:
+- **Keep-alive timing, measured:** every 2 s for about 5 s after a request,
+  then every 10 s, as the driver's code says. `LEAVE_WITHIN` (15 s) covers
+  one idle interval with a margin.
+- **Disconnect while idle:** "Disconnecting…", then the session left at the
+  next keep-alive (10 s later) without replying. No dialog.
+- **Disconnect just before a send:** Disconnect was tapped before Calibre
+  started sending a book. Calibre ran the whole send (free space, the book,
+  the book list, free space), and the session left at the first keep-alive
+  after it. The book arrived, and there was no dialog and no job left.
+- **New sync settings:** the session left at the next quiet keep-alive and
+  reconnected 5 s later, naming the new columns (Calibre's driver had
+  `#kindle_read` and `#kindle_last_read`).
+- **A check of the same Calibre:** the session left at a keep-alive, the
+  check ran and left at its own keep-alive without replying, and the
+  session reconnected 4 s later.
+- **Calibre switching library:** the session left 16 s after the switch, at
+  the first keep-alive after 10 s of quiet. Home said Calibre was serving
+  the other library.
+
+No case showed a dialog. A job queued in the 2 s before the keep-alive
+wasn't tried; it can't be timed from outside Calibre.

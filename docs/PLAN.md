@@ -386,7 +386,8 @@ Not part of any phase. Pick these up after the base and stretch goals
     before it are still aborted with an error dialog. **Built** (ADR 0022):
     the session and checks leave that way, and Disconnect, Forget library, a
     new password and relinking leave at the next keep-alive (15 s at most).
-    Still to test with the harness.
+    Tested with the harness (2026-10-18; ADR 0022, implementation notes):
+    no dialog in any case. Done.
 11. **Present the Series field back to Calibre** (developer, 2026-10-18).
     For example, include each book's series in the book list the Kindle
     sends, so Calibre's device view shows it. Settle exactly what's wanted

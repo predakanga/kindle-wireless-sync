@@ -21,7 +21,8 @@ use crate::session::{self, CheckEnd, DeviceConfig};
 /// by every check after it, so Calibre keeps one cache file for checks.
 const CHECK_ID_FILE: &str = "check_device_uuid";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Calibre sends a keep-alive about every 3 s while connected.
+/// Calibre sends a keep-alive every 2 s for 5 s after a request, then every
+/// 10 s (measured with Calibre 9.16.0, ADR 0022).
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long Calibre must have been quiet before a check leaves. Shorter
