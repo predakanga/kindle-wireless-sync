@@ -223,6 +223,9 @@ and leaves sessions at a keep-alive, with a graceful Disconnect (ADR 0022).
 Its first release run failed on a timing-dependent test, so the `v0.3.2`
 tag was moved to the commit that fixed the test, before anything was
 published.
+**0.4.0** (2026-10-19) adds the storage folder: a folder picker in the
+app's settings, new books going into the chosen folder, and updates
+staying in place (ADR 0023).
 
 ### Phase 5: Stretch goals
 
