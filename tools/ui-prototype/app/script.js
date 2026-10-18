@@ -139,8 +139,8 @@
         arrow: '<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">'
             + '<path d="M12 3l8 8.5h-5.5V21h-5V11.5H4z"/></svg>',
         uturn: '<svg class="folder-icon" viewBox="0 0 24 24">'
-            + '<path d="M18 22V10a5.5 5.5 0 0 0-11 0v3" fill="none" stroke="currentColor" stroke-width="3"/>'
-            + '<path d="M2 12h10l-5 7z" fill="currentColor"/></svg>',
+            + '<path d="M5 20.5h9.5a6.25 6.25 0 0 0 0-12.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
+            + '<path d="M9 2.5v11l-7-5.5z" fill="currentColor"/></svg>',
         turn: '<svg class="folder-icon" viewBox="0 0 24 24">'
             + '<path d="M18 22V12a4.5 4.5 0 0 0-4.5-4.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
             + '<path d="M9 2v11l-7-5.5z" fill="currentColor"/></svg>'
