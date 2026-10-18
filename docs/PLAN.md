@@ -419,7 +419,10 @@ Not part of any phase. Pick these up after the base and stretch goals
     Calibre's `series_index` through as `itemPosition` (3.5) with the label
     "3.5" (`series.rs`, `index_label`), but nobody has checked on the
     device whether the catalog keeps 3.5 and the Library orders and labels
-    the book correctly.
+    the book correctly. **Closed** (2026-10-18; research note, "Fractional
+    series positions"): the catalog keeps 3.5 and orders the book right,
+    but the Library's badge parses the label as a whole number, so it
+    shows "3". Nothing we can send changes that.
 
 ## Open questions
 

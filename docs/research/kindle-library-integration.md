@@ -719,3 +719,14 @@ scanner indexes subfolders of `documents` like `documents` itself; the
 Library just doesn't show folders. The indexer made each book's `.sdr`
 folder next to the book, inside the subfolder too. Deleting the files
 removed both entries within 30 s.
+
+## Fractional series positions (2026-10-18)
+For PLAN Later item 13. The developer sent five Mistborn books from Calibre,
+including *Mistborn: Secret History* at `series_index` 3.5. The series pass
+stored it as `d_itemPosition` 3.5 (`typeof` real; the column is a double)
+with `d_itemPositionLabel` "3.5", and the series view ordered it between 3
+and 4. But its badge showed "3". Setting the label to "Z" through
+ChangeRequest made the badge show "0", so **the Library parses the label as
+a whole number for the badge**, and no label can show a fraction there. The
+label was then set back to "3.5". A series pass runs only when something
+schedules one, so it didn't notice the test label.
