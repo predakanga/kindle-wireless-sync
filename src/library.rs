@@ -44,8 +44,16 @@ const FREE_SPACE_MARGIN: u64 = 1024 * 1024;
 /// Our private key in each book record.
 const PRIVATE_KEY: &str = "_kws";
 const COVERS_DIR: &str = "covers";
-/// How long to wait for the scanner when a key is only known after indexing.
-const INDEX_WAIT: Duration = Duration::from_secs(10);
+/// Calibre's covers for books whose key is still pending, inside
+/// `COVERS_DIR`: written once the scanner has indexed the book.
+const PENDING_COVERS_DIR: &str = "pending";
+/// Formats whose content key the catalog knows once the book is indexed.
+const KEYED_EXTS: [&str; 5] = ["azw3", "mobi", "azw", "prc", "kfx"];
+/// While keys are pending, look them up at least this often, in case a
+/// catalog event was missed.
+const KEY_CHECK_EVERY: Duration = Duration::from_secs(60);
+/// Stop waiting for a book's key after this long.
+const KEY_GIVE_UP: Duration = Duration::from_secs(30 * 60);
 
 pub struct Library {
     books_dir: PathBuf,
@@ -58,6 +66,10 @@ pub struct Library {
     series: Option<SeriesSync>,
     /// The Kindle's catalog, for reading read states (ADR 0017).
     catalog: Option<Catalog>,
+    /// Set when the catalog announces a change (`com.lab126.ccat updated`):
+    /// pending keys may be there now.
+    catalog_changed: Arc<AtomicBool>,
+    last_key_check: Instant,
 }
 
 /// How long to wait after the last book change before updating series
@@ -78,6 +90,8 @@ struct SeriesSync {
     dirty_since: Option<Instant>,
     /// We've logged that the catalog isn't ready yet.
     waiting: bool,
+    /// We've logged that a series member's key is pending.
+    waiting_keys: bool,
 }
 
 /// A book being received. Dropping it without committing removes the
@@ -126,6 +140,8 @@ impl Library {
             adopt_memo: adopt::Memo::default(),
             series: None,
             catalog: None,
+            catalog_changed: Arc::new(AtomicBool::new(false)),
+            last_key_check: Instant::now(),
         };
         if let Err(e) = remove_if_exists(fs::remove_file(state_dir.join(OLD_COLUMNS_FILE))) {
             log::warn!("cannot remove {OLD_COLUMNS_FILE}: {e}");
@@ -151,12 +167,47 @@ impl Library {
     /// Turns on cover handling and restores any covers the firmware lost.
     pub fn enable_covers(&mut self, covers: CoverConfig) -> io::Result<()> {
         fs::create_dir_all(self.state_dir.join(COVERS_DIR))?;
+        let keys_from_catalog = covers.catalog_db.is_some();
         self.covers = Some(covers);
         let restored = self.restore_covers();
         if restored > 0 {
             log::info!("restored {restored} cover thumbnails");
         }
+        if keys_from_catalog {
+            self.mark_missing_keys_pending()?;
+        }
         Ok(())
+    }
+
+    /// Books received before keys could wait for the scanner (KFX, until
+    /// 2026-10-18) have none: look them up like new ones.
+    fn mark_missing_keys_pending(&mut self) -> io::Result<()> {
+        let now = unix_now();
+        let mut marked = 0;
+        for record in &mut self.books {
+            let keyed_format = record_lpath(record)
+                .and_then(|l| l.rsplit_once('.'))
+                .is_some_and(|(_, ext)| KEYED_EXTS.contains(&ext.to_ascii_lowercase().as_str()));
+            let private = &record[PRIVATE_KEY];
+            if keyed_format
+                && private.get("cde_key").is_none()
+                && private.get("key_pending").is_none()
+            {
+                record[PRIVATE_KEY]["key_pending"] = json!(now);
+                marked += 1;
+            }
+        }
+        if marked > 0 {
+            log::info!("looking up the content keys of {marked} books in the catalog");
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    /// The flag to set when the catalog announces a change, so the next
+    /// quiet moment looks up pending keys.
+    pub fn catalog_signal(&self) -> Arc<AtomicBool> {
+        self.catalog_changed.clone()
     }
 
     pub fn books_dir(&self) -> &Path {
@@ -278,6 +329,7 @@ impl Library {
             switch: Arc::new(AtomicBool::new(keep)),
             dirty_since: Some(Instant::now() - debounce),
             waiting: false,
+            waiting_keys: false,
         });
     }
 
@@ -302,9 +354,27 @@ impl Library {
         self.series.as_ref().map(|s| s.switch.clone())
     }
 
-    /// Runs a series pass if one is due. Errors are logged, and the pass is
-    /// retried after the next debounce.
+    /// How long until there's work for a quiet moment: a series pass, or a
+    /// look at pending keys.
+    pub fn next_work_in(&self) -> Option<Duration> {
+        let keys = self
+            .has_pending_keys()
+            .then(|| KEY_CHECK_EVERY.saturating_sub(self.last_key_check.elapsed()));
+        match (self.series_due_in(), keys) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Runs a series pass if one is due, after looking up pending keys if
+    /// the catalog changed or a minute has passed. Errors are logged, and
+    /// the pass is retried after the next debounce.
     pub fn reconcile_series_if_due(&mut self) {
+        let changed = self.catalog_changed.swap(false, Ordering::SeqCst);
+        if self.has_pending_keys() && (changed || self.last_key_check.elapsed() >= KEY_CHECK_EVERY)
+        {
+            self.resolve_pending_keys();
+        }
         if self.series_due_in() == Some(Duration::ZERO) {
             self.reconcile_series();
         }
@@ -312,6 +382,11 @@ impl Library {
 
     /// Brings the catalog's series in line with our books now.
     pub fn reconcile_series(&mut self) {
+        // A series is only complete once all its members' keys are known.
+        let incomplete = self.books.iter().any(|r| {
+            r[PRIVATE_KEY].get("key_pending").is_some()
+                && r["series"].as_str().is_some_and(|n| !n.trim().is_empty())
+        });
         let Some(s) = &mut self.series else { return };
         if !s.catalog.ready() {
             if !s.waiting {
@@ -322,6 +397,15 @@ impl Library {
             return;
         }
         s.waiting = false;
+        if incomplete {
+            if !s.waiting_keys {
+                log::info!("series: waiting for the catalog to list new books");
+                s.waiting_keys = true;
+            }
+            s.dirty_since = Some(Instant::now());
+            return;
+        }
+        s.waiting_keys = false;
         s.keep = s.switch.load(Ordering::SeqCst);
         let books = match s.keep {
             true => series::books_from_records(&self.books),
@@ -438,21 +522,20 @@ impl Library {
         let _ = fs::remove_file(&incoming.temp_path);
         result?;
 
-        if key_after_index {
-            key = self.wait_for_indexed_key(&incoming.final_path);
-            match &key {
-                Some(k) => self.write_cover(k, &metadata),
-                None => log::warn!(
-                    "no content key for {}; cover not set",
-                    incoming.rel.display()
-                ),
-            }
+        // The scanner takes about 15 s per book, longer with a queue: look
+        // the key up once it's indexed, and keep Calibre's cover until then.
+        let l = rel_to_lpath(&incoming.rel);
+        let pending =
+            key_after_index && self.covers.as_ref().is_some_and(|c| c.catalog_db.is_some());
+        if pending {
+            self.keep_pending_cover(&l, &metadata);
         }
 
-        let l = rel_to_lpath(&incoming.rel);
         let mut record = slim(metadata, &l);
         if let Some(k) = key {
             record[PRIVATE_KEY] = json!({"cde_key": k.cde_key, "cde_type": k.cde_type});
+        } else if pending {
+            record[PRIVATE_KEY] = json!({"key_pending": unix_now()});
         }
         match self
             .books
@@ -466,25 +549,101 @@ impl Library {
         self.save()
     }
 
-    fn wait_for_indexed_key(&self, path: &Path) -> Option<BookKey> {
-        let db = self.covers.as_ref()?.catalog_db.as_ref()?;
-        let location = path.to_str()?;
-        let deadline = Instant::now() + INDEX_WAIT;
-        loop {
-            if let Some(k) = kindle::lookup_indexed_key(db, location) {
-                return Some(k);
-            }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            std::thread::sleep(Duration::from_millis(500));
+    fn pending_cover_path(&self, lpath: &str) -> PathBuf {
+        let name = sha1_smol::Sha1::from(lpath).digest().to_string();
+        self.state_dir
+            .join(COVERS_DIR)
+            .join(PENDING_COVERS_DIR)
+            .join(format!("{name}.jpg"))
+    }
+
+    /// Keeps Calibre's cover for a book whose key is pending.
+    fn keep_pending_cover(&self, lpath: &str, metadata: &Value) {
+        let Some(jpeg) = metadata["thumbnail"][2]
+            .as_str()
+            .and_then(kindle::decode_base64)
+        else {
+            return;
+        };
+        let path = self.pending_cover_path(lpath);
+        let written = path
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .and_then(|_| write_file_atomic(&path, &jpeg));
+        if let Err(e) = written {
+            log::warn!("cannot keep the cover for {lpath}: {e}");
         }
+    }
+
+    fn take_pending_cover(&self, lpath: &str) -> Option<Vec<u8>> {
+        let path = self.pending_cover_path(lpath);
+        let jpeg = fs::read(&path).ok();
+        let _ = fs::remove_file(&path);
+        jpeg
+    }
+
+    pub fn has_pending_keys(&self) -> bool {
+        self.books
+            .iter()
+            .any(|r| r[PRIVATE_KEY].get("key_pending").is_some())
+    }
+
+    /// Looks up pending keys in the catalog, read-only, and writes the cover
+    /// Calibre sent for each book found. Gives up on a book after
+    /// `KEY_GIVE_UP`. Returns how many keys were found.
+    pub fn resolve_pending_keys(&mut self) -> usize {
+        self.last_key_check = Instant::now();
+        let Some(db) = self.covers.as_ref().and_then(|c| c.catalog_db.clone()) else {
+            return 0;
+        };
+        let now = unix_now();
+        let mut found = Vec::new();
+        let mut given_up = Vec::new();
+        for (i, r) in self.books.iter().enumerate() {
+            let Some(since) = r[PRIVATE_KEY]["key_pending"].as_u64() else {
+                continue;
+            };
+            let path = record_lpath(r)
+                .and_then(|l| lpath::validate(l, None).ok())
+                .map(|rel| self.books_dir.join(rel));
+            match path
+                .as_deref()
+                .and_then(Path::to_str)
+                .and_then(|p| kindle::lookup_indexed_key(&db, p))
+            {
+                Some(k) => found.push((i, k)),
+                None if now.saturating_sub(since) >= KEY_GIVE_UP.as_secs() => given_up.push(i),
+                None => {}
+            }
+        }
+        for (i, k) in &found {
+            let l = record_lpath(&self.books[*i]).unwrap_or_default().to_owned();
+            if let Some(jpeg) = self.take_pending_cover(&l) {
+                self.write_cover_bytes(k, &jpeg);
+            }
+            self.books[*i][PRIVATE_KEY] = json!({"cde_key": k.cde_key, "cde_type": k.cde_type});
+            log::info!("content key for {l}: {}", k.cde_key);
+        }
+        for i in &given_up {
+            let l = record_lpath(&self.books[*i]).unwrap_or_default().to_owned();
+            log::warn!("the catalog never listed {l}; no cover or series for it");
+            self.take_pending_cover(&l);
+            if let Some(o) = self.books[*i][PRIVATE_KEY].as_object_mut() {
+                o.remove("key_pending");
+            }
+        }
+        if !found.is_empty() || !given_up.is_empty() {
+            self.mark_series_dirty();
+            if let Err(e) = self.save() {
+                log::warn!("cannot save content keys: {e}");
+            }
+        }
+        found.len()
     }
 
     /// Writes Calibre's thumbnail for `key` and its backup. Failures are
     /// logged: a missing cover is not worth failing the transfer for.
     fn write_cover(&self, key: &BookKey, metadata: &Value) {
-        let Some(covers) = &self.covers else { return };
         let Some(jpeg) = metadata["thumbnail"][2]
             .as_str()
             .and_then(kindle::decode_base64)
@@ -492,9 +651,16 @@ impl Library {
             log::info!("no usable cover thumbnail from calibre for {}", key.cde_key);
             return;
         };
+        self.write_cover_bytes(key, &jpeg);
+    }
+
+    /// Writes a cover for `key` and its backup. The Library shows it the
+    /// next time it draws the grid (research note, "Covers").
+    fn write_cover_bytes(&self, key: &BookKey, jpeg: &[u8]) {
+        let Some(covers) = &self.covers else { return };
         let name = key.thumbnail_name();
-        let result = write_file_atomic(&self.state_dir.join(COVERS_DIR).join(&name), &jpeg)
-            .and_then(|_| write_file_atomic(&covers.thumbnails_dir.join(&name), &jpeg));
+        let result = write_file_atomic(&self.state_dir.join(COVERS_DIR).join(&name), jpeg)
+            .and_then(|_| write_file_atomic(&covers.thumbnails_dir.join(&name), jpeg));
         if let Err(e) = result {
             log::warn!("failed to write cover {name}: {e}");
         }
@@ -538,6 +704,7 @@ impl Library {
         let path = self.books_dir.join(&rel);
         remove_if_exists(fs::remove_file(&path))?;
         remove_if_exists(fs::remove_dir_all(path.with_extension("sdr")))?;
+        let _ = fs::remove_file(self.pending_cover_path(lpath));
         // Calibre's templates create per-author folders; drop them once empty.
         let mut dir = path.parent();
         while let Some(d) = dir {
@@ -726,6 +893,13 @@ fn identity(record: &Value, file_modified: Option<SystemTime>) -> Value {
         out.insert(PRIVATE_KEY.into(), private);
     }
     Value::Object(out)
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn record_lpath(record: &Value) -> Option<&str> {
@@ -964,6 +1138,126 @@ mod tests {
             },
             requests,
         }
+    }
+
+    /// Adds a catalog entry for a book, as the scanner does once indexed.
+    fn index(db: &Path, location: &Path, key: &str) {
+        let sql = format!(
+            "INSERT INTO Entries VALUES ('u-{key}','Entry:Item','{}','{key}','EBOK','/t/{key}.jpg',1,NULL,'{key}',0,0,0,0,NULL);",
+            location.display()
+        );
+        assert!(std::process::Command::new("sqlite3")
+            .arg(db)
+            .arg(sql)
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    #[test]
+    fn a_kfx_key_and_cover_arrive_once_the_catalog_lists_the_book() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake = fake_catalog(tmp.path(), "");
+        let db = tmp.path().join("cc.db");
+        let mut lib = Library::open(&tmp.path().join("books"), &tmp.path().join("state")).unwrap();
+        let thumbs = tmp.path().join("thumbnails");
+        fs::create_dir_all(&thumbs).unwrap();
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir: thumbs.clone(),
+            catalog_db: Some(db.clone()),
+        })
+        .unwrap();
+        lib.enable_series(fake.catalog, Duration::ZERO);
+
+        // Received without waiting: the key is pending, the cover kept.
+        let started = Instant::now();
+        let meta = json!({"uuid": "u1", "title": "Book", "series": "Saga", "series_index": 1,
+                          "thumbnail": [1, 1, JPEG_B64]});
+        receive(&mut lib, "Book.kfx", b"kfx", meta);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(lib.book("Book.kfx").unwrap()["_kws"]["key_pending"].is_u64());
+        assert!(lib.has_pending_keys());
+        assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
+        assert_eq!(lib.resolve_pending_keys(), 0, "not indexed yet");
+
+        // Two more books of the series, whose keys are known at once (they're
+        // in the files), indexed straight away. The series waits for the
+        // first rather than form without it.
+        let meta = json!({"uuid": "u2", "title": "Two", "series": "Saga", "series_index": 2,
+                          "thumbnail": [1, 1, JPEG_B64]});
+        receive(&mut lib, "Two.azw3", &mobi_with_key("k2"), meta);
+        index(&db, &lib.books_dir().join("Two.azw3"), "k2");
+        let meta = json!({"uuid": "u3", "title": "Three", "series": "Saga", "series_index": 3});
+        receive(&mut lib, "Three.azw3", &mobi_with_key("k3"), meta);
+        index(&db, &lib.books_dir().join("Three.azw3"), "k3");
+        lib.reconcile_series_if_due();
+        assert!(fake.requests.lock().unwrap().is_empty());
+
+        // Indexed, then the catalog's event: key, cover, and the series pass.
+        index(&db, &lib.books_dir().join("Book.kfx"), "B0KFX");
+        lib.catalog_signal().store(true, Ordering::SeqCst);
+        lib.reconcile_series_if_due();
+        assert_eq!(
+            lib.book("Book.kfx").unwrap()["_kws"],
+            json!({"cde_key": "B0KFX", "cde_type": "EBOK"})
+        );
+        assert_eq!(
+            fs::read(thumbs.join("thumbnail_B0KFX_EBOK_portrait.jpg")).unwrap(),
+            JPEG
+        );
+        assert!(!lib.has_pending_keys());
+        assert_eq!(
+            fs::read_dir(tmp.path().join("state/covers/pending"))
+                .unwrap()
+                .count(),
+            0
+        );
+        lib.reconcile_series_if_due();
+        assert!(
+            !fake.requests.lock().unwrap().is_empty(),
+            "the series pass ran"
+        );
+    }
+
+    #[test]
+    fn keys_missing_from_before_are_looked_up_and_waiting_ends() {
+        let tmp = tempfile::tempdir().unwrap();
+        let books = tmp.path().join("books");
+        fs::create_dir_all(&books).unwrap();
+        let books = books.canonicalize().unwrap();
+        let state = tmp.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(books.join("Old.kfx"), b"kfx").unwrap();
+        fs::write(books.join("Gone.kfx"), b"kfx").unwrap();
+        fs::write(books.join("Doc.pdf"), b"%PDF").unwrap();
+        // Received before keys could wait for the scanner, and one waited
+        // on for longer than the limit.
+        let records = json!([
+            {"lpath": "Old.kfx", "_kws": {}},
+            {"lpath": "Gone.kfx", "_kws": {"key_pending": 1}},
+            {"lpath": "Doc.pdf"},
+        ]);
+        fs::write(state.join(BOOKS_FILE), records.to_string()).unwrap();
+        fake_catalog(tmp.path(), "");
+        let db = tmp.path().join("cc.db");
+        index(&db, &books.join("Old.kfx"), "B0OLD");
+        let mut lib = Library::open(&books, &state).unwrap();
+        lib.enable_covers(CoverConfig {
+            thumbnails_dir: tmp.path().join("thumbnails"),
+            catalog_db: Some(db),
+        })
+        .unwrap();
+        assert!(lib.book("Old.kfx").unwrap()["_kws"]["key_pending"].is_u64());
+        assert!(
+            lib.book("Doc.pdf").unwrap().get("_kws").is_none(),
+            "no key to find"
+        );
+
+        assert_eq!(lib.resolve_pending_keys(), 1);
+        assert_eq!(lib.book("Old.kfx").unwrap()["_kws"]["cde_key"], "B0OLD");
+        assert_eq!(lib.book("Gone.kfx").unwrap()["_kws"], json!({}), "given up");
+        assert!(!lib.has_pending_keys());
+        assert_eq!(lib.next_work_in(), None);
     }
 
     #[test]

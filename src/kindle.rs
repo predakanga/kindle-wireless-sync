@@ -207,6 +207,35 @@ pub fn lookup_indexed_key(catalog_db: &Path, location: &str) -> Option<BookKey> 
     })
 }
 
+/// Calls `on_change` each time the Kindle's catalog announces a change
+/// (`com.lab126.ccat` sends `updated`, about when the scanner adds a book:
+/// research note, "Covers"), from a background thread, for the life of the
+/// process. Restarts the event listener if it exits.
+pub fn watch_catalog(on_change: impl Fn() + Send + 'static) {
+    std::thread::spawn(move || loop {
+        let child = Command::new("lipc-wait-event")
+            .args(["-m", "com.lab126.ccat", "updated"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        match child {
+            Ok(mut child) => {
+                let stdout = child.stdout.take().expect("piped stdout");
+                for line in std::io::BufRead::lines(std::io::BufReader::new(stdout)) {
+                    if line.is_err() {
+                        break;
+                    }
+                    on_change();
+                }
+                let _ = child.wait();
+                log::warn!("lipc-wait-event for the catalog exited; restarting");
+            }
+            Err(e) => log::warn!("cannot run lipc-wait-event: {e}"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    });
+}
+
 /// Longest device name we report to Calibre, in characters.
 const MAX_DEVICE_NAME: usize = 64;
 

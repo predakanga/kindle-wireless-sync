@@ -206,10 +206,18 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         }),
         quiet: kws::session::QUIET_BEFORE_RECONNECT,
     };
+    let catalog_changed = lib.catalog_signal();
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));
     if wifi.is_some() {
         let h = handle.clone();
         network::watch_wifi(move |up| h.network_changed(up));
+        // Content keys only known after indexing (KFX) are looked up when
+        // the catalog changes (ADR 0016).
+        let h = handle.clone();
+        kindle::watch_catalog(move || {
+            catalog_changed.store(true, std::sync::atomic::Ordering::SeqCst);
+            h.wake();
+        });
     } else {
         log::info!("lipc not available; assuming the network is always up");
     }

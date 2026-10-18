@@ -99,7 +99,7 @@ pub enum Control {
     ConnectNow,
     Shutdown,
     /// Something changed that an idle wait should look at again (the
-    /// series switch).
+    /// series switch, or the catalog).
     Wake,
 }
 
@@ -341,6 +341,12 @@ impl Handle {
         });
     }
 
+    /// Wakes an idle wait, so it looks at pending work again (the catalog
+    /// changed, say).
+    pub fn wake(&self) {
+        let _ = self.tx.send(Control::Wake);
+    }
+
     /// Turns series on or off now, when the service manages them; the
     /// setting itself is in `config.json`.
     pub fn set_series(&self, enabled: bool) {
@@ -505,7 +511,7 @@ impl Daemon {
         let deadline = timeout.map(|t| Instant::now() + t);
         let msg = loop {
             let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
-            let step = match (left, self.lib.series_due_in()) {
+            let step = match (left, self.lib.next_work_in()) {
                 (Some(l), Some(s)) => Some(l.min(s)),
                 (l, s) => l.or(s),
             };
