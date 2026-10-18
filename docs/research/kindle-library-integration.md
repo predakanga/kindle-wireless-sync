@@ -307,6 +307,24 @@ reading `cc.db` every second:
 - A KFX copy of a book already in the library got a key made from its path
   (`*58026a…`) instead of the original's ASIN.
 
+### Deleting through the catalog (2026-10-18)
+- **The scanner is slow to remove entries.** Four files deleted at once:
+  the first entry went after 16.7 s, then one every 3 to 4 s (27.3 s for
+  all four).
+- **ChangeRequest `{"delete": {"uuid": <p_uuid>}}`** removes a downloaded
+  entry from `cc.db`, and the asset store's `Nodes` row goes with it. The
+  handler (`/usr/lib/ccat/change.lua`, `construct_delete_sql`) has a path
+  for exactly this ("Deletion of downloaded entry"). Tested with TXT files:
+  deleting the entry first or the file first both worked, the entry was
+  gone within 0.2 s, and the scanner didn't re-add it.
+- **The catalog can be locked** while the scanner works: the change then
+  fails with HTTP 503 and `"sqlite3_msg":"database is locked"`. Retrying a
+  second later works.
+- **The Library follows catalog deletes** within a couple of seconds,
+  without being redrawn.
+- Don't test with copies of real books: a copy shares the original's EXTH
+  key, and so its asset store row (`ASSET_ID = <cdeKey>!!<cdeType>`).
+
 ### Verifying the UI from SSH
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to

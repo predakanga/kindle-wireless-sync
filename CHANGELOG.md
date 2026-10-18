@@ -8,6 +8,12 @@ one.
 
 ## [Unreleased]
 
+### Fixed
+- Books deleted from Calibre now leave the Kindle's library at once, keeping
+  their covers until they go. Before, the Kindle removed them one at a time
+  over 40 seconds or more for 8 books, showing them without covers
+  meanwhile.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

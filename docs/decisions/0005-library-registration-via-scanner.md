@@ -6,6 +6,9 @@
   whose key only the catalog knows (KFX), the cover can't be written
   before the scanner sees it. It's written once the key is known, and the
   Library shows it the next time it draws the grid.
+- Amended 2026-10-18 (see "Deleting through the catalog" at the end):
+  deleted books' catalog entries are removed through ChangeRequest, and
+  their covers are kept until the entry is gone.
 
 ## Context
 Requirement 4 says a synced book must appear in the Kindle library right
@@ -61,3 +64,40 @@ direct-SQL tools restart doesn't exist. Evidence:
   shows a generic tile. A cover written before the rename shows straight away.
 - We need a small MOBI/KF8 EXTH parser (and later a KFX one, if we accept
   KFX).
+
+## Deleting through the catalog (2026-10-18)
+Deleting 8 books from Calibre took 40 s or more to clear from the Library,
+and looked odd meanwhile (developer, 2026-10-18): the files went at once,
+but the scanner removes catalog entries one by one, the first about 17 s
+after the delete and then one every 3 to 4 s (research note, "Deleting
+through the catalog"). The firmware broke the series up as members
+vanished, and the tiles were blank because their covers had already been
+deleted with the files.
+
+Now, for a delete from Calibre:
+1. Each book's catalog entry (`p_uuid`) is looked up read-only, then the
+   file, its `.sdr` folder and any kept cover go at once, and Calibre gets
+   its reply.
+2. After the whole batch, one ChangeRequest deletes those entries
+   (`{"delete": {"uuid": ...}}`, the command already used for series
+   containers). The catalog's handler supports deleting a downloaded entry
+   by UUID, and its triggers update the asset store. While the scanner holds
+   the database ("database is locked", HTTP 503) it's tried again, a second
+   apart, up to 10 times. If it still fails, the scanner removes the entries
+   in its own time.
+3. A book's cover (and its backup) is removed only once its entry has left
+   the catalog: straight after a successful ChangeRequest, or when the
+   catalog's `updated` event (or a once-a-minute check) shows it gone. Until
+   then the tile keeps its cover.
+4. The series pass runs straight away, rather than after the 15 s debounce.
+
+Deleting the file first means the scanner can't add the entry back.
+Tested on the device with TXT test files (whose keys come from their path,
+so nothing else shares them): entries went from both stores within a
+fifth of a second, the scanner didn't re-add them, and the Library dropped
+the tiles within a couple of seconds. In a batch of 4, one delete waited
+about 9 s for the lock; all 4 were gone within 10 s, against about 27 s
+for the scanner alone.
+
+Covers of deleted books are only kept in memory: if the service restarts
+before an entry is gone, that cover stays behind.
