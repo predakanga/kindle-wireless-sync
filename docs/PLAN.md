@@ -217,7 +217,12 @@ Calibre, end to end on the Mac, and on the emulated Kindle (ADR 0020,
 implementation notes). Checked on the device, then **released as 0.3.0**
 (2026-10-18), with read sync (ADR 0017) and ADR 0018. The device test also
 fixed KFX keys and covers (ADR 0016). **0.3.1** followed the same day:
-deleted books leave the Library at once (ADR 0005).
+deleted books leave the Library at once (ADR 0005). **0.3.2** (also
+2026-10-18) reconnects when Calibre comes back after quitting (ADR 0021),
+and leaves sessions at a keep-alive, with a graceful Disconnect (ADR 0022).
+Its first release run failed on a timing-dependent test, so the `v0.3.2`
+tag was moved to the commit that fixed the test, before anything was
+published.
 
 ### Phase 5: Stretch goals
 
