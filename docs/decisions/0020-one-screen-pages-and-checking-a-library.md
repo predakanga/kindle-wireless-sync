@@ -114,7 +114,8 @@ The app opens on the page for the current state. The prototype
 - **Column picker**: the library's Yes/No columns (for Read) or Date
   columns (for Last read) by their headings, and **Don't sync**. It
   explains how to add a column when there is none, and that Calibre lists a
-  new column only after a restart. During setup it has **Check again**,
+  new column only after a restart. During setup it has **Refresh** (named
+  Check again until 2026-10-18),
   which repeats the check and stays on the picker with what it found.
 - **Home**: a box with Status, Linked to, Address, and "Syncing reading
   status to Calibre" or "Not syncing reading status". Then **Connect** or
@@ -402,7 +403,7 @@ The package installed with KPM on `pw6-5201-jb` (Paperwhite 12th gen,
 - **Every page fits** the screen with room to spare, and the float layout
   holds. Pages seen: the library list, Connect by address, Testing
   connection, Couldn't connect, setup with read sync on, the column picker
-  (Check again stays on it), Home, Library settings, Settings, the Forget
+  (Refresh stays on it), Home, Library settings, Settings, the Forget
   dialog and Service not running.
 - **The keyboard** covers the bottom third: the address form and its
   Connect button stay above it. Enter moved through the fields and closed

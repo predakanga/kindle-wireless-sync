@@ -329,8 +329,8 @@
         // its wireless connection unless that starts automatically.
         if (setup) {
             html += '<div class="hint">Added a column? Calibre lists it only after a restart. Restart Calibre, '
-                + 'start its wireless device connection again, then check again.</div>'
-                + wide(rechecking ? "Checking…" : "Check again", "recheck", { disabled: rechecking });
+                + 'start its wireless device connection again, then tap Refresh.</div>'
+                + wide(rechecking ? "Refreshing…" : "Refresh", "recheck", { disabled: rechecking });
         } else {
             html += '<div class="hint">Added a column? Calibre lists it only after a restart. Restart Calibre, '
                 + 'start its wireless device connection again, and tap Connect on the first page. '
@@ -446,7 +446,7 @@
             form = setupForm(s.probe.library, form);
             page = "setup";
         }
-        // Check again from a picker stays there, with the columns it found;
+        // Refresh from a picker stays there, with the columns it found;
         // a problem (a changed password, say) shows on the probe page.
         if (setupPicker && s.probe) {
             if (s.probe.state === "ok") form = setupForm(s.probe.library, form);
