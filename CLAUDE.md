@@ -185,8 +185,7 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
   turns it back on).
 - **Quitting Calibre ejects the Kindle.** The daemon then broadcasts until
   Calibre is back (ADR 0021), unless Calibre never answered a discovery
-  datagram (a firewall; maybe the emulator, still to check): then it
-  waits, as after a user's eject (ADR 0008). To reconnect from SSH, run `curl -s -X POST
+  datagram (a firewall): then it waits, as after a user's eject (ADR 0008). To reconnect from SSH, run `curl -s -X POST
   http://127.0.0.1:8325/connect-now` on the Kindle. Connect now does nothing
   while a session is open: for a fresh book list, run `just restart`.
 - To run the daemon by hand (for example with `RUST_LOG=debug`), stop the
@@ -244,8 +243,10 @@ quit Tailscale; don't change either yourself.
   com.lab126.wifid cmConnect Kindle-QEMU`. `wifid` reaches CONNECTED only
   once its DNS probe passes, and the daemon waits for CONNECTED.
 - The guest reaches the Mac at 10.0.2.2 over Wi-Fi and 192.168.15.201 over
-  USB. UDP broadcast doesn't cross QEMU's network, so `find` can't see
-  Calibre. Link by address, with the app, `/link` or `link`.
+  USB. UDP broadcast doesn't cross QEMU's network, so plain `find` can't
+  see Calibre, but a datagram sent to 10.0.2.2 gets its answer
+  (2026-10-18): `find --probe 10.0.2.2` works, and so does ADR 0021. Link
+  by address, with the app, `/link` or `link`.
 - `ping` in the guest is unreliable on macOS: replies arrive late and with
   "wrong data byte" errors. Don't read anything into it.
 

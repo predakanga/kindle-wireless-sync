@@ -351,8 +351,9 @@ Not part of any phase. Pick these up after the base and stretch goals
    within one 10 s round; a restart on port 9191 connects there, and
    `config.json` records it. Searches now also send the datagram to the
    linked address directly, so this works across networks too (ADR 0021,
-   amendment). Still to check on the Kindle, and whether a datagram to
-   10.0.2.2 gets an answer on the emulated Kindle.
+   amendment). The emulated Kindle, linked at 10.0.2.2, passed the eject
+   and the quit-and-relaunch cases (2026-10-18): QEMU passes the datagram
+   and Calibre's answer. Still to check on the Kindle.
 9. **Test KFX.** ADR 0007 accepts KFX for users with Calibre's KFX Output
    plugin (developer, 2026-10-17). Receiving works, and keys and covers now
    follow indexing (ADR 0016, "KFX books and their keys", 2026-10-18).
