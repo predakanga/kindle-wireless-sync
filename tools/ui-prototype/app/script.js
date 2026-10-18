@@ -182,7 +182,7 @@
 
     function readSyncText(lib) {
         if (!lib.writable) return "Not syncing reading status";
-        if (!lib.read_column && !lib.last_read_column) return "Reading status sync is on, but no columns are chosen";
+        if (!lib.read_column && !lib.last_read_column) return "Reading status sync is on, but no columns have been chosen";
         return "Syncing reading status to Calibre";
     }
 
