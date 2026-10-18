@@ -231,6 +231,10 @@ quit Tailscale; don't change either yourself.
   Its SSH server (the emulator's dropbear) runs with umask `0077`, unlike
   the firmware's `002`. Files created over it are private to root: mind
   that for anything the framework user must read (ADR 0012).
+  The instance's install dates from before `install.sh` set modes itself
+  (2026-10-17), so its app was `0700` and wouldn't open ("The selected
+  application could not be started"). `just deploy-ui` repaired it
+  (2026-10-18); a fresh `kpm install` would too.
 - Home is up when `lipc-get-prop com.lab126.appmgrd activeApp` says
   `com.lab126.KPPMainApp` (Home and Library both live in it). Check with
   `python3 scripts/eink-qmp.py --machine pw6-5201-jb screendump F.png`; a
