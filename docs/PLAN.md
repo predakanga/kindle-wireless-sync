@@ -408,7 +408,12 @@ Not part of any phase. Pick these up after the base and stretch goals
     Harder than the other settings in the app: what happens to books
     already received (move them, or leave them where they are and keep
     their paths), how lpaths (ADR 0003) and the Kindle's catalog entries
-    follow a move, and what the app should offer as choices.
+    follow a move, and what the app should offer as choices. Developer
+    (2026-10-18): a folder picker rather than typing, and books already
+    received stay where they are. Subfolders of `documents` are indexed on
+    5.20.1 (research note, "Books in subfolders are indexed"), so the books
+    root can stay `documents` with the folder as a path prefix, which
+    Calibre accepts (`canSupportLpathChanges`).
 13. **Fractional series positions** (developer, 2026-10-18): check that
     series sync handles them, for example Mistborn 3.5. The code passes
     Calibre's `series_index` through as `itemPosition` (3.5) with the label

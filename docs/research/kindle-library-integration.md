@@ -707,3 +707,15 @@ details below are kept for reference.
   entries), then remove the files and `.sdr` folders. Until the series rows
   are gone, the two books are hidden only if grouping is on, so they stay
   visible on this device.
+
+## Books in subfolders are indexed (2026-10-18)
+For PLAN Later item 12 (choosing where books are stored). On the reference
+Kindle (5.20.1), one TXT was written to `/mnt/us/documents/` and another to
+`/mnt/us/documents/kws-subfolder-probe/`. Within 40 s both were in `cc.db`
+with identical flags (`p_visibilityState = 1`, `p_isVisibleInHome = 1`,
+`p_cdeType = PDOC`, `p_isArchived = 0`). Only the identifying fields
+differed (`p_uuid`, `p_location`, titles, sizes, `p_cdeKey`). So the
+scanner indexes subfolders of `documents` like `documents` itself; the
+Library just doesn't show folders. The indexer made each book's `.sdr`
+folder next to the book, inside the subfolder too. Deleting the files
+removed both entries within 30 s.
