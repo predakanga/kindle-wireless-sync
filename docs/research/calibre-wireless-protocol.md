@@ -291,3 +291,68 @@ Calibre (anonymized in `tests/fixtures/calibre-9.16-session.jsonl`):
   for the books we hold (checked by the developer). So the cached-metadata
   path works and keeps Calibre's own cover cache intact, even though we
   store our records without thumbnails.
+
+## Ending a session from the device (2026-10-18)
+PLAN Later item 10 asks whether the device can end a session more safely
+than "reply to a keep-alive after 10 s of quiet, then close" (ADR 0017,
+ADR 0020). Read from Calibre 9.16.0: `smart_device_app/driver.py` and
+`gui2/device.py` (line numbers are from that tag).
+
+**The device can't ask to be ejected.** Calibre sends every request and the
+device only replies. Nothing reads an unsolicited message: while idle,
+`detect_managed_devices` (driver.py 1014) only `select`s the socket, and
+takes "readable" to mean the device has gone ("this can only be a
+disconnect notification"). No reply field makes Calibre eject or
+disconnect. Outside the handshake, the only reply it interprets is `ERROR`
+during a book upload (`_put_file`, 765), which raises `UserFeedback`, and
+the GUI shows that as an error dialog.
+
+**When the keep-alive is sent, and when jobs run.** Calibre's device thread
+(`DeviceManager.run`, device.py 438) loops:
+1. `detect_device()` (325). For a connected wireless device this calls
+   `detect_managed_devices`, which sends the keep-alive: a `NOOP` with an
+   empty payload. Within `SEND_NOOP_EVERY_NTH_PROBE` (5) seconds of the last
+   other request it sends one on every probe; after that only when the
+   seconds since then are 1 more than a multiple of 5. Other probes only
+   `select`.
+2. Run every queued job, until none are left. Steps a running job adds for
+   itself (`create_job_step`, 521) go to `job_steps` and run straight after
+   it. Jobs that GUI callbacks queue later go to `jobs`.
+3. Sleep 2 s (`sleep_time`), unless it ran a job, then go back to 1.
+
+So **a keep-alive never arrives during a job**: detection and jobs take
+turns on one thread. The other `NOOP`s have a payload: `count` and `priKey`
+while listing books (`books`, 1417), and `ejecting` (`eject`, 1531).
+
+**What a failed keep-alive does.** `detect_managed_devices` wraps the
+keep-alive in `except Exception: self._close_device_socket()` and returns
+`None`. If the device closes the connection instead of replying,
+`_read_string_from_net` gets 0 bytes and `_receive_from_client` raises
+`ControlError`, which is caught there. `detect_device` then calls
+`connected_device_removed` (293), the same path as a device that drops off
+Wi-Fi. No dialog appears for the disconnect itself.
+
+**Jobs already queued are the remaining risk.** `connected_device_removed`
+aborts every job still in `jobs` with "Device no longer connected."
+(`DeviceJob.abort`). Aborting marks the job failed and calls its callback,
+and the callbacks pass failed jobs to `device_job_exception`, which shows
+the device error dialog. A job is queued but not yet run only if it
+arrived after the previous turn's jobs were done: in the 2 s sleep before
+this keep-alive.
+
+**Compared with what we do now** (reply, then close):
+
+| | Reply, then close (now) | Close instead of replying |
+|---|---|---|
+| Job queued in the 2 s before the keep-alive | Runs against a closed socket: fails part-way ("Device closed the network connection"), error dialog | Aborted before it starts, error dialog |
+| Job queued after it, before Calibre's next probe | Aborted at that probe, error dialog | Can't happen: Calibre has already removed the device |
+| Calibre notices the disconnect | At its next `select` (up to 2 s later) | At once |
+
+**Closing instead of replying is strictly better, but not risk-free.** It
+removes the window after the close and turns part-way failures into clean
+aborts. The window before the keep-alive (a user's action, or a GUI callback
+queuing a follow-up job, in the 2 s before it) can't be closed from the
+device: nothing tells the device a job is queued. The 10 s quiet rule should
+stay: right after a job, keep-alives come on every probe, while GUI
+callbacks (for example `books_uploaded` queuing `sync_booklists`) may be
+about to queue the next job.

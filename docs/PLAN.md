@@ -305,6 +305,8 @@ Not part of any phase. Pick these up after the base and stretch goals
    label, hint and message. Consider moving the text into a translation
    file. Known item: status messages disappear after 6 s, which is easy to
    miss. (The column picker and the read-sync toggle came with ADR 0020.)
+   Home's status with its two-line detail under it is three lines, which
+   the developer finds a bit much (2026-10-18).
 3. **Kindle collections from Calibre fields** (series, tags, custom
    columns). The catalog's ChangeRequest endpoint supports them on 5.20.1:
    `insert` a `Collection`, then `addCollectionMember`. That's the command
@@ -376,7 +378,13 @@ Not part of any phase. Pick these up after the base and stretch goals
     it iffy (2026-10-18). Look for other options in Calibre's driver
     (`smart_device_app/driver.py`): for example, whether the device can ask
     Calibre to eject it, or a reply that makes Calibre close the connection
-    itself.
+    itself. **Researched 2026-10-18** (`research/calibre-wireless-protocol.md`,
+    "Ending a session from the device"): there's no device-initiated eject,
+    but closing the connection *instead of* replying to the keep-alive is
+    safer than replying and then closing. Calibre treats it like a device
+    that left Wi-Fi, and no job can be running then. Jobs queued in the 2 s
+    before it are still aborted with an error dialog. Next: decide whether
+    to switch (an ADR amending 0017 and 0020), and test it with the harness.
 11. **Present the Series field back to Calibre** (developer, 2026-10-18).
     For example, include each book's series in the book list the Kindle
     sends, so Calibre's device view shows it. Settle exactly what's wanted
