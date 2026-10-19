@@ -46,8 +46,12 @@ if [ "$remounted" = 1 ]; then
     remounted=0
 fi
 # initctl can time out waiting for upstart's reply (seen on the emulated
-# Kindle, 2026-10-17 and 2026-10-18); try once more before giving up.
-/sbin/initctl reload-configuration || { sleep 2; /sbin/initctl reload-configuration; }
+# Kindle, 2026-10-17 and 2026-10-18); try once more. Here the reload only
+# makes upstart forget jobs whose files are gone, so if it still fails, carry
+# on: stopping now would leave the app registered (seen on 5.19.2,
+# 2026-10-19).
+/sbin/initctl reload-configuration || { sleep 2; /sbin/initctl reload-configuration; } ||
+    echo "Couldn't reload upstart's jobs; the Kindle drops them at its next restart"
 
 echo "Unregistering the Wireless Sync app"
 # The package's own copy: it works even if $DIR is already gone.

@@ -1137,9 +1137,20 @@ fn apply_series(
     Ok((plan.commands.len(), plan.pending))
 }
 
-/// Dissolves all of our series (uninstall, or series turned off).
+/// Dissolves all of our series (uninstall, or series turned off). It runs
+/// once, so it tries again while the catalog is locked: the scanner holds
+/// it while it indexes (seen at uninstall on 5.19.2).
 pub fn remove_all_series(catalog: &Catalog, books_dir: &Path) -> io::Result<usize> {
-    apply_series(catalog, books_dir, &[]).map(|(n, _)| n)
+    let mut tries = 1;
+    loop {
+        match apply_series(catalog, books_dir, &[]) {
+            Err(e) if tries < CATALOG_TRIES && e.to_string().contains("database is locked") => {
+                std::thread::sleep(Duration::from_secs(1));
+                tries += 1;
+            }
+            result => return result.map(|(n, _)| n),
+        }
+    }
 }
 
 /// Our stored copy of Calibre's metadata: the lpath pinned to the one we
@@ -1680,6 +1691,48 @@ mod tests {
         lib.dissolve_series(catalog, Duration::ZERO);
         lib.reconcile_series_if_due();
         assert_eq!(lib.series_due_in(), None, "nothing to send, so no request");
+    }
+
+    #[test]
+    fn removing_all_series_waits_out_a_locked_catalog() {
+        use std::io::BufRead;
+        let tmp = tempfile::tempdir().unwrap();
+        let books = tmp.path().join("books");
+        fs::create_dir_all(&books).unwrap();
+        // One of our series containers, with no members left.
+        let fake = fake_catalog(
+            tmp.path(),
+            "INSERT INTO Entries VALUES ('c1','Entry:Item:Series',NULL,'KWAAAAAAAA','series','',\
+             NULL,NULL,'Saga',0,0,1,0,'[]');",
+        );
+        // The scanner holds cc.db while it indexes: hold it for 1.5 s.
+        let mut holder = std::process::Command::new("sqlite3")
+            .arg(&fake.catalog.db)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = holder.stdin.take().unwrap();
+        writeln!(stdin, "BEGIN EXCLUSIVE; SELECT 'locked';").unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(holder.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(line.trim(), "locked");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            writeln!(stdin, "COMMIT;").unwrap();
+            drop(stdin);
+            holder.wait().unwrap();
+        });
+
+        let n = remove_all_series(&fake.catalog, &books.canonicalize().unwrap()).unwrap();
+        release.join().unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(
+            fake.requests.lock().unwrap()[0],
+            json!([{"delete": {"uuid": "c1"}}])
+        );
     }
 
     fn receive(lib: &mut Library, l: &str, data: &[u8], meta: Value) {

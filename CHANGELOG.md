@@ -8,6 +8,18 @@ one.
 
 ## [Unreleased]
 
+### Fixed
+- On some firmware (seen on 5.19.2), installing Wireless Sync could stop
+  the Kindle adding books in new folders until it was restarted. The
+  installer now waits until the library lists the Wireless Sync tile before
+  KPM rescans the library.
+- Uninstalling no longer stops partway, leaving the app and its tile
+  behind, when the Kindle is slow to reload its services.
+- Uninstalling removes Wireless Sync's series even while the Kindle is busy
+  adding books; before, they could be left behind.
+- Installing no longer fails when the Wireless Sync service turns out to be
+  running already.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added

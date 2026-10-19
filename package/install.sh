@@ -63,7 +63,8 @@ echo "Registering the Wireless Sync app"
 sh "$DIR/register-app.sh" register
 # mesquite caches the app's files; without this an upgrade shows the old UI.
 rm -rf "/var/local/mesquite/$APP_ID"
-put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755
+# Only when it changed: the scanner indexes it again each time (see the end).
+cmp -s "$PKG/WirelessSync.sh" "$SCRIPTLET" || put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755
 
 # The root filesystem is read-only: remount only if a job file changed (ADR 0004).
 for f in kindle-wireless-sync.conf kindle-wireless-sync-autostart.conf; do
@@ -90,7 +91,31 @@ if [ "$running" = 1 ]; then
     /sbin/initctl restart "$JOB"
 elif [ "$fresh" = 1 ]; then
     echo "Starting the service"
-    /sbin/initctl start "$JOB"
+    # The check above can miss a running service (initctl's reply lost):
+    # then start fails with "Job is already running", so restart it to run
+    # the new binary (seen on the emulated Kindle, 2026-10-19).
+    /sbin/initctl start "$JOB" || /sbin/initctl restart "$JOB"
 fi
+
+# KPM rescans the library as soon as this hook returns. If the rescan finds
+# the scriptlet before the scanner has added it, 5.19.2 queues it twice; the
+# second insert fails, and the scanner retries that batch until a reboot,
+# so books in new folders aren't added meanwhile (progress log, Phase 6).
+# Wait until the catalog has the scriptlet as it is now. First make sure
+# it's there: once, on the emulated Kindle, the old copy the check above
+# kept was gone by now (2026-10-19, cause unknown).
+[ -x "$SCRIPTLET" ] || put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755
+mtime=$(stat -c %Y "$SCRIPTLET" 2>/dev/null || echo 0)
+i=0
+until [ "$(sqlite3 -readonly /var/local/cc.db \
+        "SELECT count(*) FROM Entries WHERE p_location = '$SCRIPTLET' AND p_modificationTime >= $mtime;" \
+        2>/dev/null)" = 1 ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 30 ]; then
+        echo "The library hasn't listed Wireless Sync yet; it should appear shortly"
+        break
+    fi
+    sleep 1
+done
 
 echo "Installed. Open Wireless Sync from the Kindle library."
