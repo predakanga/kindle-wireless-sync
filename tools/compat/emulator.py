@@ -169,6 +169,16 @@ class Emulator:
                 self.proc.wait()
         self.proc = None
 
+    def delete(self):
+        """Removes the instance, and any base image no other instance uses
+        (`./eink delete`). The instance must be stopped."""
+        log(f"removing instance {self.name}")
+        p = self.eink("delete", self.name, timeout=300)
+        for line in (p.stdout + p.stderr).strip().splitlines():
+            log(f"  {line}")
+        if p.returncode != 0:
+            raise RuntimeError(f"./eink delete {self.name} exited {p.returncode}")
+
     # ---- jailbreak baseline ----
 
     def jailbroken(self):

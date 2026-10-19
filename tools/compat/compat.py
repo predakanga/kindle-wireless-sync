@@ -19,6 +19,7 @@ import json
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -100,7 +101,9 @@ def prereqs(args, emu):
             f"using existing instance {emu.name} ({info.get('firmware_version') or 'manual firmware'})"
             + ("" if jb else "; it wasn't created with a jailbreak option"))
     else:
-        add("instance", "Instance", PASS, f"will create {emu.name} ({emu.jailbreak_flag()})")
+        keep = args.keep_instance or args.keep_running
+        add("instance", "Instance", PASS, f"will create {emu.name} ({emu.jailbreak_flag()}); "
+            + ("it will be kept" if keep else "it's removed afterwards unless --keep-instance"))
         # The firmware is downloaded on create, or must be supplied by hand.
         if models[args.model].get("ftvdb_package"):
             p = emu.eink("versions", "--model", args.model, timeout=120)
@@ -199,6 +202,25 @@ def boot(emu, created, args):
     return timings
 
 
+def remove_instance(emu, existed, args):
+    """Deletes the instance if this run created it, unless told to keep
+    it. Also removes what a failed or interrupted create left behind."""
+    if existed or emu.machine_info() is None:
+        return False
+    if args.keep_instance or args.keep_running:
+        log(f"keeping instance {emu.name}" + ("" if args.keep_instance else " (it's still running)"))
+        return False
+    if emu.running():
+        log(f"not removing {emu.name}: it's still running")
+        return False
+    try:
+        emu.delete()
+    except Exception as e:  # noqa: BLE001 - still print the report
+        log(f"couldn't remove {emu.name}: {e}; remove it with ./eink delete {emu.name}")
+        return False
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Check a Kindle model and firmware version for compatibility with Kindle Wireless Sync, "
@@ -213,7 +235,11 @@ def main():
     ap.add_argument("--artifacts", help="where screenshots and logs go (default: target/compat/<instance>-<time>)")
     ap.add_argument("--attach", action="store_true",
                     help="use the instance already running on --ssh-port instead of booting it (left running)")
-    ap.add_argument("--keep-running", action="store_true", help="leave the emulator running afterwards")
+    ap.add_argument("--keep-running", action="store_true",
+                    help="leave the emulator running afterwards (implies --keep-instance)")
+    ap.add_argument("--keep-instance", action="store_true",
+                    help="keep an instance this run created (by default it's deleted on exit, so the next run "
+                         "creates and jailbreaks it again); instances that already existed are always kept")
     ap.add_argument("--no-snapshot", action="store_true",
                     help="boot without -snapshot: the checks' changes stay on the instance's disk")
     ap.add_argument("--no-build", action="store_true", help="use the existing target/package/*.kpkg")
@@ -230,6 +256,12 @@ def main():
         ap.error("give a model")
     if not args.firmware and not args.instance:
         ap.error("give a firmware version, or --instance")
+
+    # A plain kill (SIGTERM, as timeout wrappers send) cleans up like
+    # Ctrl-C: QEMU stopped, a created instance removed, the report printed.
+    def on_term(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, on_term)
 
     started = datetime.datetime.now(datetime.timezone.utc)
     name = args.instance or instance_name(args.model, args.firmware)
@@ -259,6 +291,8 @@ def main():
     }
     started_mono = time.monotonic()
     code = 2
+    # Only an instance this run creates is removed afterwards.
+    existed = emu.machine_info() is not None
     try:
         report["description"] = (emu.models().get(args.model) or {}).get("description") \
             if (emu.root / "models.json").exists() else None
@@ -270,8 +304,14 @@ def main():
         report["eink_emulator_commit"] = git("rev-parse", "--short", "HEAD", cwd=emu.root)
 
         created = False
-        if not emu.machine_info():
-            emu.create()
+        if not existed:
+            try:
+                emu.create()
+            except BootFailed as e:
+                report["outcome"] = "create_failed"
+                report["boot_error"] = str(e)
+                log(str(e))
+                return code
             created = True
         info = emu.machine_info() or {}
         report["firmware"] = report["firmware"] or info.get("firmware_version")
@@ -310,6 +350,7 @@ def main():
                 log(f"couldn't stop the emulator: {e}")
         elif emu.running():
             log(f"leaving {name} running (SSH on port {args.ssh_port})")
+        report["instance_removed"] = remove_instance(emu, existed, args)
         report["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
         report["duration_s"] = round(time.monotonic() - started_mono)
         (artifacts / "result.json").write_text(json.dumps(report, indent=2) + "\n")

@@ -29,7 +29,11 @@ boot failed, 130 if interrupted.
    or `--instance NAME`. A missing one is created with `--jbsh` (Paperwhite 2
    and later) or `--jailbreak` (Kindle 4, Touch, Paperwhite 1), downloading
    the firmware if needed. Its first boot runs without `-snapshot` so jb.sh
-   can jailbreak it (about 7 minutes on a Paperwhite 6).
+   can jailbreak it (about 7 minutes on a Paperwhite 6). **An instance the
+   run created is deleted when it exits** (`./eink delete`, which also drops
+   base images nothing else uses), including after a failure, Ctrl-C or
+   `kill`. Pass `--keep-instance` to keep it, so later runs skip the
+   jailbreak. Instances that already existed are never deleted.
 3. **The test boot** uses QEMU's `-snapshot`, so the checks never change the
    instance's disk. It waits for SSH, then for Home and the catalog's
    session token.
@@ -101,7 +105,8 @@ One JSON line:
 ```
 
 `outcome` is `completed`, `aborted` (a prerequisite failed),
-`boot_failed` or `interrupted`. The artifacts directory (default
+`create_failed`, `boot_failed` or `interrupted`. `instance_removed` says
+whether the run deleted the instance it created. The artifacts directory (default
 `target/compat/<instance>-<time>/`) has `result.json` (the same, indented),
 the QEMU logs and the screenshots (`app-launch.png`, `fit-NN-<page>.png`).
 
@@ -115,7 +120,9 @@ the QEMU logs and the screenshots (`app-launch.png`, `fit-NN-<page>.png`).
 - `--only ID,…` / `--skip ID,…`: a subset. Some checks need earlier ones
   (`series` needs `scanner_indexing` and `subfolder_indexing`) and are
   skipped without them.
-- `--keep-running`, `--no-snapshot`, `--no-build`, `--artifacts DIR`.
+- `--keep-instance`: keep an instance this run created. `--keep-running`
+  keeps it too, since a running instance can't be deleted.
+- `--no-snapshot`, `--no-build`, `--artifacts DIR`.
 
 Only one run per instance at a time. Different instances can run at once:
 ports move up from 4022/4023 when those are taken.
