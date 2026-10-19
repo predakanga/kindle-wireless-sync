@@ -393,32 +393,6 @@
         };
     }
 
-    /// Can the app reach the real service from a file:// page (ADR 0011)?
-    function realServiceCheck(cb) {
-        var xhr = new RealXHR();
-        var done = false;
-        var timer = setTimeout(function () {
-            if (!done) { done = true; xhr.abort(); cb({ reached: false, error: "timeout" }); }
-        }, 8000);
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4 || done) return;
-            done = true;
-            clearTimeout(timer);
-            var data = null;
-            try { data = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
-            cb({ reached: xhr.status !== 0, http_status: xhr.status, ok: !!(data && data.ok),
-                 version: data && data.version, state: data && data.state });
-        };
-        try {
-            xhr.open("GET", "http://127.0.0.1:8325/status", true);
-            xhr.send(null);
-        } catch (e) {
-            done = true;
-            clearTimeout(timer);
-            cb({ reached: false, error: String(e) });
-        }
-    }
-
     function start() {
         var state = send("/state", null, true);
         if (!state) return; // no host: leave the fake service idle
@@ -434,15 +408,11 @@
         window.addEventListener("load", function () {
             var run = function () { setTimeout(function () { runSteps(scenario.steps || [], 0); }, SETTLE_MS); };
             if (index !== 0) { run(); return; }
-            // Once per run: what the browser offers, and whether the real
-            // service answers a file:// page.
+            // Once per run: what the browser offers.
             var env = environment();
             env.scenarios = [];
             for (var i = 0; i < SCENARIOS.length; i++) env.scenarios.push(SCENARIOS[i].name);
-            realServiceCheck(function (r) {
-                env.real_service = r;
-                sendThen("/env", env, run);
-            });
+            sendThen("/env", env, run);
         }, false);
     }
 

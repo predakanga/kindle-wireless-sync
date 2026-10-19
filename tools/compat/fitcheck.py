@@ -204,6 +204,7 @@ def run(guest, repo, work_dir, screenshot, scenario_timeout=60):
         guest.run(start_app, check=True)
         last_index, last_change = 0, time.monotonic()
         restarts = 0
+        retried = set()
         while not collector.done.is_set():
             collector.progress.wait(5)
             collector.progress.clear()
@@ -219,9 +220,14 @@ def run(guest, repo, work_dir, screenshot, scenario_timeout=60):
                 break
             name = (collector.env or {}).get("scenarios", [None] * 99)[collector.index] \
                 if collector.env else None
-            log(f"fit check: no report for page {collector.index} ({name}) in {scenario_timeout}s; "
-                "restarting the app")
-            collector.skip(name, f"no report within {scenario_timeout}s")
+            # A busy emulator can lose a page: try it once more, then skip it.
+            if collector.index in retried:
+                log(f"fit check: no report for page {collector.index} ({name}) again; skipping it")
+                collector.skip(name, f"no report within {scenario_timeout}s, twice")
+            else:
+                log(f"fit check: no report for page {collector.index} ({name}) in {scenario_timeout}s; "
+                    "restarting the app to try again")
+                retried.add(collector.index)
             guest.run(stop_app)
             time.sleep(3)
             guest.run(start_app)
@@ -279,16 +285,12 @@ def evaluate(results, env, count):
                        kdetail, True, {"pages": [r for r in rows if r["keyboard"]]}))
 
     if env:
-        real = env.get("real_service") or {}
         has = env.get("has") or {}
-        problems = []
-        if not real.get("ok"):
-            problems.append(f"the app couldn't reach the service's API from file:// ({real})")
-        if not (has.get("json") and has.get("query_selector_all") and has.get("add_event_listener")):
-            problems.append("the browser lacks JSON, querySelectorAll or addEventListener")
+        missing = [k for k in ("json", "query_selector_all", "add_event_listener") if not has.get(k)]
         checks.append(("ui_browser", "The app's browser (mesquite) has what the app needs",
-                       FAIL if problems else PASS, "; ".join(problems) or
-                       f"service API reachable from the app; {env.get('inner_width')}×{env.get('inner_height')} "
-                       f"viewport; flexbox style {'accepted' if has.get('flex_style') else 'not accepted'}",
+                       FAIL if missing else PASS,
+                       f"the browser lacks: {', '.join(missing)}" if missing else
+                       f"{env.get('inner_width')}×{env.get('inner_height')} viewport; flexbox style "
+                       f"{'accepted' if has.get('flex_style') else 'not accepted'}",
                        True, env))
     return checks

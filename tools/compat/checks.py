@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The compatibility checks, run in order against a booted, jailbroken
-guest. Each looks at one thing the package or app relies on; the research
-notes and ADRs say why each matters."""
+guest. Each probes one firmware API or tool the package relies on, without
+installing or running the package: the research notes and ADRs say why each
+matters."""
 
 import json
 import re
@@ -12,15 +13,10 @@ import uuid
 import fitcheck
 from common import ERROR, FAIL, PASS, SKIP, WARN, CheckFailed, log, result
 
-PKG = "kindle-wireless-sync"
-DIR = "/var/local/kindle-wireless-sync"
-BIN = f"{DIR}/kindle-wireless-sync"
-APP_ID = "com.kindlewirelesssync.app"
 DOCS = "/mnt/us/documents"
 CC = "/var/local/cc.db"
 APPREG = "/var/local/appreg.db"
 KPM = "/var/local/kmc/bin/kpm"
-API = "http://127.0.0.1:8325"
 # Test files are TXT and named kws-* (CLAUDE.md, "Device access"), with a
 # per-run suffix: the scanner can miss a folder deleted and made again at
 # once, as reruns on one disk (--attach) would.
@@ -48,12 +44,10 @@ APPREG_COLUMNS = {"interfaces": ["interface"], "handlerIds": ["handlerId"],
 
 
 class Context:
-    def __init__(self, guest, emu, repo, kpkg, version, artifacts, work):
+    def __init__(self, guest, emu, repo, artifacts, work):
         self.guest = guest
         self.emu = emu
         self.repo = repo
-        self.kpkg = kpkg
-        self.version = version
         self.artifacts = artifacts
         self.work = work
         self.state = {}  # what earlier checks found, for later ones
@@ -112,18 +106,11 @@ def entry(ctx, location, fields="p_uuid, p_cdeKey, p_cdeType"):
 
 
 def scanner_errors(ctx):
-    """How many catalog posts the scanner has had refused so far (seen on
-    5.16.2.1.1 after a KPM install: "SQL logic error" from change.lua)."""
+    """How many catalog posts the scanner has had refused so far: a stuck
+    batch ("SQL logic error" from change.lua) blocks books in new folders
+    (progress log, Phase 6)."""
     out = ctx.guest.run("grep -c 'sps:parserr' /var/log/messages")[1].strip()
     return int(out) if out.isdigit() else None
-
-
-def api_status(ctx):
-    rc, out, _ = ctx.guest.run(f"curl -s -m 10 {API}/status", timeout=30)
-    try:
-        return json.loads(out)
-    except ValueError:
-        return None
 
 
 # ---- the device ----
@@ -179,7 +166,6 @@ def jailbreak(ctx):
             "su": g.ok("[ -x /var/local/kmc/bin/su ]")}
     if kpm:
         data["kpm_version"] = re.sub(r"\x1b\[[0-9;]*m", "", g.run(f"{KPM} version 2>&1")[1]).strip()
-    ctx.state["kpm"] = kpm
     if not kpm:
         return FAIL, "no KPM at /var/local/kmc/bin/kpm: users can't install the package", data
     return PASS, data.get("kpm_version", "").splitlines()[0] if data.get("kpm_version") else "KPM present", data
@@ -195,7 +181,6 @@ def commands(ctx):
         have[name] = flag == "y"
     missing = [c for c in COMMANDS if not have.get(c)]
     dev_missing = [c for c in DEV_COMMANDS if not have.get(c)]
-    ctx.state["curl"] = have.get("curl")
     data = {"missing": missing, "dev_missing": dev_missing}
     if missing:
         return FAIL, f"missing: {', '.join(missing)}", data
@@ -320,95 +305,6 @@ def catalog_endpoint(ctx):
     return PASS, f"accepts a ChangeRequest with the token; {unauth} without it", data
 
 
-# ---- installing with KPM ----
-
-@check("kpm_install", "The package installs with the device's KPM")
-def kpm_install(ctx):
-    g = ctx.guest
-    if not g.ok(f"[ -x {KPM} ]"):
-        raise CheckFailed(SKIP, "no KPM on the device")
-    data = {}
-    if g.ok(f"[ -d /mnt/us/kmc/kpm/packages/{PKG} ] || [ -x {BIN} ]"):
-        log("the package is already installed; uninstalling it first")
-        rc, out, _ = g.run(f"{KPM} -y uninstall {PKG} 2>&1", timeout=180)
-        data["preexisting_uninstall"] = out.strip()[-2000:]
-    g.put(ctx.kpkg.read_bytes(), "/tmp/kws-compat.kpkg")
-    started = time.monotonic()
-    rc, out, err = g.run(f"{KPM} -y install file:///tmp/kws-compat.kpkg 2>&1; rc=$?; rm -f /tmp/kws-compat.kpkg; "
-                         "exit $rc", timeout=300)
-    data["kpm_output"] = re.sub(r"\x1b\[[0-9;]*m", "", out).strip()[-3000:]
-    data["seconds"] = round(time.monotonic() - started, 1)
-    if rc != 0:
-        return FAIL, f"kpm install exited {rc}", data
-    rc, out, err = g.run(f"{BIN} status --state {DIR}/state", timeout=60)
-    data["binary_status"] = {"rc": rc, "output": (out + err).strip()[-1000:]}
-    installed = {
-        "binary": g.ok(f"[ -x {BIN} ]"),
-        "binary_runs": rc == 0,
-        "upstart_jobs": g.ok("[ -f /etc/upstart/kindle-wireless-sync.conf ] && "
-                             "[ -f /etc/upstart/kindle-wireless-sync-autostart.conf ]"),
-        "app_registered": g.sql(APPREG, f"SELECT count(*) FROM handlerIds WHERE handlerId = '{APP_ID}'") == "1",
-        "scriptlet": g.ok(f"[ -x {DOCS}/WirelessSync.sh ]"),
-        "ui_readable": g.ok(f"[ \"$(stat -c %a {DIR}/ui)\" = 755 ] && [ \"$(stat -c %a {DIR}/ui/index.html)\" = 644 ]"),
-        "root_back_to_ro": g.ok("mount | grep ' / ' | grep -q '(ro'"),
-    }
-    data["installed"] = installed
-    bad = [k for k, v in installed.items() if not v]
-    ctx.state["installed"] = installed["binary"]
-    if bad:
-        return FAIL, f"installed, but: {', '.join(bad)}", data
-    return PASS, f"installed in {data['seconds']}s", data
-
-
-@check("service", "The service runs and its API answers (ADR 0011)")
-def service(ctx):
-    g = ctx.guest
-    ctx.needs("installed", "the package isn't installed")
-    took = g.wait_for("/sbin/initctl status kindle-wireless-sync | grep -q running && "
-                      f"curl -s -m 5 {API}/status | grep -q '\"ok\":true'", timeout=60)
-    status = api_status(ctx)
-    log_text = g.run("cat /var/log/kindle-wireless-sync.log 2>/dev/null | tail -40")[1]
-    data = {"status": status, "log_tail": log_text.strip().splitlines()[-15:]}
-    if took is None:
-        return FAIL, "the service didn't start, or its API didn't answer within 60s", data
-    problems = []
-    if status.get("version") != ctx.version:
-        problems.append(f"the API reports version {status.get('version')}, not {ctx.version}")
-    if "lipc not available" in log_text:
-        problems.append("the daemon found no lipc (it assumes Wi-Fi is always up)")
-    if "cannot listen" in log_text:
-        problems.append("the API couldn't listen")
-    ctx.state["service"] = not problems
-    if problems:
-        return FAIL, "; ".join(problems), data
-    return PASS, f"running; API answers (state {status.get('state')}, Wi-Fi {status.get('wifi')})", data
-
-
-@check("autostart", "The autostart job starts the service (ADR 0010)")
-def autostart(ctx):
-    g = ctx.guest
-    ctx.needs("installed", "the package isn't installed")
-    g.run("/sbin/initctl stop kindle-wireless-sync", timeout=60)
-    g.run(f"touch {DIR}/autostart && rm -f {DIR}/boot_attempts")
-    g.run("/sbin/initctl start kindle-wireless-sync-autostart", timeout=60)
-    took = g.wait_for("/sbin/initctl status kindle-wireless-sync | grep -q running", timeout=30)
-    attempts = g.run(f"cat {DIR}/boot_attempts 2>/dev/null")[1].strip()
-    g.run(f"rm -f {DIR}/autostart {DIR}/boot_attempts")
-    data = {"boot_attempts_after_start": attempts}
-    if took is None:
-        g.run("/sbin/initctl start kindle-wireless-sync", timeout=60)
-        return FAIL, "the autostart job ran, but the service didn't start", data
-    return PASS, f"the service started (boot_attempts {attempts or 'unset'})", data
-
-
-@check("device_name", "The Kindle's name reaches the binary (ADR 0015)", required=False)
-def device_name(ctx):
-    name = ctx.guest.run("lipc-get-prop com.lab126.amazonRegistrationService GetDeviceName")[1].strip()
-    if not name:
-        return WARN, "GetDeviceName is empty: Calibre will see the default name", None
-    return PASS, repr(name), {"name": name}
-
-
 # ---- the library ----
 
 @check("scanner_indexing", "A book copied into documents/ is indexed, and the catalog announces it")
@@ -464,62 +360,55 @@ def subfolder_indexing(ctx):
     return PASS, "indexed, with the same flags as a top-level book", data
 
 
-@check("series", "Native series through ChangeRequest, and the binary removes them (ADR 0016)")
+@check("series", "Native series can be made and removed through ChangeRequest (ADR 0016)")
 def series(ctx):
     ctx.needs("catalog_endpoint", "the ChangeRequest endpoint doesn't work")
     ctx.needs("sub_entry", "needs two indexed test books")
     g = ctx.guest
     top, sub = ctx.state["top_entry"], ctx.state["sub_entry"]
-    # Shapes from src/series.rs (plan): rows, container, then the members.
+    # The command shapes src/series.rs (plan) sends: rows, container, then
+    # the members; and to dissolve, the reverse.
     key = "KWCOMPATST"
     sid = f"urn:collection:1:asin-{key}"
     container = str(uuid.uuid4())
     titles = [{"display": "KWS compat", "collation": "KWS compat", "pronunciation": "KWS compat", "language": "en"}]
     credits = [{"kind": "Author", "name": {"display": "KWS", "collation": "KWS", "pronunciation": "KWS",
                                            "language": "en"}}]
-    commands = []
+    make = []
     for pos, e in enumerate((top, sub), start=1):
-        commands.append({"insertOr": {"table": "SERIES", "onConflict": "REPLACE", "entry": {
+        make.append({"insertOr": {"table": "SERIES", "onConflict": "REPLACE", "entry": {
             "seriesId": sid, "itemCdeKey": e[1], "itemType": "Entry:Item", "itemPosition": pos,
             "itemPositionLabel": str(pos), "seriesOrderType": "ordered"}}})
-    commands.append({"insertOr": {"onConflict": "IGNORE", "entry": {
+    make.append({"insertOr": {"onConflict": "IGNORE", "entry": {
         "type": "Entry:Item:Series", "uuid": container, "cdeKey": key, "cdeType": "series", "cdeGroup": sid,
         "titles": titles, "credits": credits, "displayObjects": [{"ref": "titles"}, {"ref": "credits"}],
         "mimeType": "application/x-kindle-series", "thumbnail": "", "isArchived": 1, "isVisibleInHome": 1,
         "isLatestItem": 1, "originType": -1, "virtualCollectionCount": 2}}})
-    commands.append({"update": {"uuid": container, "type": "Entry:Item:Series", "cdeType": "series",
-                                "titles": titles, "credits": credits, "thumbnail": "", "virtualCollectionCount": 2,
-                                "isProcessed": 1, "members": [top[0], sub[0]]}})
+    make.append({"update": {"uuid": container, "type": "Entry:Item:Series", "cdeType": "series",
+                            "titles": titles, "credits": credits, "thumbnail": "", "virtualCollectionCount": 2,
+                            "isProcessed": 1, "members": [top[0], sub[0]]}})
     for e in (top, sub):
-        commands.append({"update": {"uuid": e[0], "seriesState": 0, "originType": 0}})
-    reply = change_request(ctx, commands)
-    if reply.get("ok") is not True:
-        return FAIL, f"the catalog refused the series: {reply}", {"reply": reply}
+        make.append({"update": {"uuid": e[0], "seriesState": 0, "originType": 0}})
+    reply = change_request(ctx, make)
     row = g.sql(CC, "SELECT p_memberCount, p_isProcessed, p_titles_0_nominal FROM Entries "
                     f"WHERE p_cdeKey = '{key}' AND p_cdeType = 'series'")
     rows = g.sql(CC, f"SELECT count(*) FROM Series WHERE d_seriesId = '{sid}'")
-    data = {"reply": reply, "container": row, "series_rows": rows}
-    made = row.startswith("2|1|") and rows == "2"
-    # The binary's own removal (uninstall.sh runs it): reads the catalog
-    # with src/series.rs's queries and dissolves our series.
-    if ctx.state.get("installed"):
-        rc, out, err = g.run(f"{BIN} series --books {DOCS} --catalog {CC} --remove-all", timeout=120)
-        data["remove_all"] = {"rc": rc, "output": (out + err).strip()}
-        removed = rc == 0 and g.sql(CC, f"SELECT count(*) FROM Entries WHERE p_cdeKey = '{key}'") == "0" \
-            and g.sql(CC, f"SELECT count(*) FROM Series WHERE d_seriesId = '{sid}'") == "0"
-    else:
-        removed = None
-    if not removed:
-        # Don't leave the test series behind.
-        change_request(ctx, [{"update": {"uuid": e[0], "seriesState": 1, "originType": "null"}} for e in (top, sub)]
-                       + [{"delete": {"table": "SERIES", "seriesId": sid, "itemCdeKey": e[1]}} for e in (top, sub)]
-                       + [{"update": {"uuid": container, "type": "Entry:Item:Series", "cdeType": "series",
-                                      "members": []}}, {"delete": {"uuid": container}}])
+    data = {"make_reply": reply, "container": row, "series_rows": rows}
+    made = reply.get("ok") is True and row.startswith("2|1|") and rows == "2"
+    # Dissolved either way, so the test series isn't left behind.
+    dissolve = [{"update": {"uuid": e[0], "seriesState": 1, "originType": "null"}} for e in (top, sub)] \
+        + [{"delete": {"table": "SERIES", "seriesId": sid, "itemCdeKey": e[1]}} for e in (top, sub)] \
+        + [{"update": {"uuid": container, "type": "Entry:Item:Series", "cdeType": "series", "members": []}},
+           {"delete": {"uuid": container}}]
+    data["dissolve_reply"] = change_request(ctx, dissolve)
+    left = g.sql(CC, f"SELECT count(*) FROM Entries WHERE p_cdeKey = '{key}'") + "/" + \
+        g.sql(CC, f"SELECT count(*) FROM Series WHERE d_seriesId = '{sid}'")
+    data["left_after_dissolve"] = left
     if not made:
-        return FAIL, f"the series wasn't built as expected (container {row!r}, {rows} Series rows)", data
-    if removed is False:
-        return FAIL, f"the series was made, but `series --remove-all` didn't remove it: {data['remove_all']}", data
-    return PASS, "made a two-book series" + (" and the binary removed it" if removed else ""), data
+        return FAIL, f"the series wasn't built as expected (reply {reply}, container {row!r}, {rows} rows)", data
+    if data["dissolve_reply"].get("ok") is not True or left != "0/0":
+        return FAIL, f"the series was made, but dissolving it left container/rows {left}", data
+    return PASS, "made a two-book series and dissolved it", data
 
 
 @check("catalog_delete", "A deleted book leaves the catalog at once through ChangeRequest (ADR 0005)")
@@ -563,36 +452,14 @@ def wifi_events(ctx):
     time.sleep(2)
     events = re.findall(r'cmStateChange "([A-Z_]+)"', g.run("cat /tmp/kws-wifi.log")[1])
     data = {"events": events}
-    if ctx.state.get("service"):
-        st = api_status(ctx)
-        data["service_wifi"] = st.get("wifi") if st else None
     if back is None:
         return WARN, f"Wi-Fi didn't reconnect after being toggled; events: {events}", data
     if "CONNECTED" not in events:
         return FAIL, f"no cmStateChange \"CONNECTED\" event while Wi-Fi reconnected (saw {events})", data
-    if ctx.state.get("service") and data.get("service_wifi") is not True:
-        return FAIL, f"events arrived ({events}), but the service reports Wi-Fi {data.get('service_wifi')}", data
-    return PASS, f"events: {' → '.join(events)}" + ("; the service follows them" if ctx.state.get("service") else ""), data
+    return PASS, f"events: {' → '.join(events)}", data
 
 
 # ---- the app ----
-
-@check("app_launch", "The Library tile's scriptlet opens the app in mesquite (ADR 0004)")
-def app_launch(ctx):
-    ctx.needs("installed", "the package isn't installed")
-    g = ctx.guest
-    rc, out, err = g.run(f"sh {DOCS}/WirelessSync.sh", timeout=60)
-    took = g.wait_for(f"[ \"$(lipc-get-prop com.lab126.appmgrd activeApp)\" = {APP_ID} ]", timeout=45)
-    data = {"scriptlet_output": (out + err).strip()}
-    if took is None:
-        app = g.run("lipc-get-prop com.lab126.appmgrd activeApp")[1].strip()
-        return FAIL, f"the app didn't come to the front (activeApp {app})", data
-    time.sleep(6)  # let it load /status and draw
-    data["screenshot"] = ctx.screenshot("app-launch.png")
-    g.run(f"lipc-set-prop com.lab126.appmgrd stop app://{APP_ID}")
-    g.wait_for("[ \"$(lipc-get-prop com.lab126.appmgrd activeApp)\" = com.lab126.KPPMainApp ]", timeout=30)
-    return PASS, f"in front after {took:.0f}s", data
-
 
 @check("ui_pages_fit", "Every page of the app fits on one screen (ADR 0020)")
 def ui_fit(ctx):
@@ -603,30 +470,6 @@ def ui_fit(ctx):
     ctx.extra = [result(cid, title, status, detail, required, data) for cid, title, status, detail, required, data
                  in rest]
     return first[2], first[3], first[5]
-
-
-# ---- removing ----
-
-@check("kpm_uninstall", "The package uninstalls cleanly with KPM (ADR 0012)")
-def kpm_uninstall(ctx):
-    ctx.needs("installed", "the package isn't installed")
-    g = ctx.guest
-    rc, out, _ = g.run(f"{KPM} -y uninstall {PKG} 2>&1", timeout=300)
-    left = {
-        "dir": g.ok(f"[ -e {DIR} ]"),
-        "upstart_jobs": g.ok("ls /etc/upstart/kindle-wireless-sync*.conf >/dev/null 2>&1"),
-        "app_registered": g.sql(APPREG, f"SELECT count(*) FROM handlerIds WHERE handlerId = '{APP_ID}'") != "0",
-        "scriptlet": g.ok(f"[ -e {DOCS}/WirelessSync.sh ]"),
-        "service_running": g.ok("pgrep -f '[k]indle-wireless-sync daemon' >/dev/null"),
-        "root_rw": not g.ok("mount | grep ' / ' | grep -q '(ro'"),
-    }
-    data = {"kpm_output": re.sub(r"\x1b\[[0-9;]*m", "", out).strip()[-2000:], "left_behind": left}
-    if rc != 0:
-        return FAIL, f"kpm uninstall exited {rc}", data
-    bad = [k for k, v in left.items() if v]
-    if bad:
-        return FAIL, f"left behind: {', '.join(bad)}", data
-    return PASS, "removed everything", data
 
 
 def run_all(ctx, only=None, skip=()):

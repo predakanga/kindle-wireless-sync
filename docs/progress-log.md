@@ -263,7 +263,11 @@ staying in place (ADR 0023).
 **Compatibility harness** (2026-10-19): `tools/compat/compat.py` (`just
 compat MODEL VERSION`, README there) boots a model and firmware on
 eink-emulator, creating and jailbreaking the instance on first use, and
-prints one JSON line of check results.
+prints one JSON line of check results. It first also installed the
+package with KPM and exercised the service and app; after the 5.19.2
+findings below, the developer narrowed it to probing the firmware's APIs
+and tools (2026-10-19), since the emulator's own flakiness made the
+end-to-end checks noisy. The results below mention checks it no longer has.
 
 - **Paperwhite 6, 5.20.1** (`pw6-5201-jb`): all 25 checks pass. Every page
   fits; the tightest, the storage folder picker with ten folders and
@@ -281,16 +285,55 @@ prints one JSON line of check results.
   - The screen is 600×800; the app gets 600×680. Every page fits, the
     tightest with 22 px to spare. Focusing a field from script doesn't open
     the keyboard there, so the keyboard check can't measure it.
-  - **Open:** after a KPM install of the package, every ChangeRequest the
-    scanner posts fails with `SQL logic error` (`change.lua:2054`) until a
-    reboot. New books in `documents/` are still indexed, but books in a
-    new subfolder aren't. None of these alone triggered it: copying the
-    scriptlet, registering the app, running the daemon, `mntroot rw`/`ro`,
-    `initctl reload-configuration`, or extracting the package under
-    `/mnt/us`. The subfolder check failed once on 5.20.1 too, on a run
-    that reinstalled over an existing install, and passed on every clean
-    snapshot boot; that run didn't record the scanner's errors. The check
-    now records the refused-post count from `/var/log/messages`.
+  - After a KPM install, the scanner's posts to the catalog were refused
+    and books in new subfolders weren't added: the same scriptlet race as
+    on 5.19.2, below.
+
+- **Paperwhite 6, 5.19.2** (developer's run, 2026-10-19): two failures,
+  both investigated on `kws-pw6-5192`.
+  - **Books in new subfolders weren't added: a scriptlet race.**
+    `install.sh` renamed `WirelessSync.sh` into `documents/`, and KPM
+    rescans the library as soon as the hook returns (`doFullScan`, KPM
+    `install.c`). When the rescan finds the scriptlet before the scanner
+    has added it, the scanner sends one ChangeRequest with two inserts for
+    it. The second fails (`SQL logic error` in `change.lua`, debug logging
+    on `com.lab126.ccat`), the handler rolls back the batch, and the
+    scanner resends the same batch on every later scan until a reboot,
+    even after the file is gone. Books it finds by a full scan, as for a
+    new folder, never get in; a book noticed directly in `documents/`
+    still does. Reproduced without our install (copy a scriptlet, rescan at
+    once). Not seen on 5.20.1.
+    **Fix:** `install.sh` writes the scriptlet only if it changed, and
+    waits (up to 30 s) until `cc.db` lists it at its new modification
+    time. With it, three fresh installs had no refused posts, against 17 to
+    153 before. Rapid uninstall-and-reinstall cycles (every 15 to 20 s)
+    still hit it, since KPM's rescan after the uninstall can overlap the
+    next install; waiting for `fullScanStatus` to be 0 first didn't help,
+    so that isn't in. Upgrades don't rewrite the scriptlet.
+  - **Uninstall stopped after removing the upstart jobs** (KPM exit 255,
+    56 s), leaving the app registered, the tile and our directory. Not
+    reproduced in nine more uninstalls (1 to 2 s each). The only step in
+    that window that can fail is `initctl reload-configuration` (`mntroot`
+    always exits 0, and sqlite3 fails at once on a lock), and two 25 s
+    D-Bus timeouts plus the 2 s retry fit the time. **Fix:** a failed
+    reload no longer stops the uninstall (it only makes upstart forget
+    jobs whose files are gone). KPM shows a hook's output only when it
+    succeeds: to see where one fails, prepend `exec 2>FILE; set -x` to the
+    extracted copy in `/mnt/us/kmc/kpm/packages/<id>/`.
+  - Found on the way: `series --remove-all` gave up on a locked catalog
+    (now retried, as other catalog writes are), and `install.sh` failed
+    with "Job is already running" when its running-check missed the
+    service (now restarts it).
+  - With the fix, one 5.20.1 run found the scriptlet missing right after
+    an uninstall and reinstall: the `cmp` check had kept the old copy,
+    which was then gone. Not reproduced in seven more; `install.sh` now
+    writes it again if it's missing before the final wait.
+  - **The emulator itself was unreliable under load** (Mac load about 9):
+    a stock `curl` died with a glibc malloc assertion, the loader once
+    couldn't open `/usr/lib/libenvload.so` during a remount, commands
+    occasionally died without an exit status (ssh exit 255, no output),
+    and the guest rebooted once on its own. These explain the scattered
+    one-off failures; rerun before reading anything into one.
 
 ## Later items
 

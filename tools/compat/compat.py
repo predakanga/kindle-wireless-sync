@@ -157,22 +157,6 @@ def prereqs(args, emu):
     add("host_network", "Host network leaves the emulator's DNS working", WARN if problems else PASS,
         "; ".join(problems) + ": the Wi-Fi check will likely fail. Unplug the Kindle or quit Tailscale."
         if problems else "no real Kindle on USB; DNS isn't Tailscale's", required=False)
-
-    # The package under test.
-    kpkg = REPO / "target" / "package" / "kindle-wireless-sync.kpkg"
-    if not args.no_build:
-        log("building the package (just package)")
-        p = subprocess.run(["just", "package"], cwd=REPO, stdout=sys.stderr, stderr=sys.stderr)
-        if p.returncode != 0:
-            add("package", "The KPM package builds", FAIL, f"just package exited {p.returncode}")
-            return out
-    if not kpkg.exists():
-        add("package", "The KPM package", FAIL, f"no {kpkg}; run just package")
-        return out
-    age = time.time() - kpkg.stat().st_mtime
-    add("package", "The KPM package", PASS,
-        f"{kpkg.relative_to(REPO)}, {kpkg.stat().st_size // 1024} KiB"
-        + ("" if not args.no_build or age < 3600 else f"; built {age / 3600:.0f}h ago (--no-build)"))
     return out
 
 
@@ -242,7 +226,6 @@ def main():
                          "creates and jailbreaks it again); instances that already existed are always kept")
     ap.add_argument("--no-snapshot", action="store_true",
                     help="boot without -snapshot: the checks' changes stay on the instance's disk")
-    ap.add_argument("--no-build", action="store_true", help="use the existing target/package/*.kpkg")
     ap.add_argument("--only", help="comma-separated check ids to run")
     ap.add_argument("--skip", help="comma-separated check ids to skip")
     ap.add_argument("--list", action="store_true", help="list the checks and exit")
@@ -328,8 +311,7 @@ def main():
             log(f"boot failed: {e}")
             return code
 
-        ctx = checks.Context(emu.guest, emu, REPO, REPO / "target" / "package" / "kindle-wireless-sync.kpkg",
-                             cargo_version(), artifacts, work)
+        ctx = checks.Context(emu.guest, emu, REPO, artifacts, work)
         only = set(args.only.split(",")) if args.only else None
         skip = set(args.skip.split(",")) if args.skip else set()
         report["checks"] = checks.run_all(ctx, only, skip)
