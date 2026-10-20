@@ -75,16 +75,6 @@ Your settings are kept. Install from the repository rather than from a
 downloaded `.kpkg` file, because KPM can't upgrade a package that was
 installed from a file.
 
-If you installed from the old repository
-(`https://predakanga.github.io/kindle-wireless-sync/repo.json`), it no
-longer gets new versions. Move to the new one, keeping your settings:
-
-```sh
-kpm remove-repo kindle-wireless-sync
-kpm add-repo https://predakanga.github.io/kindle-apps/repo.json
-kpm install kindle-wireless-sync
-```
-
 To uninstall, run `kpm uninstall kindle-wireless-sync`. Books you received
 stay in your library. The series this app created are removed.
 

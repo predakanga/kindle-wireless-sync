@@ -9,12 +9,9 @@ one.
 ## [Unreleased]
 
 ### Changed
-- New versions are published in a KPM repository shared with
-  predakanga's other Kindle apps:
+- The KPM repository is now shared with predakanga's other Kindle apps:
   `https://predakanga.github.io/kindle-apps/repo.json`. The old
-  repository no longer gets updates. To move, run `kpm remove-repo
-  kindle-wireless-sync`, add the new repository with `kpm add-repo`, then
-  `kpm install kindle-wireless-sync`; your settings are kept.
+  repository has been removed.
 
 ### Fixed
 - On some firmware (seen on 5.19.2), installing Wireless Sync could stop

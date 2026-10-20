@@ -20,8 +20,9 @@ is already there), and its *Publish the index* workflow builds
 package's details come from the `manifest.json` inside each `.kpkg`. That
 index already lists every release of this package, 0.1.0 to 0.4.0.
 
-Unlike Kindle Series Enabler, this package has users of the old index
-(at least the reference device). From KPM 0.2.2's source (`cli/main.c`,
+The only install from the old index is the developer's reference device
+(the developer, 2026-10-20). From KPM 0.2.2's source, which matters for
+moving it (`cli/main.c`,
 `src/package.c`, `src/install.c`, at `07495e0`):
 - `kpm upgrade` only looks in the repository a package was installed
   from, so it would never see a release published only in kindle-apps.
@@ -44,28 +45,32 @@ Actions tab.
 `tools/kpm-index.sh` and `package/pages/index.html` are removed. Their
 successor is kindle-apps' `tools/build-index.sh` and `pages/index.html`.
 
-**Install instructions** (README) use the kindle-apps URL. Users of the
-old repository move over by removing it, adding kindle-apps, and running
-`kpm install kindle-wireless-sync`. Removing the old repository first
-means the install can only take kindle-apps' artifact, and the package
-is then recorded against kindle-apps, so `kpm upgrade` works from then on.
+**Install instructions** (README) use the kindle-apps URL. **This
+repository's Pages site and its `github-pages` environment are removed**
+(2026-10-20), since nobody else uses the old index.
+
+**Moving an install from the old repository** (the reference device):
+`kpm remove-repo kindle-wireless-sync`, `kpm add-repo` with the
+kindle-apps URL, then `kpm install kindle-wireless-sync`. Removing the old
+repository first means the install can only take kindle-apps' artifact,
+and the package is then recorded against kindle-apps, so `kpm upgrade`
+works from then on.
 
 ## Alternatives considered
 - **Keep this repository's index as well** (dispatch to kindle-apps and
   rebuild our Pages): old users would keep getting upgrades without doing
   anything, but there are two indexes to keep working, and two
   repositories on a device listing the same package make `kpm install`
-  pick between them by version only. There are few users to move.
+  pick between them by version only. There are no other users to move.
 - **Keep only our own index:** what the developer asked to replace.
 
 ## Consequences
 - **Setup by the developer:** add the `KINDLE_APPS_TOKEN` secret to this
   repository: the same token as Kindle Series Enabler's, or a new one
   made as kindle-apps' README describes.
-- This repository's Pages site stays frozen at 0.4.0 until it's turned off.
-  Leaving it up for a while lets old users still `kpm update` without an
-  error. Once it's off, the `github-pages` environment and the Pages
-  setting from ADR 0014 can go too.
+- The old index URL now returns 404. A device that still has the old
+  repository can't refresh it (not yet seen on the device) until it's
+  removed.
 - **To verify on the device:** the move from the old repository (remove,
   add, `kpm install`) keeps settings and books and records the package
   against `kindle-apps` (KPM's `installed_packages` table).
