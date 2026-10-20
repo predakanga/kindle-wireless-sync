@@ -30,7 +30,7 @@ boot failed, 130 if interrupted.
    or `--instance NAME`. A missing one is created with `--jbsh` (Paperwhite 2
    and later) or `--jailbreak` (Kindle 4, Touch, Paperwhite 1), downloading
    the firmware if needed. Its first boot runs without `-snapshot` so jb.sh
-   can jailbreak it (about 7 minutes on a Paperwhite 6). **An instance the
+   can jailbreak it (about 5 minutes on a Paperwhite 6). **An instance the
    run created is deleted when it exits** (`./eink delete`, which also drops
    base images nothing else uses), including after a failure, Ctrl-C or
    `kill`. Pass `--keep-instance` to keep it, so later runs skip the

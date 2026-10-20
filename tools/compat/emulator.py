@@ -17,6 +17,8 @@ from guest import Guest
 OFFLINE_JAILBREAK = {"kindle-4", "kindle-touch", "kindle-paperwhite-1"}
 
 HOME_APP = "com.lab126.KPPMainApp"
+HOME_UP = (f"[ \"$(lipc-get-prop com.lab126.appmgrd activeApp 2>/dev/null)\" = {HOME_APP} ] "
+           "&& [ -s /tmp/session_token ]")
 
 
 def port_free(port):
@@ -142,10 +144,7 @@ class Emulator:
     def wait_home(self, timeout=420):
         """Waits for the framework: Home in the foreground and the catalog's
         session token written."""
-        took = self.guest.wait_for(
-            f"[ \"$(lipc-get-prop com.lab126.appmgrd activeApp 2>/dev/null)\" = {HOME_APP} ] "
-            "&& [ -s /tmp/session_token ]",
-            timeout=timeout, interval=5)
+        took = self.guest.wait_for(HOME_UP, timeout=timeout, interval=5)
         if took is None:
             app = self.guest.run("lipc-get-prop com.lab126.appmgrd activeApp")[1].strip()
             raise BootFailed(f"Home didn't come up within {timeout}s (activeApp: {app or 'none'})")
@@ -185,11 +184,13 @@ class Emulator:
         return self.guest.ok("[ -x /var/local/kmc/bin/kpm ] && [ -f /mnt/us/documents/JAILBROKEN.txt ]")
 
     def jailbreak_baseline(self, timeout=1200):
-        """First boot of a --jbsh instance, without -snapshot: jb.sh runs
-        once Home is reached, then reboots the guest. QEMU follows the reboot
-        on some models and exits on others (AGENTS.md). Ends with the
-        instance stopped and its disk jailbroken."""
-        log("first boot: letting jb.sh jailbreak the instance (about 7 minutes on a Paperwhite 6)")
+        """First boot of a --jbsh instance, without -snapshot. Since
+        eink-emulator a597d80, jb.sh runs before the framework starts and
+        its reboot is skipped, so the jailbreak is done once Home is up.
+        Before that, jb.sh ran once Home was reached and then rebooted the
+        guest, which QEMU followed on some models and exited on others.
+        Ends with the instance stopped and its disk jailbroken."""
+        log("first boot: letting jb.sh jailbreak the instance (about 5 minutes on a Paperwhite 6)")
         self.start(snapshot=False)
         deadline = time.monotonic() + timeout
         self.wait_ssh()
@@ -205,9 +206,12 @@ class Emulator:
                 if bid and bid != first:
                     log("guest rebooted after the jailbreak")
                     break
+                if self.guest.ok(HOME_UP) and self.jailbroken():
+                    log("jb.sh finished before the framework started")
+                    break
             time.sleep(10)
         else:
-            raise BootFailed(f"jb.sh didn't reboot the guest within {timeout}s; "
+            raise BootFailed(f"jb.sh didn't finish within {timeout}s; "
                              "see /var/local/eink-addons/jbsh.log in the guest")
         self.wait_home()
         if not self.jailbroken():
