@@ -52,3 +52,4 @@ What this commits us to, and any follow-up work or risks.
 - [0022: Leaving a session at a keep-alive, without replying](0022-leaving-at-a-keep-alive.md)
 - [0023: Choosing the folder received books go into](0023-choosing-the-books-folder.md)
 - [0024: Publish through the shared kindle-apps KPM index](0024-shared-kindle-apps-index.md)
+- [0025: Read the catalog with an embedded SQLite](0025-embedded-sqlite.md)
