@@ -388,6 +388,27 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
 - **`p_lastOpenTime` is the "last read" time:** unset until the book is
   first opened, and set on open and on close. `p_lastAccess` is also set
   when the file is indexed, so it isn't a reading signal.
+- **`p_lastOpenTime` arrived in 5.19.1** (2026-10-20). The catalog's
+  schema migrations are plain SQL in the root filesystem
+  (`--## Update: Entries:N:M` blocks), so each firmware's latest
+  `Entries` version can be read from its `rootfs.img` without booting it:
+
+  | Firmware | Last `Entries` migration |
+  |---|---|
+  | 5.17.1.0.2 (Paperwhite 6) | 78: `p_subType` |
+  | 5.18.6 (Paperwhite 6) | 78 (79 is metadata only) |
+  | 5.19.1 (Scribe 3) | 81: `p_purchaseDate` (80), **`p_lastOpenTime` (81)** |
+  | 5.19.2 (Paperwhite 6) | 82: `p_conversionStatus` |
+  | 5.20.1 (Paperwhite 6) | 86: `p_embeddedCdeKey` |
+
+  In the emulator's release lists, 5.19.1 exists only for the Scribe 3
+  and Scribe Colorsoft. The Paperwhite 5 and 6, Basic 2024, Colorsoft and
+  Scribe 2 went from 5.18.6 to 5.19.2, so for them 5.19.2 is the first
+  firmware with the column. 5.18.6 has the name only in a binary's
+  string table, not in its schema. Compat runs agree: 5.17.1.0.2
+  (Paperwhite 6) and 5.16.2.1.1 (Basic 2016) lack it; 5.19.2 and 5.20.1
+  have it. Read sync's query names the column, so it fails on older
+  firmware (not yet handled).
 - **No end-of-book screen** appeared for this sideloaded book (no "Before
   you go", no Goodreads rating prompt). The read state changed silently.
   The developer then checked by hand, reaching the end each time with the
