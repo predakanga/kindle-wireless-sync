@@ -17,6 +17,7 @@
     var STEP_MS = 500;      // after each step, for the app to redraw
     var SETTLE_MS = 800;    // after the app's first draw
     var KEYBOARD_MS = 2500; // after focusing a field, for the keyboard to open
+    var PATIENCE_MS = 5000; // how long a slow device may take to show what a step needs
 
     var RealXHR = window.XMLHttpRequest;
 
@@ -339,10 +340,19 @@
         return m;
     }
 
-    function runSteps(steps, i) {
+    // Steps and the final check wait up to PATIENCE_MS for what they need:
+    // the fake service answers asynchronously and a slow device redraws late.
+    function runSteps(steps, i, since) {
+        since = since || new Date().getTime();
+        var waited = new Date().getTime() - since;
         if (i >= steps.length) {
             var text = document.body.textContent || "";
-            var result = { metrics: measure(), reached: text.indexOf(scenario.expect) >= 0,
+            var reached = text.indexOf(scenario.expect) >= 0;
+            if (!reached && waited < PATIENCE_MS) {
+                setTimeout(function () { runSteps(steps, i, since); }, STEP_MS);
+                return;
+            }
+            var result = { metrics: measure(), reached: reached,
                            keyboard: !!scenario.keyboard, dialog: !!scenario.dialog };
             if (!result.reached) result.error = "page doesn't show \"" + scenario.expect + "\"";
             finish(result);
@@ -364,6 +374,10 @@
         } else if (step[0] === "status") {
             S.status = merge(S.status, step[1]);
             if (poll) poll();
+        }
+        if (problem && waited < PATIENCE_MS) {
+            setTimeout(function () { runSteps(steps, i, since); }, STEP_MS);
+            return;
         }
         if (problem) { finish({ error: "step " + (i + 1) + ": " + problem }); return; }
         setTimeout(function () { runSteps(steps, i + 1); }, wait);
