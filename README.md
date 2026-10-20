@@ -62,15 +62,28 @@ With Wi-Fi on, in kterm or over SSH on the Kindle, add the repository once,
 then install:
 
 ```sh
-kpm add-repo https://predakanga.github.io/kindle-wireless-sync/repo.json
+kpm add-repo https://predakanga.github.io/kindle-apps/repo.json
 kpm update
 kpm install kindle-wireless-sync
 ```
+
+The repository holds all of [predakanga's Kindle
+apps](https://predakanga.github.io/kindle-apps/).
 
 To upgrade, run `kpm update` and `kpm install kindle-wireless-sync` again.
 Your settings are kept. Install from the repository rather than from a
 downloaded `.kpkg` file, because KPM can't upgrade a package that was
 installed from a file.
+
+If you installed from the old repository
+(`https://predakanga.github.io/kindle-wireless-sync/repo.json`), it no
+longer gets new versions. Move to the new one, keeping your settings:
+
+```sh
+kpm remove-repo kindle-wireless-sync
+kpm add-repo https://predakanga.github.io/kindle-apps/repo.json
+kpm install kindle-wireless-sync
+```
 
 To uninstall, run `kpm uninstall kindle-wireless-sync`. Books you received
 stay in your library. The series this app created are removed.

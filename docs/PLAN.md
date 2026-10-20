@@ -101,7 +101,8 @@ without a reboot.
 ### Phase 4: UI and packaging ✅
 
 The on-device app, the KPM package, and releases through GitHub and a KPM
-index on GitHub Pages (ADR 0014).
+index on GitHub Pages (ADR 0014), now the shared kindle-apps index (ADR
+0024).
 
 **Exit criteria:** a fresh install from KPM, through linking a library, to a
 first sync works end to end with only stock Calibre.

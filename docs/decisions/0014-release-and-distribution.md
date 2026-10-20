@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended by [0024](0024-shared-kindle-apps-index.md) (the index moves to
+  the shared kindle-apps repository)
 
 ## Context
 KPM 0.2.2 can't install a local `.kpkg` over an installed package (ADR 0012,

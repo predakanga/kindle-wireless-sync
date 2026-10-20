@@ -1,16 +1,14 @@
 # Release (ADR 0014): on a vX.Y.Z tag, check, test and package, publish a
-# GitHub Release with the .kpkg, then rebuild the KPM index on GitHub Pages.
-# Run it by hand (workflow_dispatch) to rebuild only the Pages site.
+# GitHub Release with the .kpkg, then ask predakanga/kindle-apps to rebuild
+# the shared KPM index (ADR 0024).
 #
 # Modelled on Kindle Button Mapper's .github/workflows/build-arm.yml
-# (armv7-musl build, manifest-at-root check, release asset), but the KPM
-# index is generated here from the Releases API instead of being committed.
+# (armv7-musl build, manifest-at-root check, release asset).
 name: Release
 
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -76,42 +74,17 @@ jobs:
           gh release create "$GITHUB_REF_NAME" target/package/kindle-wireless-sync.kpkg \
             --verify-tag --notes-file notes.md --title "$GITHUB_REF_NAME"
 
-  pages:
-    needs: release
-    if: ${{ !cancelled() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/configure-pages@v6
-        id: pages
-
-      - name: Build the site
+      # A fine-grained token for kindle-apps only, with Actions read and
+      # write: it can start the publish workflow but not change any files.
+      # Without it the release still stands; the index can be rebuilt by
+      # hand from kindle-apps' Actions tab.
+      - name: Update the kindle-apps index
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+          GH_TOKEN: ${{ secrets.KINDLE_APPS_TOKEN }}
         run: |
-          mkdir -p site
-          gh api --paginate "repos/$REPO/releases" --jq '.[]' | jq -s . > releases.json
-          tools/kpm-index.sh releases.json "$REPO" > site/repo.json
-          latest=$(jq -r '.packages[].artifacts[0].version // [] | map(tostring) | join(".")' site/repo.json)
-          sed -e "s|@INDEX_URL@|$PAGES_URL/repo.json|g" \
-              -e "s|@REPO_URL@|https://github.com/$REPO|g" \
-              -e "s|@VERSION@|${latest:-none yet}|g" \
-              package/pages/index.html > site/index.html
-          cat site/repo.json
-
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: site
-
-      - uses: actions/deploy-pages@v5
-        id: deploy
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::KINDLE_APPS_TOKEN isn't set: run kindle-apps' Publish the index workflow by hand"
+            exit 0
+          fi
+          gh workflow run publish.yml -R predakanga/kindle-apps \
+            -f repo="$GITHUB_REPOSITORY" -f tag="$GITHUB_REF_NAME"

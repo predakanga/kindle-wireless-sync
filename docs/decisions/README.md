@@ -51,3 +51,4 @@ What this commits us to, and any follow-up work or risks.
 - [0021: Telling Calibre quitting from an eject](0021-calibre-quitting-versus-ejecting.md)
 - [0022: Leaving a session at a keep-alive, without replying](0022-leaving-at-a-keep-alive.md)
 - [0023: Choosing the folder received books go into](0023-choosing-the-books-folder.md)
+- [0024: Publish through the shared kindle-apps KPM index](0024-shared-kindle-apps-index.md)

@@ -65,9 +65,11 @@ isn't newer, or an empty `Unreleased`. Show the developer the commit, then
 (after asking) `just publish-release -y` tags `vX.Y.Z` and pushes `main` and
 the tag atomically. The workflow fails if the changelog has no section for
 the version, and uses that section as the release notes. `.github/workflows/release.yml` checks, tests and
-packages the release, publishes it on GitHub, and rebuilds the KPM index on
-GitHub Pages (`https://predakanga.github.io/kindle-wireless-sync/repo.json`).
-Run the workflow by hand to rebuild only the Pages site.
+packages the release, publishes it on GitHub, and starts
+`predakanga/kindle-apps`' *Publish the index* workflow, which rebuilds the
+shared KPM index (`https://predakanga.github.io/kindle-apps/repo.json`, ADR
+0024) from every app's releases. That needs the `KINDLE_APPS_TOKEN` secret;
+without it, run that workflow by hand.
 
 **CI:** `.github/workflows/ci.yml` runs `just check`, `cargo test` and `just
 package` (with the 5 MB size check) on pushes to `main` and on pull
