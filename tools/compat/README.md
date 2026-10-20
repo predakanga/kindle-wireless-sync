@@ -69,6 +69,57 @@ no required check failed or errored. The only writes are TXT test files in
 ChangeRequest (both removed again), and the fit check's test app in
 `appreg.db`; the snapshot boot discards them anyway.
 
+## Choosing what to run
+
+The package targets kindlehf devices only, so firmware 5.16.3 and later
+(5.16.2.1.1 and older are soft-float). Two working assumptions narrow the
+runs: what the firmware offers (tools, catalog columns, APIs) depends on
+the version, not the model; and whether pages fit depends on the model, not
+the version. Neither is exact (page fit may vary a little between
+versions), but they find problems quickly.
+
+- **One run per version, every model at least once:** `fingerprint.py
+  --plan` prints the fewest runs that cover every kindlehf version
+  eink-emulator can download and every model with one. With 40 versions and
+  12 models (2026-10-20), that's 40 runs: the versions set the floor.
+- **One run per fingerprint group:** `just compat-fingerprint` reads each
+  version's root filesystem without booting it (`fingerprint.py`, with
+  e2fsprogs' `debugfs`) and records what the checks depend on: hard-float,
+  the commands, the catalog columns, the ChangeRequest field map in ccat's
+  `change.lua`, the app registry tables in `libappreg`, the upstart jobs and
+  the WebKit build. Versions with the same `features` should give the same
+  results, so one run per group covers them, plus one per model for page
+  fit. Firmware not yet imported is downloaded, read and deleted again.
+  Results go to `fingerprints.jsonl` (gitignored); `info` and `files` record
+  what differs without changing the group (the `sqlite3` build, schema
+  versions, file hashes).
+- What a fingerprint can't see: the running system (indexing, the catalog
+  endpoint, Wi-Fi events). Those are assumed to follow the files.
+
+**Result (2026-10-20): two groups.** Every kindlehf version but 5.19.3
+(Amazon's download now answers 403 for every model) was fingerprinted:
+
+| Group | Versions | Differs by |
+|---|---|---|
+| 1 | 5.16.3 to 5.18.6 (29) | no `Entries.p_lastOpenTime` (read sync, ADR 0026) |
+| 2 | 5.19.1 to 5.20.1 (10) | everything present |
+
+Within each group the files still differ between releases (ccat's Lua,
+`libappreg`, upstart jobs, WebKit builds, and the `sqlite3` CLI: 3.26.0 up
+to 5.18.1.5, 3.47.0 from 5.18.1.1.1), so a group is a working assumption,
+not proof. **The runs that cover both groups and every model: 12**, each
+model on its newest firmware, which is what most of its users run:
+
+| Model | Firmware | Group |
+|---|---|---|
+| KT4, Paperwhite 4 | 5.18.1.1.1 | 1 |
+| Oasis 3 | 5.18.2.1.1 | 1 |
+| Paperwhite 5 | 5.19.2 | 2 |
+| Basic 2022 | 5.19.2.0.1 | 2 |
+| Paperwhite 6 (done), Basic 2024, Colorsoft, Scribe 1, 2 and 3, Scribe Colorsoft | 5.20.1 | 2 |
+
+The Paperwhite 6 also has runs on 5.17.1.0.2 (group 1) and 5.19.2.
+
 ## The page-fit check
 
 `fitcheck/harness.js` runs the `package/ui` files in a test WAF app

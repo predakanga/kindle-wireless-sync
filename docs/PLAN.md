@@ -152,6 +152,10 @@ Details: [progress log](progress-log.md#phase-5).
   sqlite3 3.26 (no `-json`). [Details](progress-log.md#phase-6).
   Firmware whose `sqlite3` has no `-json` is common, so the binary now
   has its own SQLite (ADR 0025, 2026-10-20).
+- **What to run** (2026-10-20): static fingerprints of every kindlehf
+  firmware (`just compat-fingerprint`) fall into two groups, before and
+  from 5.19.1, so 12 runs (one per model, newest firmware) cover them.
+  [Compat README](../tools/compat/README.md#choosing-what-to-run).
 - Specific checks found so far:
   - **Books in subfolders of `documents` are indexed** like books in
     `documents` itself. The books folder (ADR 0023) depends on it, and it's

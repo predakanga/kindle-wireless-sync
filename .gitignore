@@ -15,3 +15,4 @@ __pycache__/
 
 # Results from tools/compat (just compat)
 /compat.jsonl
+/fingerprints.jsonl

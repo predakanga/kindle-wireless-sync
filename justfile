@@ -180,3 +180,8 @@ device-discover: deploy
 [positional-arguments]
 compat model version *args:
     python3 tools/compat/compat.py "$@" >> compat.jsonl
+
+# Fingerprint every kindlehf firmware without booting it (appends to fingerprints.jsonl), then group them
+compat-fingerprint:
+    python3 tools/compat/fingerprint.py --all --skip-done fingerprints.jsonl >> fingerprints.jsonl
+    python3 tools/compat/fingerprint.py --group fingerprints.jsonl
