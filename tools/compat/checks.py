@@ -32,11 +32,17 @@ COMMANDS = ["sh", "sqlite3", "lipc-get-prop", "lipc-set-prop", "lipc-wait-event"
 # Only the dev workflow and this harness use these.
 DEV_COMMANDS = ["curl", "lipc-hash-prop", "/usr/sbin/screenshot", "tar", "timeout"]
 
-# Catalog columns read by src/ (series.rs, kindle.rs, readsync.rs).
+# Catalog columns read by src/ (series.rs, kindle.rs, readsync.rs), then
+# those only set by series.rs's ChangeRequest commands (through ccat's
+# change.lua field map: research note, "Catalog support for series across
+# firmware").
 ENTRIES_COLUMNS = ["p_uuid", "p_location", "p_cdeKey", "p_cdeType", "p_type", "p_thumbnail", "p_seriesState",
                    "p_originType", "p_titles_0_nominal", "p_memberCount", "p_homeMemberCount", "p_isProcessed",
-                   "p_virtualCollectionCount", "j_members", "p_readState", "p_lastOpenTime"]
-SERIES_COLUMNS = ["d_seriesId", "d_itemCdeKey", "d_itemPosition", "d_itemPositionLabel"]
+                   "p_virtualCollectionCount", "j_members", "p_readState", "p_lastOpenTime",
+                   "p_cdeGroup", "j_titles", "j_credits", "j_displayObjects", "p_mimeType", "p_isArchived",
+                   "p_isVisibleInHome", "p_isLatestItem"]
+SERIES_COLUMNS = ["d_seriesId", "d_itemCdeKey", "d_itemPosition", "d_itemPositionLabel",
+                  "d_itemType", "d_seriesOrderType"]
 # Written by package/register-app.sh.
 APPREG_COLUMNS = {"interfaces": ["interface"], "handlerIds": ["handlerId"],
                   "associations": ["handlerId", "interface", "contentId", "defaultAssoc"],
@@ -242,7 +248,7 @@ def paths(ctx):
     return PASS, "all present and writable", data
 
 
-@check("catalog_schema", "The catalog (cc.db) has the tables and columns the binary reads")
+@check("catalog_schema", "The catalog (cc.db) has the tables and columns the binary reads and writes")
 def catalog_schema(ctx):
     g = ctx.guest
     if not g.ok(f"[ -f {CC} ]"):
@@ -254,7 +260,7 @@ def catalog_schema(ctx):
         missing += [f"{table}.{c}" for c in cols if c not in have]
     if missing:
         return FAIL, f"missing: {', '.join(missing)}", data
-    return PASS, f"Entries and Series have all {len(ENTRIES_COLUMNS) + len(SERIES_COLUMNS)} columns used", data
+    return PASS, f"Entries and Series have all {len(ENTRIES_COLUMNS) + len(SERIES_COLUMNS)} columns read or written", data
 
 
 @check("appreg_schema", "The app registry (appreg.db) has the tables register-app.sh writes")

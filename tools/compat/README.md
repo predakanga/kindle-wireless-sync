@@ -49,7 +49,7 @@ boot failed, 130 if interrupted.
 | `sqlite3` | yes | `-readonly`, for the package scripts (the binary has its own SQLite, ADR 0025); records whether `-json` exists |
 | `lipc` | yes | `wifid cmState`, `appmgrd activeApp`; the device name and `powerd` are optional |
 | `paths` | yes | `documents/`, `system/thumbnails`, `/var/local`, `/var/log`, `/etc/upstart` |
-| `catalog_schema` | yes | every `Entries` and `Series` column `src/` reads |
+| `catalog_schema` | yes | every `Entries` and `Series` column `src/` reads, and those the series commands set |
 | `appreg_schema` | yes | the tables `register-app.sh` writes |
 | `upstart` | yes | `framework_ready` and the `filesystems` job |
 | `catalog_endpoint` | yes | ChangeRequest on `127.0.0.1:9101` with the session token |

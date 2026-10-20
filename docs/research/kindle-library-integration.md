@@ -686,5 +686,5 @@ A is byte-identical from 5.13.6 to 5.18.6 (`Entries` 79, `Series` 5).
 - **Grouping in the Library:** `series.grouping.supported`, the setting
   Kindle Series Enabler overrides, is in every one of these images. The
   series view itself has only been seen on 5.20.1.
-- The compat check `catalog_schema` lists only the columns `src/` reads,
-  not the ones our commands set.
+- The compat check `catalog_schema` now covers the columns our commands
+  set as well as those `src/` reads.
