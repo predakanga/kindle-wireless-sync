@@ -389,9 +389,10 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
   first opened, and set on open and on close. `p_lastAccess` is also set
   when the file is indexed, so it isn't a reading signal.
 - **`p_lastOpenTime` arrived in 5.19.1** (2026-10-20). The catalog's
-  schema migrations are plain SQL in the root filesystem
+  schema migrations are plain SQL in `/usr/share/cc/cc.sqls`
   (`--## Update: Entries:N:M` blocks), so each firmware's latest
-  `Entries` version can be read from its `rootfs.img` without booting it:
+  `Entries` version can be read from its `rootfs.img` without booting it
+  (method: "Catalog support across firmware", below):
 
   | Firmware | Last `Entries` migration |
   |---|---|
@@ -637,3 +638,53 @@ ChangeRequest made the badge show "0", so **the Library parses the label as
 a whole number for the badge**, and no label can show a fraction there. The
 label was then set back to "3.5". A series pass runs only when something
 schedules one, so it didn't notice the test label.
+
+## Catalog support for series across firmware (2026-10-20)
+Which kindlehf firmware (5.16.3 and later; 5.16.2.1.1 and older are
+soft-float) has what the series pass (ADR 0016) needs. Checked without
+booting, from the root filesystems of the emulator's firmware (eink-emulator
+`firmware/versions/`), with Homebrew's e2fsprogs `debugfs`:
+`debugfs -R "dump /usr/share/cc/cc.sqls OUT" rootfs.img` and `rdump
+/usr/lib/ccat`. Don't search `rootfs.img` directly: the files are split
+across blocks, and a raw scan reads into unrelated data (it showed
+`j_members` missing on 5.13.6 to 5.18.6, which was wrong).
+
+| Firmware (models) | `cc.sqls` | `ccat/change.lua` |
+|---|---|---|
+| 5.16.3 (Basic 2022, Paperwhite 5) | A | 5.16.3 |
+| 5.17.1.0.2 (Basic 2024, Paperwhite 6) | A | 5.17.1.0.2 |
+| 5.17.3 (Scribe 2), 5.18.1 (Colorsoft) | A | 5.17.3 |
+| 5.18.1.1.1 (Paperwhite 4) | A | 5.18.1.1.1 |
+| 5.18.6 (Paperwhite 6) | A | 5.18.6 |
+| 5.19.2 (Paperwhite 6) | B: A + `Entries` 80 to 82 | 5.19.2 |
+| 5.20.1 (Paperwhite 6, Basic 2024, Colorsoft, Scribe 1 and 2) | C: B + audit log | 5.20.1 |
+
+A is byte-identical from 5.13.6 to 5.18.6 (`Entries` 79, `Series` 5).
+
+- **Every column the series pass reads or writes is there on all of
+  them.** `Entries`: `p_uuid`, `p_location`, `p_cdeKey`, `p_cdeType`,
+  `p_type`, `p_thumbnail`, `p_seriesState`, `p_originType`,
+  `p_titles_0_nominal`, `p_memberCount`, `p_homeMemberCount`,
+  `p_isProcessed`, `p_virtualCollectionCount`, `j_members` (read), and
+  `p_cdeGroup`, `j_titles`, `j_credits`, `j_displayObjects`, `p_mimeType`,
+  `p_isArchived`, `p_isVisibleInHome`, `p_isLatestItem` (set by our
+  commands). `Series`: all six columns, including `d_itemType` and
+  `d_seriesOrderType` (`Series` 5; 5.12.2.2 had version 3, without
+  `d_seriesOrderType`).
+- **The ChangeRequest handler takes every command we send** on all of
+  them. `change.lua`'s `column_specs` maps every field our commands use
+  (64 fields on 5.16.3 to 5.18.6, 68 on 5.20.1), and it has
+  `insertOr_series` (`INSERT OR REPLACE` and `INSERT OR IGNORE INTO
+  Series`) and `delete_series`. It keeps `p_memberCount` and
+  `p_homeMemberCount` itself; `cc.sqls` has no triggers for them. The
+  handler changed in almost every release, so behaviour can still differ.
+- **The endpoint** (`127.0.0.1:9101/change`) is served by the Java
+  framework, so it can't be checked statically. The 5.17.1.0.2 compat run
+  (Paperwhite 6, 2026-10-19) passed `catalog_endpoint` (401 without the
+  token) and `series`, which sends the same command shapes as
+  `src/series.rs`: it made a two-book series and dissolved it.
+- **Grouping in the Library:** `series.grouping.supported`, the setting
+  Kindle Series Enabler overrides, is in every one of these images. The
+  series view itself has only been seen on 5.20.1.
+- The compat check `catalog_schema` lists only the columns `src/` reads,
+  not the ones our commands set.
