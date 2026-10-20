@@ -1,6 +1,6 @@
 # 0025: Read the catalog with an embedded SQLite
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-10-20)
 - Date: 2026-10-20
 - Amends: [0006](0006-crate-structure-and-io-model.md) (a new dependency)
   and [0017](0017-read-status-sync.md) (how `cc.db` is read)

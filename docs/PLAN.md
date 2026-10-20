@@ -150,6 +150,8 @@ Details: [progress log](progress-log.md#phase-5).
   new folders being added; `install.sh` now waits for the scriptlet to be
   indexed. A Basic 2016 on 5.16.2.1.1 fails, as a soft-float device with
   sqlite3 3.26 (no `-json`). [Details](progress-log.md#phase-6).
+  Firmware whose `sqlite3` has no `-json` is common, so the binary now
+  has its own SQLite (ADR 0025, 2026-10-20).
 - Specific checks found so far:
   - **Books in subfolders of `documents` are indexed** like books in
     `documents` itself. The books folder (ADR 0023) depends on it, and it's

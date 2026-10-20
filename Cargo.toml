@@ -26,6 +26,8 @@ env_logger = { version = "0.11", default-features = false, features = ["humantim
 sha1_smol = "1"
 lexopt = "0.3"
 libc = "0.2"
+# SQLite compiled in, so the device's sqlite3 doesn't matter (ADR 0025).
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

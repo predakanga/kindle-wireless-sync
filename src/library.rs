@@ -1283,12 +1283,7 @@ mod tests {
             p_thumbnail, p_seriesState, p_originType, p_titles_0_nominal, p_memberCount, \
             p_homeMemberCount, p_isProcessed, p_virtualCollectionCount, j_members); \
             CREATE TABLE Series (d_seriesId, d_itemCdeKey, d_itemPosition, d_itemPositionLabel);";
-        let ok = std::process::Command::new("sqlite3")
-            .arg(&db)
-            .arg(format!("{schema} {rows}"))
-            .status()
-            .unwrap();
-        assert!(ok.success());
+        sql(&db, &format!("{schema} {rows}"));
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = listener.local_addr().unwrap().to_string();
         let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1333,18 +1328,23 @@ mod tests {
         }
     }
 
+    /// Runs `batch` on a test database, as the scanner would write it.
+    fn sql(db: &Path, batch: &str) {
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .execute_batch(batch)
+            .unwrap();
+    }
+
     /// Adds a catalog entry for a book, as the scanner does once indexed.
     fn index(db: &Path, location: &Path, key: &str) {
-        let sql = format!(
-            "INSERT INTO Entries VALUES ('u-{key}','Entry:Item','{}','{key}','EBOK','/t/{key}.jpg',1,NULL,'{key}',0,0,0,0,NULL);",
-            location.display()
+        sql(
+            db,
+            &format!(
+                "INSERT INTO Entries VALUES ('u-{key}','Entry:Item','{}','{key}','EBOK','/t/{key}.jpg',1,NULL,'{key}',0,0,0,0,NULL);",
+                location.display()
+            ),
         );
-        assert!(std::process::Command::new("sqlite3")
-            .arg(db)
-            .arg(sql)
-            .status()
-            .unwrap()
-            .success());
     }
 
     #[test]
@@ -1507,12 +1507,7 @@ mod tests {
         })
         .unwrap();
         // ...and go once the entries are gone.
-        assert!(std::process::Command::new("sqlite3")
-            .arg(&db)
-            .arg("DELETE FROM Entries;")
-            .status()
-            .unwrap()
-            .success());
+        sql(&db, "DELETE FROM Entries;");
         lib.catalog_signal().store(true, Ordering::SeqCst);
         lib.reconcile_series_if_due();
         assert_eq!(fs::read_dir(&thumbs).unwrap().count(), 0);
@@ -1607,12 +1602,7 @@ mod tests {
              ('Entry:Item', '{b}/b.azw3', 0, NULL);",
             b = books.display()
         );
-        assert!(std::process::Command::new("sqlite3")
-            .arg(&db)
-            .arg(rows)
-            .status()
-            .unwrap()
-            .success());
+        sql(&db, &rows);
         let named = Columns {
             read: Some("#kindle_read".into()),
             last_read: None,
@@ -1695,7 +1685,6 @@ mod tests {
 
     #[test]
     fn removing_all_series_waits_out_a_locked_catalog() {
-        use std::io::BufRead;
         let tmp = tempfile::tempdir().unwrap();
         let books = tmp.path().join("books");
         fs::create_dir_all(&books).unwrap();
@@ -1706,24 +1695,11 @@ mod tests {
              NULL,NULL,'Saga',0,0,1,0,'[]');",
         );
         // The scanner holds cc.db while it indexes: hold it for 1.5 s.
-        let mut holder = std::process::Command::new("sqlite3")
-            .arg(&fake.catalog.db)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdin = holder.stdin.take().unwrap();
-        writeln!(stdin, "BEGIN EXCLUSIVE; SELECT 'locked';").unwrap();
-        let mut line = String::new();
-        std::io::BufReader::new(holder.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
-        assert_eq!(line.trim(), "locked");
+        let holder = rusqlite::Connection::open(&fake.catalog.db).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE;").unwrap();
         let release = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(1500));
-            writeln!(stdin, "COMMIT;").unwrap();
-            drop(stdin);
-            holder.wait().unwrap();
+            holder.execute_batch("COMMIT;").unwrap();
         });
 
         let n = remove_all_series(&fake.catalog, &books.canonicalize().unwrap()).unwrap();

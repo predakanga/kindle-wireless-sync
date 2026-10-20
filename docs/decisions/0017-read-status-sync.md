@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-16
+- Amended by [0025](0025-embedded-sqlite.md) (2026-10-20): `cc.db` is
+  read with an embedded SQLite, not the device's `sqlite3`.
 - Amended by [0018](0018-one-linked-library.md) (2026-10-17): the settings
   belong to the linked library, `link --writable` replaces `allow
   --writable`, and linking a different library resets them.
@@ -120,7 +122,7 @@ refresh the record on every connection.
 - So the two sides can differ: a book marked read in Calibre stays unread
   on the Kindle until it's marked there. That's accepted for now.
 
-The values are read from `cc.db` with read-only `sqlite3` queries (ADR
+The values are read from `cc.db` with read-only queries (ADR 0025; ADR
 0005), at the start of each session, when we build the book list.
 
 ## Alternatives considered

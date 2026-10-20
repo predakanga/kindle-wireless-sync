@@ -189,14 +189,16 @@ def commands(ctx):
     return PASS, f"all {len(COMMANDS)} present (and the dev tools)", data
 
 
-@check("sqlite3", "sqlite3 supports -readonly and -json (src/catalog.rs)")
+@check("sqlite3", "sqlite3 supports -readonly (package scripts; the binary has its own SQLite, ADR 0025)")
 def sqlite3(ctx):
-    rc, out, err = ctx.guest.run("sqlite3 -readonly -json :memory: 'SELECT 1 AS a'")
+    rc, out, err = ctx.guest.run("sqlite3 -readonly :memory: 'SELECT 1'")
     version = ctx.guest.run("sqlite3 --version")[1].strip()
-    data = {"version": version, "json_output": out.strip()}
-    if rc != 0 or json.loads(out or "null") != [{"a": 1}]:
-        return FAIL, f"sqlite3 {version.split(' ')[0]}: -json/-readonly failed: {err.strip() or out.strip()}", data
-    return PASS, f"sqlite3 {version.split(' ')[0]}", data
+    # Only recorded: the binary no longer needs -json (ADR 0025).
+    json_rc = ctx.guest.run("sqlite3 -json :memory: 'SELECT 1 AS a'")[0]
+    data = {"version": version, "json": json_rc == 0}
+    if rc != 0 or out.strip() != "1":
+        return FAIL, f"sqlite3 {version.split(' ')[0]}: -readonly failed: {err.strip() or out.strip()}", data
+    return PASS, f"sqlite3 {version.split(' ')[0]}" + ("" if json_rc == 0 else " (no -json; not needed)"), data
 
 
 @check("lipc", "lipc properties the binary and scripts read")

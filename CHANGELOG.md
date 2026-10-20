@@ -14,6 +14,10 @@ one.
   repository has been removed.
 
 ### Fixed
+- Series and read status work on firmware whose `sqlite3` can't print
+  JSON (SQLite before 3.33). Wireless Sync now has its own SQLite for
+  reading the Kindle's library, so it no longer depends on the firmware's
+  `sqlite3`.
 - On some firmware (seen on 5.19.2), installing Wireless Sync could stop
   the Kindle adding books in new folders until it was restarted. The
   installer now waits until the library lists the Wireless Sync tile before

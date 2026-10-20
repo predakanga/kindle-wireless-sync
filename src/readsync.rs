@@ -101,11 +101,11 @@ pub fn kindle_states(
     catalog: &Catalog,
     books_dir: &Path,
 ) -> io::Result<HashMap<String, KindleState>> {
-    let dir = books_dir.to_string_lossy().replace('\'', "''");
-    let rows = catalog.query(&format!(
+    let rows = catalog.query(
         "SELECT p_location, p_readState, p_lastOpenTime FROM Entries \
-         WHERE p_type = 'Entry:Item' AND p_location LIKE '{dir}/%'"
-    ))?;
+         WHERE p_type = 'Entry:Item' AND p_location LIKE ?1",
+        &[&format!("{}/%", books_dir.to_string_lossy())],
+    )?;
     Ok(rows
         .into_iter()
         .filter_map(|r| {

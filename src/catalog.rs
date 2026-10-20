@@ -3,17 +3,18 @@
 //!
 //! Writes go through the catalog's own ChangeRequest endpoint (`POST
 //! 127.0.0.1:9101/change`, authorised by `/tmp/session_token`), whose
-//! triggers keep `cc.db` and the library's asset store in step. Reads use
-//! `sqlite3 -readonly` on `cc.db`. We never write either database (ADR
-//! 0005). See `docs/research/kindle-library-integration.md`.
+//! triggers keep `cc.db` and the library's asset store in step. Reads open
+//! `cc.db` read-only with our own SQLite (ADR 0025). We never write either
+//! database (ADR 0005). See `docs/research/kindle-library-integration.md`.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rusqlite::types::ValueRef;
+use rusqlite::{Connection, OpenFlags, ToSql};
 use serde_json::{json, Value};
 
 pub const ENDPOINT: &str = "127.0.0.1:9101";
@@ -84,33 +85,56 @@ impl Catalog {
         }
     }
 
-    /// Runs a read-only query and returns its rows (`sqlite3 -json`).
-    /// Fails if the catalog is busy (`database is locked`); callers retry.
-    pub fn query(&self, sql: &str) -> io::Result<Vec<HashMap<String, Value>>> {
-        let out = Command::new("sqlite3")
-            .arg("-readonly")
-            .arg("-json")
-            .arg(&self.db)
-            .arg(sql)
-            .output()?;
-        if !out.status.success() {
-            return Err(io::Error::other(format!(
-                "sqlite3: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
-        }
-        parse_rows(&out.stdout)
+    /// [`query`] on the catalog.
+    pub fn query(
+        &self,
+        sql: &str,
+        params: &[&dyn ToSql],
+    ) -> io::Result<Vec<HashMap<String, Value>>> {
+        query(&self.db, sql, params)
     }
 }
 
-/// `sqlite3 -json` prints nothing at all for an empty result.
-pub fn parse_rows(stdout: &[u8]) -> io::Result<Vec<HashMap<String, Value>>> {
-    if stdout.iter().all(u8::is_ascii_whitespace) {
-        return Ok(Vec::new());
+/// Runs a read-only query on `db` and returns its rows, each a map of
+/// column name to value. Fails at once if the database is busy (`database
+/// is locked`), with no busy timeout; callers retry (ADR 0025).
+pub fn query(
+    db: &Path,
+    sql: &str,
+    params: &[&dyn ToSql],
+) -> io::Result<Vec<HashMap<String, Value>>> {
+    let run = || -> rusqlite::Result<Vec<HashMap<String, Value>>> {
+        let conn = Connection::open_with_flags(
+            db,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(Duration::ZERO)?;
+        let mut statement = conn.prepare(sql)?;
+        let names: Vec<String> = statement
+            .column_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let rows = statement.query_map(params, |row| {
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| Ok((name.clone(), json_value(row.get_ref(i)?))))
+                .collect()
+        })?;
+        rows.collect()
+    };
+    run().map_err(|e| io::Error::other(format!("{}: {e}", db.display())))
+}
+
+/// A column value as JSON, as `sqlite3 -json` gave it.
+fn json_value(v: ValueRef) -> Value {
+    match v {
+        ValueRef::Null => Value::Null,
+        ValueRef::Integer(i) => i.into(),
+        ValueRef::Real(f) => json!(f),
+        ValueRef::Text(t) | ValueRef::Blob(t) => String::from_utf8_lossy(t).into(),
     }
-    let rows: Vec<HashMap<String, Value>> =
-        serde_json::from_slice(stdout).map_err(io::Error::other)?;
-    Ok(rows)
 }
 
 /// A minimal HTTP/1.1 POST of a JSON body; returns the JSON reply.
@@ -278,12 +302,48 @@ mod tests {
     }
 
     #[test]
-    fn parses_sqlite_json_output() {
-        assert!(parse_rows(b"").unwrap().is_empty());
-        assert!(parse_rows(b"\n").unwrap().is_empty());
-        let rows = parse_rows(br#"[{"a":"x|y","b":2,"c":null}]"#).unwrap();
+    fn queries_return_rows_as_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("cc.db");
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE t (a, b, c, d); \
+                 INSERT INTO t VALUES ('x|y', 2, NULL, 1.5), ('it''s', 3, 'z', 0);",
+            )
+            .unwrap();
+        let rows = query(&db, "SELECT * FROM t WHERE a = ?1", &[&"x|y"]).unwrap();
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["a"], "x|y");
         assert_eq!(rows[0]["b"], 2);
         assert_eq!(rows[0]["c"], Value::Null);
+        assert_eq!(rows[0]["d"], 1.5);
+        assert_eq!(
+            query(&db, "SELECT a FROM t WHERE a = ?1", &[&"it's"])
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(query(&db, "SELECT * FROM t WHERE b > 9", &[])
+            .unwrap()
+            .is_empty());
+        // Read-only: writes fail, and nothing changes.
+        assert!(query(&db, "DELETE FROM t", &[]).is_err());
+        assert_eq!(query(&db, "SELECT * FROM t", &[]).unwrap().len(), 2);
+        assert!(query(&tmp.path().join("missing.db"), "SELECT 1", &[]).is_err());
+    }
+
+    #[test]
+    fn a_busy_database_fails_at_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("cc.db");
+        let holder = Connection::open(&db).unwrap();
+        holder
+            .execute_batch("CREATE TABLE t (a); BEGIN EXCLUSIVE; INSERT INTO t VALUES (1);")
+            .unwrap();
+        let start = std::time::Instant::now();
+        let err = query(&db, "SELECT * FROM t", &[]).unwrap_err();
+        assert!(err.to_string().contains("database is locked"), "{err}");
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 }

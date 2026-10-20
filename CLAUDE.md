@@ -73,7 +73,8 @@ without it, run that workflow by hand.
 
 **CI:** `.github/workflows/ci.yml` runs `just check`, `cargo test` and `just
 package` (with the 5 MB size check) on pushes to `main` and on pull
-requests. The tests need the `sqlite3` CLI.
+requests. The Kindle builds use `cargo zigbuild` (Zig compiles the bundled
+SQLite, ADR 0025), so the Mac needs `zig` and `cargo-zigbuild`.
 
 **Calibre harness:** `tools/calibre-harness/README.md`. It needs the
 developer's own Calibre closed, so ask them to quit it. When you use `just calibre exec`, add the
@@ -115,7 +116,8 @@ track individual bytes.
 - `discovery`: UDP broadcast to Calibre's fixed ports.
 - `catalog` and `series`: Calibre series as native series (ADR 0016).
   `catalog` sends ChangeRequest commands (`127.0.0.1:9101`, token from
-  `/tmp/session_token`) and reads `cc.db` read-only. `series` plans the
+  `/tmp/session_token`) and reads `cc.db` read-only with the embedded
+  SQLite (`rusqlite`, ADR 0025). `series` plans the
   commands that differ. `Library` runs a pass 15 s after book changes, on
   Calibre's keep-alive NOOPs or in the daemon's idle waits.
 - `readsync`: read status and last-read date to Calibre (ADR 0017). The

@@ -16,13 +16,14 @@ default:
 build:
     cargo build --features dev-tools
 
-# Build the static Kindle binary for development (includes dev tools)
+# Build the static Kindle binary for development (includes dev tools).
+# Zig compiles the bundled SQLite (ADR 0025).
 build-kindle:
-    cargo build --release --target {{kindle_target}} --features dev-tools
+    cargo zigbuild --release --target {{kindle_target}} --features dev-tools
 
 # Build the static Kindle binary as packaged (no dev tools)
 build-kindle-package:
-    cargo build --release --target {{kindle_target}}
+    cargo zigbuild --release --target {{kindle_target}}
 
 # Run all tests
 test:

@@ -12,6 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::catalog;
+
 /// The scanner's identity for a book: `p_cdeKey` and `p_cdeType` in the
 /// catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,18 +191,14 @@ fn valid_key_part(s: &str) -> bool {
 /// Asks the catalog for the key the scanner gave the file at `location`.
 /// Read-only: we never write to the catalog (ADR 0005).
 pub fn lookup_indexed_key(catalog_db: &Path, location: &str) -> Option<BookKey> {
-    let sql = format!(
-        "select p_cdeKey || '|' || p_cdeType from Entries where p_location = '{}' limit 1",
-        location.replace('\'', "''")
-    );
-    let out = Command::new("sqlite3")
-        .arg("-readonly")
-        .arg(catalog_db)
-        .arg(sql)
-        .output()
-        .ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
-    let (k, t) = text.trim().split_once('|')?;
+    let rows = catalog::query(
+        catalog_db,
+        "select p_cdeKey, p_cdeType from Entries where p_location = ?1 limit 1",
+        &[&location],
+    )
+    .ok()?;
+    let row = rows.first()?;
+    let (k, t) = (row["p_cdeKey"].as_str()?, row["p_cdeType"].as_str()?);
     (valid_key_part(k) && valid_key_part(t)).then(|| BookKey {
         cde_key: k.into(),
         cde_type: t.into(),
@@ -239,17 +237,13 @@ pub fn watch_catalog(on_change: impl Fn() + Send + 'static) {
 /// The catalog's entry for the book at `location` (its `p_uuid`), if
 /// indexed. Read-only; `None` also when the catalog is busy.
 pub fn lookup_entry_uuid(catalog_db: &Path, location: &str) -> Option<String> {
-    let sql = format!(
-        "select p_uuid from Entries where p_location = '{}' limit 1",
-        location.replace('\'', "''")
-    );
-    let out = Command::new("sqlite3")
-        .arg("-readonly")
-        .arg(catalog_db)
-        .arg(sql)
-        .output()
-        .ok()?;
-    let uuid = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+    let rows = catalog::query(
+        catalog_db,
+        "select p_uuid from Entries where p_location = ?1 limit 1",
+        &[&location],
+    )
+    .ok()?;
+    let uuid = rows.first()?["p_uuid"].as_str()?.to_owned();
     (!uuid.is_empty() && uuid.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
         .then_some(uuid)
 }
@@ -257,21 +251,13 @@ pub fn lookup_entry_uuid(catalog_db: &Path, location: &str) -> Option<String> {
 /// Whether the catalog still has an entry at `location`. `None` when it
 /// can't be read (busy, say).
 pub fn entry_listed(catalog_db: &Path, location: &str) -> Option<bool> {
-    let sql = format!(
-        "select count(*) from Entries where p_location = '{}'",
-        location.replace('\'', "''")
-    );
-    let out = Command::new("sqlite3")
-        .arg("-readonly")
-        .arg(catalog_db)
-        .arg(sql)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let count: u64 = String::from_utf8(out.stdout).ok()?.trim().parse().ok()?;
-    Some(count > 0)
+    let rows = catalog::query(
+        catalog_db,
+        "select count(*) as n from Entries where p_location = ?1",
+        &[&location],
+    )
+    .ok()?;
+    Some(rows.first()?["n"].as_u64()? > 0)
 }
 
 /// Longest device name we report to Calibre, in characters.

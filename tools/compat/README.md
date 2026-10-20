@@ -46,7 +46,7 @@ boot failed, 130 if interrupted.
 | `arch_kindlehf` | yes | `/lib/ld-linux-armhf.so.3`, and which KPM build jb.sh installed |
 | `jailbreak` | yes | KPM is there |
 | `commands` | yes | every command the package scripts and binary run |
-| `sqlite3` | yes | `-readonly` and `-json` |
+| `sqlite3` | yes | `-readonly`, for the package scripts (the binary has its own SQLite, ADR 0025); records whether `-json` exists |
 | `lipc` | yes | `wifid cmState`, `appmgrd activeApp`; the device name and `powerd` are optional |
 | `paths` | yes | `documents/`, `system/thumbnails`, `/var/local`, `/var/log`, `/etc/upstart` |
 | `catalog_schema` | yes | every `Entries` and `Series` column `src/` reads |

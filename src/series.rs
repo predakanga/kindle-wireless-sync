@@ -178,11 +178,11 @@ fn text(v: &Value) -> String {
 /// Reads the snapshot. Read-only; fails if the catalog is busy.
 pub fn snapshot(catalog: &Catalog, books_dir: &Path) -> io::Result<Snapshot> {
     let mut snap = Snapshot::default();
-    let dir = books_dir.to_string_lossy().replace('\'', "''");
-    for r in catalog.query(&format!(
+    for r in catalog.query(
         "SELECT p_uuid, p_cdeKey, p_cdeType, p_thumbnail, p_seriesState, p_originType \
-         FROM Entries WHERE p_type = 'Entry:Item' AND p_location LIKE '{dir}/%'"
-    ))? {
+         FROM Entries WHERE p_type = 'Entry:Item' AND p_location LIKE ?1",
+        &[&format!("{}/%", books_dir.to_string_lossy())],
+    )? {
         snap.entries.insert(
             (text(&r["p_cdeKey"]), text(&r["p_cdeType"])),
             Entry {
@@ -197,6 +197,7 @@ pub fn snapshot(catalog: &Catalog, books_dir: &Path) -> io::Result<Snapshot> {
         "SELECT p_uuid, p_cdeKey, p_titles_0_nominal, p_memberCount, p_homeMemberCount, \
          p_isProcessed, p_thumbnail, p_virtualCollectionCount, j_members FROM Entries \
          WHERE p_type = 'Entry:Item:Series' AND p_cdeType = 'series' AND p_cdeKey GLOB 'KW*'",
+        &[],
     )? {
         let key = text(&r["p_cdeKey"]);
         if !is_our_key(&key) {
@@ -220,10 +221,11 @@ pub fn snapshot(catalog: &Catalog, books_dir: &Path) -> io::Result<Snapshot> {
             },
         );
     }
-    for r in catalog.query(&format!(
+    for r in catalog.query(
         "SELECT d_seriesId, d_itemCdeKey, d_itemPosition, d_itemPositionLabel FROM Series \
-         WHERE d_seriesId GLOB '{SERIES_ID_PREFIX}KW*'"
-    ))? {
+         WHERE d_seriesId GLOB ?1",
+        &[&format!("{SERIES_ID_PREFIX}KW*")],
+    )? {
         let key = text(&r["d_seriesId"])
             .trim_start_matches(SERIES_ID_PREFIX)
             .to_owned();

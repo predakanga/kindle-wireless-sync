@@ -13,6 +13,8 @@ Research for Phase 1, item 6. Sources:
 - `armv7-unknown-linux-musleabihf`, statically linked, using
   `linker = "rust-lld"` with `-C link-self-contained=yes`
   (`.cargo/config.toml`). No cross toolchain or glibc needed.
+  We built that way until the embedded SQLite needed a C compiler; the
+  Kindle builds now use `cargo zigbuild` (ADR 0025).
 - Release profile: `lto = true`, `strip = true`, `opt-level = "z"`,
   `panic = "abort"`, `codegen-units = 1`.
 - KPM platforms both projects declare: `kindlehf` and `kindlepw2`. **The

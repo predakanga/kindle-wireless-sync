@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended by [0025](0025-embedded-sqlite.md) (2026-10-20): `rusqlite`
+  with a bundled SQLite joins the dependencies.
 
 ## Context
 Phase 2 builds the Calibre protocol client so it runs and is tested on the
