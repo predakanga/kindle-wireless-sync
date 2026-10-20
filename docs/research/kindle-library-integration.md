@@ -687,4 +687,5 @@ A is byte-identical from 5.13.6 to 5.18.6 (`Entries` 79, `Series` 5).
   Kindle Series Enabler overrides, is in every one of these images. The
   series view itself has only been seen on 5.20.1.
 - The compat check `catalog_schema` now covers the columns our commands
-  set as well as those `src/` reads.
+  set as well as those `src/` reads. The reference device's live `cc.db`
+  (5.20.1) has all ten written columns (developer's run, 2026-10-20).
