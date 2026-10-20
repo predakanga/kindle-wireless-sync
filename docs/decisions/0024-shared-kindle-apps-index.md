@@ -71,8 +71,10 @@ works from then on.
 - The old index URL now returns 404. A device that still has the old
   repository can't refresh it (not yet seen on the device) until it's
   removed.
-- **To verify on the device:** the move from the old repository (remove,
-  add, `kpm install`) keeps settings and books and records the package
-  against `kindle-apps` (KPM's `installed_packages` table).
+- **Verified on the reference device (2026-10-20):** after the developer
+  moved it, KPM's `installed_packages` (`/mnt/us/kmc/kpm/kpm.db`) records
+  `kindle-wireless-sync` 0.4.0 against `kindle-apps`, the old repository
+  is gone from `kpm list-repo`, and the service is still linked to the
+  same library and connected.
 - The release workflow can't tell whether the index was rebuilt: the
   dispatch is fire-and-forget, and kindle-apps' own run shows the result.
