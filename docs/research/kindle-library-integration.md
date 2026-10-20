@@ -416,9 +416,9 @@ driven with `tap.sh` and screenshots. `cc.db`, the asset store,
 
 Phase 5 research: showing Calibre series as the Kindle's own series grouping
 (one tile per series, in order). In short: **we can write correct series
-data through a supported interface, but this device doesn't display series
-grouping at all**, because the feature is gated per marketplace (see the end
-of this section).
+data through a supported interface**, but the Kindle only displays it where
+series grouping is on, and Amazon offers that only in some marketplaces
+(see the end of this section).
 
 ### The catalog's ChangeRequest endpoint
 
@@ -490,135 +490,21 @@ The new Library app works out grouping itself in the asset store:
 more books". After the steps above, both test books had it set to 1, as a
 real 4-book Amazon series does.
 
-### Why nothing showed: grouping is gated
+### Grouping is gated per marketplace
 
-On the reference device even Amazon series (for example a 4-book one) are
-**not grouped**, and there's no switch for it. From `KPPMainApp`'s strings:
+On the reference device (AU marketplace) even Amazon series weren't
+grouped at first, and there was no switch for it: Amazon offers series
+grouping only in some marketplaces, through its remote config. Series data
+written as above shows only where grouping is on.
 
-- The switch is a **Quick Settings** tile (`group_series_library`,
-  `QuickSettings::GroupSeriesWidgetController`), and it isn't offered on this
-  device.
-- Availability depends on remote config (`series.grouping.supported`,
-  `series.grouping.supported.marketplaces`) and a weblab,
-  `BOOKS_EINK_SAGA_LSG_431259` (`isSeriesGroupingWeblabEnabled`). This
-  device is on the **AU** marketplace.
-- The user's choice was moved from dynamic config (`series.grouping.enabled`,
-  `IGNITE_SERIES_GROUPING_ENABLED_KEY`) into "UserDefaults" (marker file
-  `/var/local/SERIES_GROUPING_MIGRATION_DONE`, 2026-10-13). On this device
-  `/var/local/user_defaults.db` (table `user_defaults`, columns
-  `ID|Key|Value`) has no series-grouping key.
-- Weblab state is in `/var/local/weblab/` (`allocations/*.alloc`, a large
-  read-only key/value DB, plus `overrides/` and `local_overrides/` folders,
-  and `/var/local/weblab_overrides`). Their formats haven't been looked at.
-
-Enabling grouping on one's own device is a separate, personal investigation
-(started 2026-10-16), not part of the package: the app mustn't change
-Amazon's settings or experiment flags.
-
-### Enabling grouping on the reference device (2026-10-16)
-
-Read from `KPPMainApp`'s `KPPSettings::ServiceProvider::GroupSeriesServiceProvider`
-(disassembled; it's Amazon's code, so nothing copied here):
-
-- Every check first asks `IgniteUtils::IsLibraryRearchitectureEnabled()`
-  (the Ignite "library rearch" module). If that's true, the switch is
-  always offered and its value lives in **UserDefaults**. Otherwise:
-  - `shouldWidgetBeDisplayed` = dynconfig `series.grouping.supported ==
-    "true"` **and** `series.grouping.supported.marketplaces` contains
-    dynconfig `marketplace.obfuscated.id` (a substring match).
-  - `getGroupBySeriesConfig` = dynconfig `series.grouping.enabled == "true"`.
-  - `setGroupBySeriesConfig` writes both dynconfig and UserDefaults.
-  - `isSeriesGroupingWeblabEnabled` (`BOOKS_EINK_SAGA_LSG_431259 == T1`)
-    has no direct callers, so the weblab doesn't seem to gate it.
-- **Dynconfig** (`libdynconf`) lives in `/var/local/appreg.db`, table
-  `properties`: handler `dcd` holds the defaults and `dcc` the current
-  (server-written) values, which win. On this device: `dcd` supported =
-  `true`, marketplaces = `A1VC38T7YXB528,ATVPDKIKX0DER,A1F83G8C2ARO7P,A1PA6795UKMFR9`
-  (JP, US, UK, DE); `dcc` `marketplace.obfuscated.id = A39IBJ37TRP1C6`
-  (AU) and `dcc` `series.grouping.enabled = false`.
-- **UserDefaults** (`libEReaderAppSDKShared.so`, `esdk::UserDefaultsImpl`)
-  stores rows in `/var/local/user_defaults.db` table `user_defaults` with
-  `Key = <namespace>.<key>`. The grouping flag is
-  `IGNITE_LIBRARY_NAMESPACE.IGNITE_SERIES_GROUPING_ENABLED_KEY`. Existing
-  rows use `ID = 1` and bools are stored as `1`/`0`.
-
-What was changed (by hand, with sqlite3; backup of `appreg.db` from before
-at `/mnt/us/kws-appreg.db.bak`):
-
-1. Inserted `dcc | series.grouping.supported.marketplaces |` the `dcd` list
-   plus `A39IBJ37TRP1C6`. Quick Settings still showed no tile, even after
-   `initctl restart kppmainapp` (that restart also popped an "Application
-   Error" dialog from appmgrd, which was harmless).
-2. Set `dcc series.grouping.enabled` to `true`, and inserted
-   `1 | IGNITE_LIBRARY_NAMESPACE.IGNITE_SERIES_GROUPING_ENABLED_KEY | 1`.
-   Then the developer **rebooted the device**, before noticing the result.
-   So we don't know whether the change applies live, needs a reboot, or
-   just a restart of some process other than `kppmainapp`.
-
-Result, as the developer saw it after the reboot: **Amazon series are grouped**, and a
-"Group by series" switch appears in the full **Settings** page (but still
-not in Quick Settings, so that tile list has another filter, which wasn't
-investigated: `QuickSettingsWidgetProvider::getIconPanelWidgetList`). The
-`kws-test series` books disappeared without a series tile taking their
-place. They're probably hidden as members (`VISIBILITY_WITH_GROUPING = 1`),
-and our container is missing something that the series-tile query needs.
-Why is **out of scope** for this investigation, which is only about turning
-grouping on.
-
-#### Which change does it (2026-10-16)
-
-Each setting was switched on its own, with the Settings switch left alone.
-The Library was redrawn by going to Home and back, with no restart. Every
-change took effect **live**, so last night's reboot wasn't needed.
-
-| Marketplace override | `dcc` enabled | UserDefaults | Series grouped | Settings switch |
-|---|---|---|---|---|
-| – | `false` | – | no | hidden |
-| – | `false` | `1` | no | hidden |
-| – | `true` | – | **yes** | hidden |
-| added | `true` | – | **yes** | shown, on |
-| added | `false` | – | no | shown, off |
-
-- **`dcc series.grouping.enabled` is the on/off switch.** Setting it to
-  `true` groups series even while the Settings switch is hidden.
-- **The marketplace override only shows the switch** ("Group series",
-  under Settings > Home and Library > Library tab).
-- **The UserDefaults flag has no effect** on this device, which fits
-  `IsLibraryRearchitectureEnabled()` being false here.
-
-State left on the device: the marketplace override plus `dcc` enabled
-`true`, and no UserDefaults row. The Settings switch writes the
-UserDefaults row as well as the `dcc` value, which is harmless.
-
-Undo (back to how it was found):
-
-```sh
-sqlite3 /var/local/appreg.db "update properties set value='false' where handlerId='dcc' and name='series.grouping.enabled';"
-sqlite3 /var/local/appreg.db "delete from properties where handlerId='dcc' and name='series.grouping.supported.marketplaces';"
-```
-
-Next steps, in order:
-
-1. ✅ `tools/series-grouping.sh`, run with `just series-grouping
-   [status|enable|disable]`. It's a developer tool, not shipped in the
-   package, and sets exactly these two values. Tested both ways on the
-   device (2026-10-16).
-2. Whether a server config refresh resets them (below).
-3. If there's time, why Quick Settings still has no tile.
-
-What might reset it (unconfirmed):
-
-- `dcc` rows are written from the server's dynamic config, so a refresh
-  could set `series.grouping.enabled` back to `false` or drop the
-  marketplace override. Check after a reboot and a sync.
-- They survived one reboot (2026-10-16).
-- UserDefaults are wiped on deregistration, and Ignite's "Cleaning user
-  preferences for library namespace" routine clears the UserDefaults key.
-  Neither matters here, since the key has no effect on this device.
+Turning it on where it isn't offered changes Amazon's settings, so it's
+not part of this package. That research moved to
+[Kindle Series Enabler](https://github.com/predakanga/kindle-series-enabler)
+on 2026-10-20. The reference device has grouping on.
 
 ### Making a sideloaded series show (2026-10-16)
 
-With grouping switched on (`just series-grouping enable`), the test series's
+With grouping switched on (see above), the test series's
 books were hidden but there was no series tile, even after a reboot. The
 cause is the **Library's legacy listing filter** on `cc.db` (strings in
 `KPPMainApp`; this device has no library re-architecture). Roughly:

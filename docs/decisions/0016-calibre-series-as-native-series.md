@@ -140,8 +140,8 @@ stops managing them. A UI toggle can come later.
 - Member books get `originType 0`, the value for purchased books. Any other
   effects on sideloaded books are untested; watch for them.
 - Series only appear where grouping is on. On AU and other unsupported
-  marketplaces that needs the developer tool (`just series-grouping`) or
-  the guarded script on the Later list.
+  marketplaces that needs grouping turned on separately, for example with
+  Kindle Series Enabler (github.com/predakanga/kindle-series-enabler).
 - New code: a small HTTP POST client (we already speak HTTP for the API, so
   no new dependency), read-only `cc.db` lookups for `p_uuid` and `cdeKey`,
   the reconcile logic with tests against a fake endpoint, and a `series`

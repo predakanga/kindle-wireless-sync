@@ -179,7 +179,3 @@ device-discover: deploy
 [positional-arguments]
 compat model version *args:
     python3 tools/compat/compat.py "$@" >> compat.jsonl
-
-# Dev: native series grouping on the Kindle: status (default), enable or disable. Not packaged.
-series-grouping action="status":
-    ssh {{kindle_host}} "sh -s -- {{action}}" < tools/series-grouping.sh

@@ -49,7 +49,6 @@ just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just ui-prototype         # dev: open the clickable UI prototype (tools/ui-prototype) in a browser
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
-just series-grouping [status|enable|disable]   # dev: native series grouping on the Kindle (not packaged)
 just calibre launch|status|wireless-start|wait-device|send|delete|field|device-books|dialogs|exec|quit ...
                           # dev: an isolated Calibre in dev-calibre/, driven by a plugin (ADR 0019)
 just compat MODEL VERSION # check a model/firmware on eink-emulator; appends JSON to compat.jsonl

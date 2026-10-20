@@ -224,9 +224,10 @@ staying in place (ADR 0023).
   dissolved it, which bounced the open view back to the Library. Series
   survive a reboot. After a sync, no series showed up on other devices or
   the iOS app, and nothing is queued for upload (see the ADR).
-  For testing, `just series-grouping [status|enable|disable]` turns grouping
-  on and off. Changes apply as soon as the Library redraws (go to Home and
-  back), with no restart (2026-10-16).
+  For testing, grouping is turned on and off with Kindle Series Enabler's
+  `just grouping [status|enable|disable]` (moved there 2026-10-20).
+  Changes apply as soon as the Library redraws (go to Home and back), with
+  no restart (2026-10-16).
 - Progress and rating sync back to Calibre, with a Calibre plugin only if
   Phase 1 shows it is required.
   **Status (2026-10-16):** research done
@@ -375,10 +376,10 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    pass their device's UUID as an argument, as a deliberate confirmation
    (like typing a repo's name to delete it), so users know what they're
    doing. It changes Amazon-side settings, so document the risk. It builds
-   on the developer's own enabling work (2026-10-16). Still to decide:
-   which identifier counts as the "device UUID". Start from the dev tool
-   `tools/series-grouping.sh` (2026-10-16): only two `appreg.db` values are
-   needed (research note, "Which change does it").
+   on the developer's own enabling work (2026-10-16).
+   **Moved (2026-10-20)** to its own package, Kindle Series Enabler
+   (github.com/predakanga/kindle-series-enabler), with the dev tool and
+   the research.
 
 <a id="later-5"></a>
 ### Later 5

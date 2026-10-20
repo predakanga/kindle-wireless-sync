@@ -177,9 +177,9 @@ them. Each item's full text is in the
   columns), through ChangeRequest. First check whether cloud collections
   sync to other devices. [More](progress-log.md#later-3)
 
-- **4. A script that turns series grouping on or off,** packaged but not in
-  the UI, asking for the device's UUID as confirmation. Starts from
-  `tools/series-grouping.sh`. [More](progress-log.md#later-4)
+- **4. ~~A script that turns series grouping on or off~~:** moved to its own
+  package, [Kindle Series Enabler](https://github.com/predakanga/kindle-series-enabler)
+  (2026-10-20). [More](progress-log.md#later-4)
 
 - **5. A Calibre plugin for percent read,** extending the wireless
   connection rather than adding a second one. [More](progress-log.md#later-5)
