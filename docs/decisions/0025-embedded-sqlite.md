@@ -93,5 +93,16 @@ compatibility check (`tools/compat`) then only needs `sqlite3` with
 - Old firmware no longer fails at `sqlite3 -json`. Other differences may
   remain: the Basic 2016's `Entries` has no `p_lastOpenTime` (read sync),
   and it's a soft-float device that isn't supported (ADR 0001).
-- **To verify:** series and read sync on the reference device, and the
-  catalog queries on a firmware with an old `sqlite3` (`just compat`).
+- **To verify:** the catalog queries on a firmware with an old `sqlite3`
+  (`just compat`, then the package itself).
+
+## Implementation notes (2026-10-20)
+- `catalog::query(db, sql, params)` is the one read path; `Catalog::query`
+  and the `kindle.rs` lookups call it. Rows are maps of column name to
+  `Value`, with integers and reals as numbers, as `-json` gave them.
+- The packaged binary is 2,046,868 bytes.
+- **Reference device (5.20.1):** with the new build deployed, the
+  start-up series pass found the catalog's 4 series of ours (21 member
+  rows) as they should be, and planned no changes. Had the snapshot been
+  read wrongly, it would have rewritten them. The session's read-state
+  query logged no warning.
