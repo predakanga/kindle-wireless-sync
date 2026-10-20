@@ -53,3 +53,4 @@ What this commits us to, and any follow-up work or risks.
 - [0023: Choosing the folder received books go into](0023-choosing-the-books-folder.md)
 - [0024: Publish through the shared kindle-apps KPM index](0024-shared-kindle-apps-index.md)
 - [0025: Read the catalog with an embedded SQLite](0025-embedded-sqlite.md)
+- [0026: Read sync only on firmware 5.19.1 and later](0026-read-sync-needs-firmware-5-19-1.md)
