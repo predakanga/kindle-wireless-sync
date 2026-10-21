@@ -353,7 +353,8 @@ end-to-end checks noisy. The results below mention checks it no longer has.
   | Paperwhite 4 | 5.18.1.1.1 | 18/19 | 2:11 | 21 s, 74 s | 7:43 |
   | KT4 | 5.18.1.1.1 | 18/19 | 1:52 | 20 s, 67 s | 6:56 |
   | Oasis 3 | 5.18.2.1.1 | 18/19 | 2:53 | 34 s, 117 s | 9:46 |
-  | Scribe 3, Scribe Colorsoft | 5.20.1 | not testable | | | |
+  | Scribe 3 | 5.20.1 | pages fit (by hand) | | | |
+  | Scribe Colorsoft | 5.20.1 | not testable | | | |
 
   - **Group 2 (5.19.1 and later) passes everything** on every model that
     boots. Group 1's only failure is the expected one: no
@@ -367,6 +368,11 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     13 minutes. jb.sh itself finished. The older models' OOBE skip, applied
     by hand with a framework restart, didn't leave setup. The emulator's
     Scribe 3 notes say a usable Home "is not yet verified".
+    The developer got a Scribe 3 to Home with `lipc-set-prop
+    com.lab126.appmgrd start app://com.lab126.booklet.home` (sign-in
+    dialogs still pop up), and the fit check, run by hand against it,
+    passed: all 30 pages fit the 1986×2432 viewport, the tightest (the
+    folder picker) with 264 px spare, and fields stay above the keyboard.
   - **About twice as fast** as the Paperwhite 6 run of 2026-10-19 (19:09):
     7 to 11.5 minutes a run. The gain is the jailbreak's first boot (2 to
     4 minutes); the test boot isn't faster (Home 67 to 153 s after SSH,
