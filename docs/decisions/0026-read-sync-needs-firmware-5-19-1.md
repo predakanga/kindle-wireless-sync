@@ -1,6 +1,6 @@
 # 0026: Read sync only on firmware 5.19.1 and later
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-10-21)
 - Date: 2026-10-20
 - Amends: [0017](0017-read-status-sync.md) (when read sync runs) and
   [0020](0020-one-screen-pages-and-checking-a-library.md) (the read-sync
