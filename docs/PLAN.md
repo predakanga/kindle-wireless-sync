@@ -156,6 +156,10 @@ Details: [progress log](progress-log.md#phase-5).
   firmware (`just compat-fingerprint`) fall into two groups, before and
   from 5.19.1, so 12 runs (one per model, newest firmware) cover them.
   [Compat README](../tools/compat/README.md#choosing-what-to-run).
+- **Every model on its newest firmware** (2026-10-21): 5.19 and later pass
+  everything; 5.18 lacks only `p_lastOpenTime` (ADR 0026). Scribe 3 and
+  Scribe Colorsoft stay in account setup under the emulator, so they're
+  untested. [Details](progress-log.md#phase-6).
 - Specific checks found so far:
   - **Books in subfolders of `documents` are indexed** like books in
     `documents` itself. The books folder (ADR 0023) depends on it, and it's

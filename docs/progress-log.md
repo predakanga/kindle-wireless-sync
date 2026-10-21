@@ -336,6 +336,49 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     and the guest rebooted once on its own. These explain the scattered
     one-off failures; rerun before reading anything into one.
 
+- **One run per model, newest firmware** (2026-10-20 to 21, eink-emulator
+  `44d672c`, package `06e185c`): the 12 runs the fingerprints call for
+  ([Compat README](../tools/compat/README.md#choosing-what-to-run)), less
+  the Paperwhite 6 (already done). Each instance and firmware was deleted
+  after its run.
+
+  | Model | Firmware | Result | jb.sh boot | Test boot: SSH, Home | Run |
+  |---|---|---|---|---|---|
+  | Paperwhite 5 | 5.19.2 | 19/19 | 2:38 | 27 s, 98 s | 8:33 |
+  | Basic 2022 | 5.19.2.0.1 | 19/19 | 2:29 | 27 s, 92 s | 8:03 |
+  | Basic 2024 | 5.20.1 | 19/19 | 3:41 | 43 s, 129 s | 10:28 |
+  | Colorsoft | 5.20.1 | 19/19 | 3:45 | 33 s, 133 s | 11:14 |
+  | Scribe 1 | 5.20.1 | 19/19 | 3:48 | 43 s, 145 s | 11:31 |
+  | Scribe 2 | 5.20.1 | 19/19 | 3:41 | 33 s, 153 s | 11:35 |
+  | Paperwhite 4 | 5.18.1.1.1 | 18/19 | 2:11 | 21 s, 74 s | 7:43 |
+  | KT4 | 5.18.1.1.1 | 18/19 | 1:52 | 20 s, 67 s | 6:56 |
+  | Oasis 3 | 5.18.2.1.1 | 18/19 | 2:53 | 34 s, 117 s | 9:46 |
+  | Scribe 3, Scribe Colorsoft | 5.20.1 | not testable | | | |
+
+  - **Group 2 (5.19.1 and later) passes everything** on every model that
+    boots. Group 1's only failure is the expected one: no
+    `Entries.p_lastOpenTime`, so read sync can't work there (ADR 0026,
+    proposed). Every page of the app fits on every model.
+  - **Scribe 3 and Scribe Colorsoft never reach Home in the emulator.**
+    Their rootfs builder (`prepare_bellatrix3` in eink-emulator's
+    `images/rootfs.py`) installs neither `qemu-skip-oobe.conf` nor
+    `prevent-screensaver.conf`, so the guest stays in account setup
+    (`activeApp` is `com.lab126.oobe`) and suspends and reboots after about
+    13 minutes. jb.sh itself finished. The older models' OOBE skip, applied
+    by hand with a framework restart, didn't leave setup. The emulator's
+    Scribe 3 notes say a usable Home "is not yet verified".
+  - **About twice as fast** as the Paperwhite 6 run of 2026-10-19 (19:09):
+    7 to 11.5 minutes a run. The gain is the jailbreak's first boot (2 to
+    4 minutes); the test boot isn't faster (Home 67 to 153 s after SSH,
+    against 82 s), and the newer models are the slow end.
+  - **Two harness fixes on the way.** eink-emulator now runs jb.sh before
+    the framework and skips its reboot (`a597d80`), so compat's wait for
+    that reboot timed out on every model: the first night's 24 runs all
+    ended `boot_failed`. The jailbreak boot now also ends once Home is up
+    and the instance is jailbroken. And on the Oasis 3, four pages behind
+    the `/probe` round trip weren't reached within the fit check's fixed
+    500 ms step wait; steps now retry for up to 5 s, and a rerun passed.
+
 ## Later items
 
 <a id="later-1"></a>

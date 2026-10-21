@@ -110,15 +110,17 @@ to 5.18.1.5, 3.47.0 from 5.18.1.1.1), so a group is a working assumption,
 not proof. **The runs that cover both groups and every model: 12**, each
 model on its newest firmware, which is what most of its users run:
 
-| Model | Firmware | Group |
-|---|---|---|
-| KT4, Paperwhite 4 | 5.18.1.1.1 | 1 |
-| Oasis 3 | 5.18.2.1.1 | 1 |
-| Paperwhite 5 | 5.19.2 | 2 |
-| Basic 2022 | 5.19.2.0.1 | 2 |
-| Paperwhite 6 (done), Basic 2024, Colorsoft, Scribe 1, 2 and 3, Scribe Colorsoft | 5.20.1 | 2 |
+| Model | Firmware | Group | Result (2026-10-21) |
+|---|---|---|---|
+| KT4, Paperwhite 4 | 5.18.1.1.1 | 1 | no `p_lastOpenTime`; the rest passes |
+| Oasis 3 | 5.18.2.1.1 | 1 | no `p_lastOpenTime`; the rest passes |
+| Paperwhite 5 | 5.19.2 | 2 | passes |
+| Basic 2022 | 5.19.2.0.1 | 2 | passes |
+| Paperwhite 6, Basic 2024, Colorsoft, Scribe 1 and 2 | 5.20.1 | 2 | passes |
+| Scribe 3, Scribe Colorsoft | 5.20.1 | 2 | untested: the emulator doesn't get past account setup |
 
-The Paperwhite 6 also has runs on 5.17.1.0.2 (group 1) and 5.19.2.
+The Paperwhite 6 also has runs on 5.17.1.0.2 (group 1) and 5.19.2. Timings
+and details are in the [progress log](../../docs/progress-log.md#phase-6).
 
 ## The page-fit check
 
