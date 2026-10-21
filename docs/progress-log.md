@@ -408,6 +408,10 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    Home's status with its two-line detail under it is three lines, which
    the developer finds a bit much (2026-10-18).
 
+   **Split (2026-10-21)** into **2a**, the review, which the developer
+   considers done, and **2b**, moving the text into a translation file,
+   still open.
+
 <a id="later-3"></a>
 ### Later 3
 

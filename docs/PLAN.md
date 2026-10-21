@@ -46,9 +46,9 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 3: Running on the Kindle | ✅ | A sent book opens in the built-in reader without a reboot (2026-10-15) |
 | Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.0** (2026-10-19) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
-| Phase 6: Other firmware | Open | Check other firmware and models |
-| Later 1–7, 9 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 8, 10–13 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
+| Later 1, 2b, 3–7, 9 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2a, 8, 10–13 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -133,7 +133,7 @@ log](progress-log.md#phase-4).
 
 Details: [progress log](progress-log.md#phase-5).
 
-### Phase 6: Other firmware (stretch stretch goal)
+### Phase 6: Other firmware (stretch stretch goal) ✅
 
 - Check whether the on-device integration points we rely on (catalog
   registration, collections, progress storage, service hooks, UI) exist on
@@ -166,6 +166,12 @@ Details: [progress log](progress-log.md#phase-5).
     only been checked on 5.20.1 (developer, 2026-10-19; research note,
     "Books in subfolders are indexed").
 
+**Done (2026-10-21).** Every model eink-emulator offers was checked on its
+newest firmware, with the page fit checked by hand on the two Scribes that
+stay in account setup. Firmware before 5.19.1 can't support read sync, so
+the app turns it off there (ADR 0026). The README lists the results under
+Compatibility.
+
 ## Later: to revisit once the goals above are met
 
 Not part of any phase. Pick these up after the base and stretch goals
@@ -179,9 +185,8 @@ them. Each item's full text is in the
   Report it upstream, and decide how to ship upgrades until it's fixed
   (ADR 0012). [More](progress-log.md#later-1)
 
-- **2. Review the UI.** E-ink usability and the wording of every message;
-  maybe a translation file. Known: status messages vanish after 6 s, and
-  Home's status with its two-line detail is three lines.
+- **2b. Translations.** Move the app's text into a translation file, so
+  it can be translated. Split from Later 2 (2026-10-21).
   [More](progress-log.md#later-2)
 
 - **3. Kindle collections from Calibre fields** (series, tags, custom
@@ -207,6 +212,10 @@ them. Each item's full text is in the
   [More](progress-log.md#later-9)
 
 ### Done or closed
+
+- ✅ **2a. Review the UI:** e-ink usability and the wording of every
+  message (developer, 2026-10-21). Split from Later 2.
+  [More](progress-log.md#later-2)
 
 - ✅ **8. Reconnect after Calibre restarts** (ADR 0021, 0.3.2).
   [More](progress-log.md#later-8)
