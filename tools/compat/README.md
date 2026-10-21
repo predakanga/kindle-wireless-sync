@@ -117,8 +117,7 @@ model on its newest firmware, which is what most of its users run:
 | Paperwhite 5 | 5.19.2 | 2 | passes |
 | Basic 2022 | 5.19.2.0.1 | 2 | passes |
 | Paperwhite 6, Basic 2024, Colorsoft, Scribe 1 and 2 | 5.20.1 | 2 | passes |
-| Scribe 3 | 5.20.1 | 2 | pages fit (by hand); the rest untested: the emulator doesn't get past account setup |
-| Scribe Colorsoft | 5.20.1 | 2 | untested, as Scribe 3 |
+| Scribe 3, Scribe Colorsoft | 5.20.1 | 2 | pages fit (by hand); the rest untested: the emulator doesn't get past account setup |
 
 The Paperwhite 6 also has runs on 5.17.1.0.2 (group 1) and 5.19.2. Timings
 and details are in the [progress log](../../docs/progress-log.md#phase-6).
