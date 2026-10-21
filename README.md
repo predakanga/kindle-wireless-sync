@@ -22,6 +22,18 @@ reader. KOReader and other third-party readers are out of scope.
 > books backed up in Calibre. It comes with no warranty (see
 > [Licence](#licence)).
 
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Compatibility](#compatibility)
+- [Install](#install)
+- [Use](#use)
+  - [Read status in Calibre](#read-status-in-calibre)
+- [Development](#development)
+- [Credits](#credits)
+- [Licence](#licence)
+
 ## Features
 
 - **Wireless sending from Calibre.** Calibre sees the Kindle as a wireless
