@@ -18,8 +18,8 @@ reader. KOReader and other third-party readers are out of scope.
 > - This project was written using AI (Anthropic's Claude, through Claude
 >   Code), directed and reviewed by its developer.
 > - It has only been tested on the developer's personal **Kindle Paperwhite
->   (12th Generation) on firmware 5.20.1**. Other models and firmware
->   versions may work, but are untested.
+>   (12th Generation) on firmware 5.20.1**. Other models have only been
+>   checked on an emulator (see [Compatibility](#compatibility)).
 >
 > It modifies a jailbroken device. Use it at your own risk, and keep your
 > books backed up in Calibre. It comes with no warranty (see
@@ -55,6 +55,40 @@ sideloaded EPUBs, so Calibre converts them when sending.
   (the Kindle Package Manager) installed.
 - Calibre on a computer on the same network. A different network also works,
   using *Connect by address* in the app.
+
+## Compatibility
+
+Wireless Sync runs on Kindles with the `kindlehf` (hard-float) platform,
+which means **firmware 5.16.3 or later**. Older firmware, and models that
+can't update to 5.16.3, aren't supported, and KPM won't install it there.
+
+Only one real Kindle has been tested: a **Kindle Paperwhite (12th
+Generation) on 5.20.1**. The other models were checked on emulated Kindles
+([eink-emulator](https://github.com/katadelos/eink-emulator)), each on the
+newest firmware it can download (October 2026). The check boots the
+firmware and confirms that everything Wireless Sync relies on is there and
+works: the library catalog, adding books and series, Wi-Fi events, and
+every page of the app fitting on the screen. It doesn't send books from
+Calibre, so treat these models as very likely to work, not as tested.
+
+| Kindle | Firmware checked | Result |
+|---|---|---|
+| Kindle Paperwhite (12th Generation) | 5.20.1 | Tested on a real device |
+| Kindle (2024), Kindle Colorsoft, Kindle Scribe (2022), Kindle Scribe (2024) | 5.20.1 | Everything works |
+| Kindle (11th Generation) | 5.19.2.0.1 | Everything works |
+| Kindle Paperwhite (11th Generation) | 5.19.2 | Everything works |
+| Kindle Paperwhite (10th Generation), Kindle (10th Generation) | 5.18.1.1.1 | Everything but read status |
+| Kindle Oasis (10th Generation) | 5.18.2.1.1 | Everything but read status |
+| Kindle Scribe (2025), Kindle Scribe Colorsoft | 5.20.1 | The app's pages fit; nothing else checked yet |
+
+**[Read status in Calibre](#read-status-in-calibre) needs firmware 5.19.1
+or later.** Older firmware doesn't record when a book was last opened. Most
+models get it with 5.19.2. On older firmware everything else works, and the
+app shows a note in place of the setting.
+
+If you try Wireless Sync on another model or firmware, please
+[open an issue](https://github.com/predakanga/kindle-wireless-sync/issues)
+saying what you found, whether it worked or not.
 
 ## Install
 
@@ -105,7 +139,9 @@ updates them in place.
 ### Read status in Calibre
 
 The Kindle can send each book's read status, and when you last read it, to
-your Calibre library. It's off until you turn it on for a library:
+your Calibre library. It needs Kindle firmware 5.19.1 or later (see
+[Compatibility](#compatibility)). It's off until you turn it on for a
+library:
 
 1. In Calibre, open *Preferences → Add your own columns* and add a column
    of type *Yes/No* (for example "Kindle read") and one of type *Date*
