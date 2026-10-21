@@ -572,3 +572,17 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     series positions"): the catalog keeps 3.5 and orders the book right,
     but the Library's badge parses the label as a whole number, so it
     shows "3". Nothing we can send changes that.
+
+<a id="later-14"></a>
+### Later 14
+
+14. **Keep the screensaver off while transferring** (developer,
+    2026-10-21). Wi-Fi goes down when the screensaver starts (ADR 0008),
+    and the session dies with it, so a long send from Calibre can be cut
+    off partway. Inhibit the screensaver while books are being sent, and
+    let it come on again afterwards. powerd's `preventScreenSaver`
+    (`lipc-set-prop -i com.lab126.powerd preventScreenSaver 1`, as `just
+    screensaver-off` does) is the likely way. It has to be cleared again
+    however the session ends, including when the daemon crashes, or the
+    Kindle stays awake until a reboot. Check also whether other apps set
+    it, so that clearing it doesn't undo theirs.
