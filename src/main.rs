@@ -11,6 +11,7 @@ use kws::catalog::Catalog;
 use kws::config::{self, Config, Link};
 use kws::daemon::{self, Away, Daemon, FindResult, LinkError, Options};
 use kws::discovery;
+use kws::firmware;
 use kws::kindle::{self, CoverConfig};
 use kws::library::Library;
 use kws::network;
@@ -216,6 +217,7 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         }),
         quiet: kws::session::QUIET_BEFORE_RECONNECT,
         leave_within: daemon::LEAVE_WITHIN,
+        firmware: firmware::read(),
     };
     let catalog_changed = lib.catalog_signal();
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));
@@ -333,6 +335,13 @@ fn link_cmd(mut args: lexopt::Parser) -> CmdResult {
         return Err(
             format!("--read-column and --last-read-column go with --writable\n{USAGE}").into(),
         );
+    }
+    // Before anything changes: older firmware can't sync reading status
+    // (ADR 0026).
+    if writable == Some(true) {
+        if let Some(v) = firmware::read().filter(|v| !firmware::read_sync_available(Some(v))) {
+            return Err(firmware::read_sync_unavailable(&v).into());
+        }
     }
     let linked_uuid = match positional.as_slice() {
         [] => {
@@ -522,6 +531,16 @@ fn status_cmd(mut args: lexopt::Parser) -> CmdResult {
             if a.writable { "writable" } else { "read-only" }
         ),
         None => println!("no library linked"),
+    }
+    match firmware::read() {
+        Some(v) if firmware::read_sync_available(Some(&v)) => {
+            println!("firmware {v}: reading status sync available")
+        }
+        Some(v) => println!(
+            "firmware {v}: reading status sync unavailable (needs {})",
+            firmware::READ_SYNC_MIN
+        ),
+        None => println!("firmware unknown: reading status sync allowed"),
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -24,6 +24,7 @@ use serde_json::{json, Map, Value};
 use crate::check::{self, CheckStatus, Checked, Checker, Target};
 use crate::config::{self, Config, Link, LinkedLibrary};
 use crate::discovery::CalibreServer;
+use crate::firmware;
 use crate::library::Library;
 use crate::protocol::{read_message, Connection, Opcode};
 use crate::session::{self, Admission, Admit, CalibreInfo, DeviceConfig, SessionEnd};
@@ -145,6 +146,8 @@ struct Shared {
     /// keep-alive, or is cut after `leave_within` (ADR 0022).
     leaving: AtomicBool,
     leave_within: Duration,
+    /// The firmware version from [`Options::firmware`].
+    firmware: Option<String>,
     /// What Find libraries learned from each server, and when: reused for
     /// 5 minutes so searches don't count towards Calibre's lockout
     /// (ADR 0020). Cleared when Wi-Fi changes.
@@ -446,6 +449,16 @@ impl Handle {
         self.shared.wifi.load(Ordering::SeqCst)
     }
 
+    /// The firmware version, if known (ADR 0026).
+    pub fn firmware(&self) -> Option<&str> {
+        self.shared.firmware.as_deref()
+    }
+
+    /// Whether this firmware can sync reading status (ADR 0026).
+    pub fn read_sync_available(&self) -> bool {
+        firmware::read_sync_available(self.firmware())
+    }
+
     /// The linked library's sync settings changed: end the session once
     /// Calibre is quiet and reconnect, so they take effect (ADR 0017).
     pub fn settings_changed(&self) {
@@ -493,6 +506,9 @@ pub struct Options {
     /// How long Disconnect and the like wait for a keep-alive before cutting
     /// the connection: [`LEAVE_WITHIN`].
     pub leave_within: Duration,
+    /// The Kindle's firmware version, if known: read sync needs 5.19.1 or
+    /// later (ADR 0026). Given rather than read, for tests.
+    pub firmware: Option<String>,
 }
 
 /// How long the user's Disconnect waits for Calibre's next keep-alive before
@@ -607,6 +623,7 @@ impl Daemon {
             session: AtomicU64::new(0),
             leaving: AtomicBool::new(false),
             leave_within: opts.leave_within,
+            firmware: opts.firmware.clone(),
             find_cache: Mutex::new(HashMap::new()),
         });
         let handle = Handle {
@@ -695,6 +712,14 @@ impl Daemon {
 
     /// Runs until [`Handle::shutdown`].
     pub fn run(mut self) {
+        if let Some(v) = self.shared.firmware.as_deref() {
+            if !firmware::read_sync_available(Some(v)) {
+                log::info!(
+                    "reading status sync is unavailable on firmware {v} (needs {})",
+                    firmware::READ_SYNC_MIN
+                );
+            }
+        }
         // Reset whenever Wi-Fi cycles (ADR 0008).
         let mut ejected = false;
         // Calibre at this address quit, and since when: wait for its
@@ -1228,7 +1253,12 @@ impl Admit for LinkedAdmit<'_> {
         );
         Admission::Accept {
             password: self.library.password.clone(),
-            columns: self.library.sync_columns(),
+            // Older firmware can't sync reading status, whatever the
+            // settings say (ADR 0026).
+            columns: self
+                .library
+                .sync_columns()
+                .filter(|_| firmware::read_sync_available(self.shared.firmware.as_deref())),
             known_columns: self.library.columns.clone(),
         }
     }
@@ -1493,13 +1523,12 @@ mod tests {
         (addr, count)
     }
 
-    /// Like [`fake_calibre_with`], also recording the `deviceName` of each
-    /// handshake reply.
+    /// Like [`fake_calibre_with`], also recording each handshake reply.
     #[allow(clippy::type_complexity)]
     fn fake_calibre_recording(
         uuid: &'static str,
         eject: bool,
-    ) -> (SocketAddr, Arc<AtomicUsize>, Arc<Mutex<Vec<String>>>) {
+    ) -> (SocketAddr, Arc<AtomicUsize>, Arc<Mutex<Vec<Value>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let count = Arc::new(AtomicUsize::new(0));
@@ -1519,9 +1548,7 @@ mod tests {
                 let Ok(Some(reply)) = read_message(&mut reader) else {
                     continue; // device refused or probed
                 };
-                if let Some(name) = reply.payload["deviceName"].as_str() {
-                    n.lock().unwrap().push(name.to_owned());
-                }
+                n.lock().unwrap().push(reply.payload.clone());
                 if eject {
                     // The library's columns, as Calibre lists them (ADR 0020).
                     let fm = json!({"fieldMetadata": {"#kindle_read":
@@ -1635,6 +1662,7 @@ mod tests {
             device_name: Box::new(|| "Test Kindle".into()),
             quiet: Duration::ZERO,
             leave_within: LEAVE_WITHIN,
+            firmware: None,
         };
         edit(&mut opts);
         let (daemon, handle) = Daemon::new(lib, opts, true);
@@ -1921,7 +1949,13 @@ mod tests {
         h.connect_now();
         wait_until("second session", || count.load(Ordering::SeqCst) == 2);
         wait_until("second eject", || names.lock().unwrap().len() == 2);
-        assert_eq!(*names.lock().unwrap(), ["Kindle 1", "Kindle 2"]);
+        let names: Vec<Value> = names
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r["deviceName"].clone())
+            .collect();
+        assert_eq!(names, ["Kindle 1", "Kindle 2"]);
         h.shutdown();
         thread.join().unwrap();
     }
@@ -2258,6 +2292,52 @@ mod tests {
         wait_until("connected", || h.status().state == State::Connected);
         h.shutdown();
         thread.join().unwrap();
+    }
+
+    /// The first handshake reply to a library set up for read sync, on the
+    /// given firmware.
+    fn read_sync_handshake(firmware: Option<&str>) -> Value {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, _count, replies) = fake_calibre_recording("lib-1", false);
+        let mut config = Config::load(tmp.path()).unwrap();
+        config.link(
+            LinkedLibrary {
+                uuid: "lib-1".into(),
+                host: Some(addr.ip().to_string()),
+                port: Some(addr.port()),
+                ..Default::default()
+            },
+            false,
+        );
+        config.set_writable("lib-1", Some(crate::readsync::Columns::defaults()));
+        let columns = json!({"#kindle_read": {"name": "Kindle read", "datatype": "bool"},
+                             "#kindle_last_read": {"name": "Kindle last read", "datatype": "datetime"}});
+        config.set_columns("lib-1", columns.as_object().unwrap().clone());
+        config.save().unwrap();
+        let firmware = firmware.map(str::to_owned);
+        let (h, thread) = launch(tmp.path(), None, |opts| opts.firmware = firmware);
+        wait_until("handshake", || !replies.lock().unwrap().is_empty());
+        h.shutdown();
+        thread.join().unwrap();
+        let reply = replies.lock().unwrap()[0].clone();
+        reply
+    }
+
+    #[test]
+    fn read_sync_needs_firmware_5_19_1() {
+        // ADR 0026: older firmware names no sync columns, whatever the
+        // settings say; a newer or unknown version does.
+        assert!(read_sync_handshake(Some("5.18.6"))
+            .get("isReadSyncCol")
+            .is_none());
+        for firmware in [Some("5.19.1"), None] {
+            let reply = read_sync_handshake(firmware);
+            assert_eq!(reply["isReadSyncCol"], "#kindle_read", "{firmware:?}");
+            assert_eq!(
+                reply["isReadDateSyncCol"], "#kindle_last_read",
+                "{firmware:?}"
+            );
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub mod check;
 pub mod config;
 pub mod daemon;
 pub mod discovery;
+pub mod firmware;
 pub mod folders;
 pub mod kindle;
 pub mod library;

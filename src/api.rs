@@ -388,6 +388,8 @@ fn status_json(api: &Api) -> Value {
     out["series"] = json!(series);
     out["books_folder"] = json!(books_folder);
     out["wifi"] = json!(api.handle.wifi());
+    out["firmware"] = json!(api.handle.firmware());
+    out["read_sync_available"] = json!(api.handle.read_sync_available());
     out["probe"] = api
         .handle
         .check_status()
@@ -685,6 +687,13 @@ fn chosen_columns(
     Ok((writable, Columns { read, last_read }))
 }
 
+/// Refuses turning read sync on where the firmware can't do it (ADR 0026).
+fn read_sync_refused(api: &Api, writable: bool) -> Option<(u16, Value)> {
+    let firmware = api.handle.firmware()?;
+    (writable && !api.handle.read_sync_available())
+        .then(|| fail(crate::firmware::read_sync_unavailable(firmware)))
+}
+
 /// `/link` without `uuid` or `host`: links the library that passed the
 /// latest check, with `writable`, `read_column` and `last_read_column`.
 /// Replacing a different linked library needs `"replace": true` (ADR 0018).
@@ -696,6 +705,9 @@ fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
         Ok(c) => c,
         Err(reply) => return reply,
     };
+    if let Some(reply) = read_sync_refused(api, writable) {
+        return reply;
+    }
     let replace = body
         .get("replace")
         .and_then(Value::as_bool)
@@ -770,6 +782,9 @@ fn settings(api: &Api, body: &Value) -> (u16, Value) {
         Ok(c) => c,
         Err(reply) => return reply,
     };
+    if let Some(reply) = read_sync_refused(api, writable) {
+        return reply;
+    }
     let changed = config::update(&api.state_dir, |c| {
         let uuid = linked.uuid.clone();
         if writable {
@@ -816,6 +831,11 @@ mod tests {
     }
 
     fn start() -> Fixture {
+        start_on(None)
+    }
+
+    /// A fixture whose Kindle runs this firmware version.
+    fn start_on(firmware: Option<&str>) -> Fixture {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().to_path_buf();
         let state = home.join("state");
@@ -832,6 +852,7 @@ mod tests {
             device_name: Box::new(|| "Kindle".into()),
             quiet: Duration::ZERO,
             leave_within: daemon::LEAVE_WITHIN,
+            firmware: firmware.map(str::to_owned),
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1190,6 +1211,48 @@ mod tests {
         assert_eq!(
             (lib["uuid"].clone(), lib["writable"].clone()),
             (json!("lib-2"), json!(false))
+        );
+    }
+
+    #[test]
+    fn read_sync_refused_on_older_firmware() {
+        // ADR 0026: below 5.19.1, read sync can't be turned on, and the
+        // status says why.
+        let f = start_on(Some("5.18.6"));
+        let status = get(&f, "/status", None).1;
+        assert_eq!(status["firmware"], "5.18.6");
+        assert_eq!(status["read_sync_available"], false);
+        let port = checkable_calibre("lib-1");
+        assert_eq!(check_and_wait(&f, port)["state"], "ok");
+        let body = r##"{"writable": true, "read_column": "#read", "last_read_column": "#when"}"##;
+        let (_, v) = post(&f, "/link", body);
+        assert_eq!(
+            v["error"],
+            "Reading status sync needs Kindle firmware 5.19.1 or later. This Kindle has 5.18.6."
+        );
+        assert_eq!(
+            get(&f, "/status", None).1["library"],
+            Value::Null,
+            "nothing linked"
+        );
+        assert_eq!(post(&f, "/link", r#"{"writable": false}"#).1["ok"], true);
+        let (_, v) = post(&f, "/settings", body);
+        assert_eq!(v["ok"], false);
+        assert_eq!(get(&f, "/status", None).1["library"]["writable"], false);
+        assert_eq!(
+            post(&f, "/settings", r#"{"writable": false}"#).1["ok"],
+            true
+        );
+
+        let status = get(&start_on(Some("5.19.1")), "/status", None).1;
+        assert_eq!(status["read_sync_available"], true);
+        let status = get(&start(), "/status", None).1;
+        assert_eq!(
+            (
+                status["firmware"].clone(),
+                status["read_sync_available"].clone()
+            ),
+            (Value::Null, json!(true))
         );
     }
 
