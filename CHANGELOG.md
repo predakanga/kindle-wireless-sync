@@ -9,9 +9,7 @@ one.
 ## [Unreleased]
 
 ### Changed
-- The KPM repository is now shared with predakanga's other Kindle apps:
-  `https://predakanga.github.io/kindle-apps/repo.json`. The old
-  repository has been removed.
+- The KPM repository is now at `https://predakanga.github.io/kindle-apps/repo.json`.
 - Reading status sync needs Kindle firmware 5.19.1 or later, because older
   firmware doesn't record when a book was last opened. On older firmware
   the app says so instead of offering the setting, and a sync set up
