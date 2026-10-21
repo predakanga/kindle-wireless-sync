@@ -8,6 +8,11 @@ one.
 
 ## [Unreleased]
 
+### Fixed
+- An upgrade that changes the Wireless Sync tile (as from 0.1.x) no longer
+  waits 30 seconds and then says the library hasn't listed Wireless Sync
+  yet. The tile was there all along.
+
 ## [0.4.1] - 2026-10-21
 
 ### Changed

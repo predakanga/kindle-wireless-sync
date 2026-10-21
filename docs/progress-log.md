@@ -310,7 +310,12 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     153 before. Rapid uninstall-and-reinstall cycles (every 15 to 20 s)
     still hit it, since KPM's rescan after the uninstall can overlap the
     next install; waiting for `fullScanStatus` to be 0 first didn't help,
-    so that isn't in. Upgrades don't rewrite the scriptlet.
+    so that isn't in. Upgrades don't rewrite the scriptlet unless it
+    changed. When one does (upgrading 0.4.1 over a development build,
+    2026-10-21), the wait ran out: renaming a file over a listed one leaves
+    its entry's time as it was (research note, "Indexing"). A scriptlet
+    listed before has nothing to insert twice, so `install.sh` now only
+    waits for its entry to exist.
   - **Uninstall stopped after removing the upstart jobs** (KPM exit 255,
     56 s), leaving the app registered, the tile and our directory. Not
     reproduced in nine more uninstalls (1 to 2 s each). The only step in

@@ -63,6 +63,16 @@ echo "Registering the Wireless Sync app"
 sh "$DIR/register-app.sh" register
 # mesquite caches the app's files; without this an upgrade shows the old UI.
 rm -rf "/var/local/mesquite/$APP_ID"
+# The catalog's entries for the scriptlet, with an optional extra condition.
+listed() {
+    sqlite3 -readonly /var/local/cc.db \
+        "SELECT count(*) FROM Entries WHERE p_location = '$SCRIPTLET'$1;" 2>/dev/null
+}
+# Renaming a file over one the catalog lists leaves its entry as it was
+# (research note, "Indexing"), so the wait at the end can only look for
+# the new modification time if the scriptlet wasn't listed yet.
+was_listed=0
+[ -e "$SCRIPTLET" ] && [ "$(listed)" = 1 ] && was_listed=1
 # Only when it changed: the scanner indexes it again each time (see the end).
 cmp -s "$PKG/WirelessSync.sh" "$SCRIPTLET" || put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755
 
@@ -104,12 +114,15 @@ fi
 # Wait until the catalog has the scriptlet as it is now. First make sure
 # it's there: once, on the emulated Kindle, the old copy the check above
 # kept was gone by now (2026-10-19, cause unknown).
-[ -x "$SCRIPTLET" ] || put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755
-mtime=$(stat -c %Y "$SCRIPTLET" 2>/dev/null || echo 0)
+[ -x "$SCRIPTLET" ] || { put "$PKG/WirelessSync.sh" "$SCRIPTLET" 755; was_listed=0; }
+# A scriptlet listed before keeps its entry, so there's nothing to insert
+# twice, and its entry's time doesn't change (2026-10-21).
+since=""
+if [ "$was_listed" = 0 ]; then
+    since=" AND p_modificationTime >= $(stat -c %Y "$SCRIPTLET" 2>/dev/null || echo 0)"
+fi
 i=0
-until [ "$(sqlite3 -readonly /var/local/cc.db \
-        "SELECT count(*) FROM Entries WHERE p_location = '$SCRIPTLET' AND p_modificationTime >= $mtime;" \
-        2>/dev/null)" = 1 ]; do
+until [ "$(listed "$since")" = 1 ]; do
     i=$((i + 1))
     if [ "$i" -gt 30 ]; then
         echo "The library hasn't listed Wireless Sync yet; it should appear shortly"
