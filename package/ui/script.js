@@ -244,7 +244,12 @@
         return "";
     }
 
-    function readSyncText(lib) {
+    // Older firmware can't sync reading status (ADR 0026); an unknown
+    // version can.
+    function readSyncAvailable(s) { return s.read_sync_available !== false; }
+
+    function readSyncText(s, lib) {
+        if (!readSyncAvailable(s)) return "Reading status sync isn't available on this Kindle";
         if (!lib.writable) return "Not syncing reading status";
         if (!lib.read_column && !lib.last_read_column) return "Reading status sync is on, but no columns have been chosen";
         return "Syncing reading status to Calibre";
@@ -265,7 +270,7 @@
                 + (detail ? '<div class="status-detail">' + esc(detail).replace(/\n/g, "<br />") + '</div>' : ''))
             + fact("Linked to", esc(lib.name || lib.uuid))
             + fact("Address", esc(where(lib)))
-            + '<div class="note">' + esc(readSyncText(lib)) + '</div>';
+            + '<div class="note">' + esc(readSyncText(s, lib)) + '</div>';
         if (s.state === "password_rejected") {
             html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
         }
@@ -347,7 +352,11 @@
             + '<span class="chev">›</span></div>';
     }
 
-    function readSyncForm(columns) {
+    function readSyncForm(s, columns) {
+        if (!readSyncAvailable(s)) {
+            return '<div class="hint">Reading status sync needs Kindle firmware 5.19.1 or later. '
+                + 'This Kindle has ' + esc(s.firmware) + '.</div>';
+        }
         var html = toggleRow("Update read status in Calibre", form.writable, "writable", true)
             + '<div class="hint">When enabled, books\' completion and last-read date are synced to Calibre.</div>';
         if (!form.writable) return html;
@@ -359,7 +368,7 @@
         var lib = s.probe.library;
         return header("Link " + (lib.name || lib.uuid), "cancelprobe")
             + '<div class="sub">' + esc(where(lib)) + '</div>'
-            + readSyncForm(form.columns)
+            + readSyncForm(s, form.columns)
             + wide("Link", "link", { cls: "btn-strong" });
     };
 
@@ -410,8 +419,8 @@
             + fact("Address", esc(address(lib)))
             + fact("Password", (lib.has_password ? "Set" : "None")
                 + button("Change", "password", { cls: "btn-small", arg: "settings" }))
-            + readSyncForm(lib.columns)
-            + (form.writable ? '<div class="hint">Columns as of the last connection to Calibre.</div>' : '')
+            + readSyncForm(s, lib.columns)
+            + (form.writable && readSyncAvailable(s) ? '<div class="hint">Columns as of the last connection to Calibre.</div>' : '')
             + wide("Save", "save", { cls: "btn-strong", disabled: !changed });
     };
 

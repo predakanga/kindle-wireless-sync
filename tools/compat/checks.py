@@ -258,9 +258,33 @@ def catalog_schema(ctx):
         have = set(g.sql(CC, f"SELECT name FROM pragma_table_info('{table}')").split())
         data[table] = len(have)
         missing += [f"{table}.{c}" for c in cols if c not in have]
+    # Read sync is off below 5.19.1, which has no p_lastOpenTime (ADR 0026).
+    # The binary reads the version from the same line.
+    pretty = g.run("grep -m1 '^Kindle [0-9]' /etc/prettyversion.txt")[1].split()
+    firmware = pretty[1] if len(pretty) > 1 else None
+    data["prettyversion"] = firmware
+    expected = []
+    if firmware and older_than(firmware, READ_SYNC_MIN) and "Entries.p_lastOpenTime" in missing:
+        missing.remove("Entries.p_lastOpenTime")
+        expected.append(f"no p_lastOpenTime, as expected on {firmware}: read sync is off below {READ_SYNC_MIN}")
     if missing:
         return FAIL, f"missing: {', '.join(missing)}", data
+    if expected:
+        return PASS, "; ".join(expected), data
     return PASS, f"Entries and Series have all {len(ENTRIES_COLUMNS) + len(SERIES_COLUMNS)} columns read or written", data
+
+
+READ_SYNC_MIN = "5.19.1"  # firmware::READ_SYNC_MIN
+
+
+def older_than(version, other):
+    """Compares firmware versions number by number, like firmware::compare."""
+    try:
+        a, b = [[int(n) for n in v.split(".")] for v in (version, other)]
+    except ValueError:
+        return False
+    width = max(len(a), len(b))
+    return a + [0] * (width - len(a)) < b + [0] * (width - len(b))
 
 
 @check("appreg_schema", "The app registry (appreg.db) has the tables register-app.sh writes")

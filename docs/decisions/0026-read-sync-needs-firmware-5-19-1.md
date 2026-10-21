@@ -114,3 +114,21 @@ failure.
   the research note). If 5.19 doesn't keep `p_readState`, raise the
   threshold. Also the app's note on a 5.18.6 emulator instance, and that
   `/etc/prettyversion.txt` has the same form on other models.
+
+## Implementation notes (2026-10-21)
+- `src/firmware.rs` reads and compares the version (`READ_SYNC_MIN`).
+  `main.rs` passes `firmware::read()` to the daemon as
+  `Options::firmware`; tests pass their own.
+- `LinkedAdmit` gives the session no sync columns on older firmware, so
+  the handshake names none and the book list carries no read-sync fields
+  (`daemon::tests::read_sync_needs_firmware_5_19_1`).
+- The API refuses `writable: true` in `/link` and `/settings` with
+  `firmware::read_sync_unavailable`'s message
+  (`api::tests::read_sync_refused_on_older_firmware`). `link --writable`
+  fails with the same message before changing anything.
+- The app treats a missing `read_sync_available` as available, like the
+  daemon treats an unknown version. The note shows on the setup and
+  settings pages; the fit check has a page for each
+  (`setup-old-firmware`, `settings-old-firmware`).
+- compat's `catalog_schema` reads `/etc/prettyversion.txt` in the guest
+  and passes a missing `p_lastOpenTime` below 5.19.1.

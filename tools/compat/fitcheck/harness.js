@@ -193,6 +193,13 @@
           probe: probeAt("ok", { library: merge(CHECKED, { columns: {} }) }),
           steps: [["click", "probe", FOUND[0].uuid], ["click", "writable"], ["click", "picker", "datetime"]],
           expect: "has no Date columns" },
+        // Firmware older than 5.19.1: a note instead of the switch (ADR 0026).
+        { name: "setup-old-firmware",
+          status: merge(UNLINKED, { found: FOUND, read_sync_available: false, firmware: "5.18.6" }),
+          probe: probeAt("ok", { library: CHECKED }),
+          steps: [["click", "probe", FOUND[0].uuid]], expect: "needs Kindle firmware 5.19.1" },
+        { name: "settings-old-firmware", status: merge(BASE, { read_sync_available: false, firmware: "5.18.6" }),
+          steps: [["click", "go", "settings"]], expect: "needs Kindle firmware 5.19.1" },
         { name: "dialog-replace", status: merge(BASE, { found: FOUND }), probe: probeAt("ok", { library: CHECKED }),
           link: { ok: false, needs_replace: true, linked: { uuid: LIB.uuid, name: LIB_NAME },
                   library: { uuid: CHECKED.uuid, name: OTHER_NAME } },
