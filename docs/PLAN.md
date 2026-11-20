@@ -47,8 +47,8 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.2** (2026-10-21) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
 | Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
-| Later 1, 3–6 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 2, 7–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 1, 3, 5, 6 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2, 4, 7–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -189,10 +189,6 @@ them. Each item's full text is in the
   columns), through ChangeRequest. First check whether cloud collections
   sync to other devices. [More](progress-log.md#later-3)
 
-- **4. ~~A script that turns series grouping on or off~~:** moved to its own
-  package, [Kindle Series Enabler](https://github.com/predakanga/kindle-series-enabler)
-  (2026-10-20). [More](progress-log.md#later-4)
-
 - **5. Percent read to Calibre.** Waiting on upstream: the developer is
   asking whether Calibre would carry progress over the wireless
   connection (2026-11-20). [More](progress-log.md#later-5)
@@ -211,6 +207,10 @@ them. Each item's full text is in the
 - ✅ **2b. Translations:** the app's text is in `package/i18n/en.json`, and the
   service's messages carry codes the app translates (ADR 0028,
   2026-11-20). [More](progress-log.md#later-2)
+
+- ✅ **4. A script that turns series grouping on or off:** closed here;
+  it's its own package, [Kindle Series Enabler](https://github.com/predakanga/kindle-series-enabler)
+  (2026-10-20). [More](progress-log.md#later-4)
 
 - ✅ **7. A tap-debugging helper in this repo:** `just tap`, `just
   screenshot` and `just tap-shot`, with a credited copy of Button Mapper's
