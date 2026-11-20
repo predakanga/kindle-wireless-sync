@@ -1,6 +1,6 @@
 # 0028: Translatable text
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-11-20)
 - Date: 2026-11-20
 
 ## Context

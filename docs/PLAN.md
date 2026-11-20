@@ -209,7 +209,7 @@ them. Each item's full text is in the
   [More](progress-log.md#later-2)
 
 - ✅ **2b. Translations:** the app's text is in `package/i18n/en.json`, and the
-  service's messages carry codes the app translates (ADR 0028, proposed,
+  service's messages carry codes the app translates (ADR 0028,
   2026-11-20). [More](progress-log.md#later-2)
 
 - ✅ **7. A tap-debugging helper in this repo:** `just tap`, `just
@@ -236,7 +236,7 @@ them. Each item's full text is in the
   Library's badge shows only whole numbers. [More](progress-log.md#later-13)
 
 - ✅ **14. Keep the Kindle awake while transferring:** a busy session
-  resets powerd's idle timer (ADR 0027, proposed, 2026-11-20).
+  resets powerd's idle timer (ADR 0027, 2026-11-20).
   [More](progress-log.md#later-14)
 
 ## Open questions

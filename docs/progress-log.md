@@ -417,7 +417,7 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    considers done, and **2b**, moving the text into a translation file,
    still open.
 
-   **2b done (2026-11-20), ADR 0028 (proposed).** The app's text is in
+   **2b done (2026-11-20), ADR 0028.** The app's text is in
    `package/i18n/en.json` (JSON, so Weblate can take it), built into
    `package/ui/strings-<lang>.js` by `just strings`; `script.js` looks it
    up with `t(key, params)`. The service's messages (`src/message.rs`) carry a code beside
@@ -645,7 +645,7 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     Kindle stays awake until a reboot. Check also whether other apps set
     it, so that clearing it doesn't undo theirs.
 
-    **Done (2026-11-20), ADR 0027 (proposed).** Not `preventScreenSaver`:
+    **Done (2026-11-20), ADR 0027.** Not `preventScreenSaver`:
     it's one global flag that a crash would leave set. Instead, each
     non-keep-alive message from the linked library resets powerd's idle
     timer with `touchScreenSaverTimeout` (as KOReader's `resetT1Timeout`

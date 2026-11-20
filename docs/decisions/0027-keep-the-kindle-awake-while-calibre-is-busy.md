@@ -1,6 +1,6 @@
 # 0027: Keep the Kindle awake while Calibre is busy
 
-- Status: Proposed
+- Status: Accepted (developer, 2026-11-20)
 - Date: 2026-11-20
 
 ## Context
