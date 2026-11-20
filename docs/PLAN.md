@@ -231,12 +231,12 @@ them. Each item's full text is in the
 - ✅ **12. Choose where books are stored** (ADR 0023, 0.4.0).
   [More](progress-log.md#later-12)
 
+- ✅ **13. Fractional series positions:** closed; ordered right, but the
+  Library's badge shows only whole numbers. [More](progress-log.md#later-13)
+
 - ✅ **14. Keep the Kindle awake while transferring:** a busy session
   resets powerd's idle timer (ADR 0027, proposed, 2026-11-20).
   [More](progress-log.md#later-14)
-
-- ✅ **13. Fractional series positions:** closed; ordered right, but the
-  Library's badge shows only whole numbers. [More](progress-log.md#later-13)
 
 ## Open questions
 
