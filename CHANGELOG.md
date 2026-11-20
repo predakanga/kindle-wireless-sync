@@ -8,6 +8,8 @@ one.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-20
+
 ### Changed
 - The app's text can now be translated. It's in `package/i18n/en.json`; a
   copy named for a language (`de.json`) is used when the Kindle is set to
@@ -180,7 +182,8 @@ First release.
   on the device instead of sending them again.
 - Install, upgrade and uninstall through KPM. Uninstalling keeps your books.
 
-[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/predakanga/kindle-wireless-sync/compare/v0.3.2...v0.4.0
