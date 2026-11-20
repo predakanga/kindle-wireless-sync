@@ -515,6 +515,29 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    file's own title shows in the Library (one test book showed
    "Dungeon Crawler Carl - 01"), not Calibre's.
 
+   **Done (2026-11-20)**, on the reference device with the developer's
+   Calibre 9.18 and Edgedancer, a KFX made by Calibre's KFX Output plugin
+   (`kfxgen_application_version: kfxlib-20241129`):
+   - **Receiving:** the file matched Calibre's (MD5); the catalog listed it
+     at once with key `B06XRHRHPH` (EBOK), title "Edgedancer" and a
+     thumbnail; our record took the key and series. It formed no series
+     group, as the only Stormlight book on the device (`MIN_MEMBERS`).
+   - **Replacing** (sent again, unchanged): rewritten in place (same inode),
+     same catalog entry with a new modification time, same key, cover
+     rewritten. One record, one catalog row, one tile.
+   - **Deleting** from Calibre's device view: file, catalog row, thumbnail
+     and record removed ("removed 1 books from the catalog"); gone from the
+     Library at once.
+   - **Calibre's UUID is not in the file.** None of the developer's 8 KFX
+     Output files holds its book UUID in any form (dashed, upper case, hex,
+     raw bytes either way), nor the word "calibre", though their titles are
+     findable as plain text. So adoption (ADR 0013) can recover a KFX only
+     through `metadata.calibre`, not from the file, unlike AZW3/MOBI (EXTH).
+   - **Relinking** (ADR 0018) doesn't read the file: `forget_library` keeps
+     each record's `uuid`, title and authors (and `_kws`, so the key), and
+     the new library matches on those. KFX relinks like any other format;
+     not run on the device, since it would reset the developer's library.
+
 <a id="later-10"></a>
 ### Later 10
 

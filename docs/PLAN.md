@@ -47,8 +47,8 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.2** (2026-10-21) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
 | Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
-| Later 1, 2b, 3–6, 9 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 2a, 7, 8, 10–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 1, 2b, 3–6 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2a, 7–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -204,10 +204,6 @@ them. Each item's full text is in the
   it; first check whether that is reported to Amazon.
   [More](progress-log.md#later-6)
 
-- **9. Test KFX.** Receiving works; still to check deleting and replacing a
-  KFX book, whether it carries Calibre's UUID, and relinking.
-  [More](progress-log.md#later-9)
-
 
 ### Done or closed
 
@@ -221,6 +217,10 @@ them. Each item's full text is in the
 
 - ✅ **8. Reconnect after Calibre restarts** (ADR 0021, 0.3.2).
   [More](progress-log.md#later-8)
+
+- ✅ **9. Test KFX:** receiving, replacing and deleting work; the file
+  doesn't carry Calibre's UUID, so only `metadata.calibre` can adopt one
+  (2026-11-20). [More](progress-log.md#later-9)
 
 - ✅ **10. End connections more reliably** (ADR 0022, 0.3.2).
   [More](progress-log.md#later-10)
