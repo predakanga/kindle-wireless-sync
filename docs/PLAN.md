@@ -193,8 +193,9 @@ them. Each item's full text is in the
   package, [Kindle Series Enabler](https://github.com/predakanga/kindle-series-enabler)
   (2026-10-20). [More](progress-log.md#later-4)
 
-- **5. A Calibre plugin for percent read,** extending the wireless
-  connection rather than adding a second one. [More](progress-log.md#later-5)
+- **5. Percent read to Calibre.** Waiting on upstream: the developer is
+  asking whether Calibre would carry progress over the wireless
+  connection (2026-11-20). [More](progress-log.md#later-5)
 
 - **6. Send read status from Calibre to the Kindle.** ChangeRequest can set
   it; first check whether that is reported to Amazon.

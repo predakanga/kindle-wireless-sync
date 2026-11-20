@@ -468,6 +468,16 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    `research/calibre-wireless-protocol.md`, "Can a plugin extend the
    wireless driver?". Ratings are out of scope (ADR 0017).
 
+   **Deferred again (2026-11-20), waiting on upstream.** Every route into
+   `last_read_positions` (which Calibre 9.5's built-in Read progress column
+   shows) is in the research note, "Every way into `last_read_positions`":
+   short of a plugin, only the Content server's endpoint, a second
+   connection. KOReader sync (`/kosync`, 9.18) was considered and is no
+   use: Calibre shows those positions nowhere. The developer prefers
+   asking upstream to carry progress over the wireless connection itself
+   (sketch in the same note) and is asking whether such a change would be
+   accepted before anything is built.
+
 <a id="later-6"></a>
 ### Later 6
 

@@ -242,6 +242,43 @@ Both ways below keep the single wireless connection.
   so the standard `reading_progress()` would work with no custom column. A
   rating would go to Calibre's built-in `rating` field.
 
+#### Every way into `last_read_positions` (2026-11-20, Calibre 9.18/9.19)
+
+Calibre 9.5 added a built-in **Read progress** column (Preferences → Add
+your own columns → "Read progress"): the template `{id:reading_progress()}`,
+which reads the library's `last_read_positions` (`utils/formatter_functions.py`,
+`BuiltinReadingProgress`; any user, most recent record by default). What
+writes that table:
+- **The desktop E-book viewer**, through the running GUI over local IPC
+  (`save-annotations:`, `gui2/viewer/integration.py`). Local only.
+- **The Content server**, `POST /book-set-last-read-position/{library_id}/{book_id}/{fmt}`
+  with `{device, cfi, pos_frac}` (`srv/books.py`), as its browser viewer
+  does. Needs a logged-in user with write access: a second connection.
+- **Calibre's Python API**, `db.set_last_read_position()`: a plugin.
+
+What doesn't:
+- **KOReader sync (`/kosync`, new in 9.18)** keeps positions in the
+  server's user database (`server-users.sqlite`, `kosync_progress`), keyed
+  by the file's partial MD5. Only `/kosync` reads them: not the book list,
+  not the Read progress column, not the Content server's viewer.
+- **`calibredb`** has no command for it; importing annotations (9.18)
+  leaves positions alone (`db/cli/tests.py`).
+- **The OPDS 2.0 feed (9.18)** has no progress API.
+- **Fetch annotations** is only implemented by the USB Kindle and Kobo
+  drivers, and writes comments or a column.
+- **The wireless driver's sync columns** are type-checked in
+  `synchronize_with_db`: Yes/No for read status, date for the date.
+
+**Proposed upstream (developer asking first, 2026-11-20):** let the
+wireless driver carry progress itself. The device adds
+`_reading_progress_: {"pos_frac": …, "epoch": …}` to each book record;
+`books()` copies it for cached books beside `_is_read_` (the two cache
+paths, around `book.set('_is_read_', …)`); `synchronize_with_db()` calls
+`set_last_read_position(book_id, fmt, …, device=<device name>,
+pos_frac=…)` when newer. Older Calibre ignores the field. KOReader's
+`calibre.koplugin`, a client of the same protocol, could use it too. The
+Kindle's side: `cc.db` `p_percentFinished` (0–100) and `p_lastOpenTime`.
+
 ## Things the client must persist on the Kindle
 
 - The `driveinfo` record (`device_store_uuid` etc.) from
