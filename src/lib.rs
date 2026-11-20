@@ -11,6 +11,7 @@ pub mod folders;
 pub mod kindle;
 pub mod library;
 pub mod lpath;
+pub mod message;
 pub mod network;
 pub mod protocol;
 pub mod readsync;

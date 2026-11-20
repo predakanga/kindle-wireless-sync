@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 
 use crate::daemon::FoundLibrary;
 use crate::library;
+use crate::message::Message;
 use crate::protocol::Connection;
 use crate::session::{self, CheckEnd, DeviceConfig};
 
@@ -42,9 +43,9 @@ pub const BUSY_WAIT: Duration = Duration::from_secs(3);
 /// What to tell the user when Calibre closes a connection before saying
 /// anything: most likely its lockout after 5 failed connections from this
 /// address, which only restarting its wireless connection clears.
-pub const LOCKED_OUT: &str = "Calibre may have stopped accepting this Kindle after too many \
-    failed attempts. In Calibre, stop and start the wireless device connection \
-    (Connect/share), then try again.";
+pub fn locked_out() -> Message {
+    Message::new("svc.locked_out")
+}
 
 /// The library to check.
 #[derive(Debug, Clone, PartialEq)]
@@ -106,7 +107,7 @@ pub struct CheckStatus {
     pub host: String,
     pub port: u16,
     pub uuid: Option<String>,
-    pub error: Option<String>,
+    pub error: Option<Message>,
     pub library: Option<Checked>,
 }
 
@@ -135,7 +136,7 @@ impl CheckStatus {
         }
     }
 
-    fn ended(mut self, state: CheckState, error: Option<String>) -> CheckStatus {
+    fn ended(mut self, state: CheckState, error: Option<Message>) -> CheckStatus {
         self.state = state;
         self.error = error;
         self
@@ -146,7 +147,8 @@ impl CheckStatus {
         json!({
             "state": self.state.as_str(),
             "target": {"name": self.name, "host": self.host, "port": self.port, "uuid": self.uuid},
-            "error": self.error,
+            "error": self.error.as_ref().map(Message::english),
+            "message": self.error.as_ref().map(Message::to_json),
             "library": self.library.as_ref().map(|l| json!({
                 "uuid": l.uuid, "name": l.name, "host": l.host, "port": l.port,
                 "hostname": l.hostname, "columns": l.columns,
@@ -197,7 +199,7 @@ pub fn run(
     {
         Some(a) => a,
         None => {
-            let error = format!("Couldn't find {} on the network.", status.host);
+            let error = Message::new("svc.host_not_found").with("host", &status.host);
             return status.ended(CheckState::Unreachable, Some(error));
         }
     };
@@ -273,19 +275,15 @@ pub fn run(
             status.uuid = Some(info.library_uuid);
             status.ended(state, None)
         }
-        Ok(CheckEnd::Busy) => status.ended(
-            CheckState::Busy,
-            Some("Calibre is busy with another device.".into()),
-        ),
-        Ok(CheckEnd::ClosedAtOnce) => status.ended(CheckState::LockedOut, Some(LOCKED_OUT.into())),
+        Ok(CheckEnd::Busy) => status.ended(CheckState::Busy, Some(Message::new("svc.busy"))),
+        Ok(CheckEnd::ClosedAtOnce) => status.ended(CheckState::LockedOut, Some(locked_out())),
         Ok(CheckEnd::ProtocolMismatch) => status.ended(
             CheckState::Failed,
-            Some("This version of Calibre's wireless connection isn't supported.".into()),
+            Some(Message::new("svc.unsupported_protocol")),
         ),
-        Ok(CheckEnd::Closed) => status.ended(
-            CheckState::Failed,
-            Some("Calibre ended the connection before the check finished.".into()),
-        ),
+        Ok(CheckEnd::Closed) => {
+            status.ended(CheckState::Failed, Some(Message::new("svc.ended_early")))
+        }
         Err(e) => {
             let state = if matches!(
                 e.kind(),
@@ -297,8 +295,8 @@ pub fn run(
             } else {
                 CheckState::Failed
             };
-            let text = unreachable_text(&status.host, status.port, &e);
-            status.ended(state, Some(text))
+            let error = unreachable_message(&status.host, status.port, &e);
+            status.ended(state, Some(error))
         }
     }
 }
@@ -336,14 +334,17 @@ fn check_id(state_dir: &Path) -> Option<String> {
         .then(|| id.to_owned())
 }
 
-fn unreachable_text(host: &str, port: u16, e: &io::Error) -> String {
+fn unreachable_message(host: &str, port: u16, e: &io::Error) -> Message {
     match e.kind() {
         io::ErrorKind::ConnectionRefused | io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => {
-            format!(
-                "Nothing answered at {host}:{port}. Check that Calibre's wireless device connection is started."
-            )
+            Message::new("svc.nothing_answered")
+                .with("host", host)
+                .with("port", port)
         }
-        _ => format!("Couldn't connect to {host}:{port}: {e}"),
+        _ => Message::new("svc.cannot_connect")
+            .with("host", host)
+            .with("port", port)
+            .with("error", e),
     }
 }
 

@@ -47,8 +47,8 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.2** (2026-10-21) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
 | Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
-| Later 1, 2b, 3–6 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 2a, 7–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 1, 3–6 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2, 7–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -185,10 +185,6 @@ them. Each item's full text is in the
   Report it upstream, and decide how to ship upgrades until it's fixed
   (ADR 0012). [More](progress-log.md#later-1)
 
-- **2b. Translations.** Move the app's text into a translation file, so
-  it can be translated. Split from Later 2 (2026-10-21).
-  [More](progress-log.md#later-2)
-
 - **3. Kindle collections from Calibre fields** (series, tags, custom
   columns), through ChangeRequest. First check whether cloud collections
   sync to other devices. [More](progress-log.md#later-3)
@@ -210,6 +206,10 @@ them. Each item's full text is in the
 - ✅ **2a. Review the UI:** e-ink usability and the wording of every
   message (developer, 2026-10-21). Split from Later 2.
   [More](progress-log.md#later-2)
+
+- ✅ **2b. Translations:** the app's text is in `strings-en.js`, and the
+  service's messages carry codes the app translates (ADR 0028, proposed,
+  2026-11-20). [More](progress-log.md#later-2)
 
 - ✅ **7. A tap-debugging helper in this repo:** `just tap`, `just
   screenshot` and `just tap-shot`, with a credited copy of Button Mapper's

@@ -3,7 +3,7 @@
  * Wireless Sync settings app: one screen per page (ADR 0020), talking to the
  * service's localhost API (ADR 0011). ES5 only: the Kindle's mesquite engine
  * has no fetch, promises or arrow functions. The design was settled with
- * tools/ui-prototype.
+ * tools/ui-prototype. Its text is in strings-<language>.js (ADR 0028).
  */
 (function () {
     "use strict";
@@ -32,23 +32,82 @@
     var findNote = "";          // what the last search couldn't reach
     var messageTimer = null;
 
+    // ---- text (ADR 0028) ----
+
+    // strings-en.js is loaded first; a translation adds its own table.
+    var STRINGS = window.KWS_STRINGS || (window.KWS_STRINGS = {});
+    var language = null;        // the translation's table, if any
+    var locale = null;          // the locale its files were asked for
+
+    function template(key) {
+        if (language && language[key] !== undefined) return language[key];
+        if (STRINGS.en && STRINGS.en[key] !== undefined) return STRINGS.en[key];
+        return null;
+    }
+
+    /// The text for `key` as HTML, with each {name} filled from `params`,
+    /// escaped. The templates themselves may hold <b> and <i>.
+    function t(key, params) {
+        var text = template(key);
+        if (text === null) return esc(key);
+        return text.replace(/\{(\w+)\}/g, function (all, name) {
+            var v = params ? params[name] : undefined;
+            return v === undefined || v === null ? all : esc(v);
+        });
+    }
+
+    /// A message from the service as HTML: its code's text when known,
+    /// otherwise the English the service sent alongside it.
+    function msg(m, english) {
+        if (m && m.code && template(m.code) !== null) return t(m.code, m);
+        return english ? esc(english) : "";
+    }
+
+    /// Loads the translation for `loc` ("de_DE"): strings-de_DE.js and
+    /// strings-de.js, the most specific one that loads winning. Nothing is
+    /// waited for: a missing file just never adds its table.
+    function loadLanguage(loc) {
+        if (!loc || loc === locale) return;
+        locale = loc;
+        var names = [loc];
+        var base = loc.split(/[_-]/)[0];
+        if (base !== loc) names.push(base);
+        function pick() {
+            for (var i = 0; i < names.length; i++) {
+                if (names[i] === "en") break;
+                if (STRINGS[names[i]]) {
+                    if (language !== STRINGS[names[i]]) { language = STRINGS[names[i]]; redraw(); }
+                    return;
+                }
+            }
+        }
+        for (var i = 0; i < names.length; i++) {
+            if (names[i] === "en" || STRINGS[names[i]]) continue;
+            var script = document.createElement("script");
+            script.src = "strings-" + names[i] + ".js";
+            script.onload = pick;
+            document.getElementsByTagName("head")[0].appendChild(script);
+        }
+        pick();
+    }
+
     // ---- HTTP ----
 
     function request(method, path, body, cb) {
         var xhr = new XMLHttpRequest();
         var done = false;
         var timer = setTimeout(function () {
-            if (!done) { done = true; xhr.abort(); cb(null, "The service didn't answer."); }
+            if (!done) { done = true; xhr.abort(); cb(null, t("err.no_answer")); }
         }, 30000);
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4 || done) return;
             done = true;
             clearTimeout(timer);
-            if (xhr.status === 0) return cb(null, "The service isn't running.");
+            if (xhr.status === 0) return cb(null, t("err.not_running"));
             var data = null;
             try { data = JSON.parse(xhr.responseText); } catch (e) { /* handled below */ }
-            if (!data) return cb(null, "Unexpected reply (HTTP " + xhr.status + ").");
-            if (xhr.status !== 200) return cb(null, data.error || ("HTTP " + xhr.status));
+            if (!data) return cb(null, t("err.unexpected_reply", { status: xhr.status }));
+            if (xhr.status !== 200) return cb(null, msg(data.message, data.error) || t("err.http", { status: xhr.status }));
             cb(data, null);
         };
         try {
@@ -63,15 +122,16 @@
         } catch (e) {
             done = true;
             clearTimeout(timer);
-            cb(null, "Couldn't reach the service.");
+            cb(null, t("err.unreachable"));
         }
     }
 
-    /// POST, reporting failures ({ok: false}) as messages.
+    /// POST, reporting failures ({ok: false}) as messages. Errors given to
+    /// callbacks are HTML.
     function post(path, body, cb) {
         request("POST", path, body || {}, function (data, err) {
             if (err) showMessage(err);
-            else if (!data.ok && !data.needs_replace) showMessage(data.error || "That didn't work.");
+            else if (!data.ok && !data.needs_replace) showMessage(msg(data.message, data.error) || t("err.didnt_work"));
             if (cb) cb(data, err);
             refresh();
         });
@@ -87,9 +147,10 @@
             .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
-    function showMessage(text) {
+    /// Shows `html` for a few seconds.
+    function showMessage(html) {
         var m = el("message");
-        m.innerHTML = esc(text);
+        m.innerHTML = html;
         m.className = "message visible";
         if (messageTimer) clearTimeout(messageTimer);
         messageTimer = setTimeout(function () { m.className = "message"; }, MESSAGE_MS);
@@ -120,10 +181,11 @@
         return out;
     }
 
+    /// A column's name, as HTML.
     function columnName(columns, lookup) {
-        if (!lookup) return "Don't sync";
+        if (!lookup) return t("column.dont_sync");
         var c = columns && columns[lookup];
-        return c ? (c.name || lookup) : lookup + " (missing)";
+        return c ? esc(c.name || lookup) : t("column.missing", { lookup: lookup });
     }
 
     function hasColumn(columns, kind, lookup) {
@@ -156,19 +218,21 @@
         + '<path d="M5 20.5h9.5a6.25 6.25 0 0 0 0-12.5H8" fill="none" stroke="currentColor" stroke-width="3"/>'
         + '<path d="M9 2.5v11l-7-5.5z" fill="currentColor"/></svg>';
 
+    // The building blocks below take HTML: t() for text, esc() for data.
+
     /// A page header: a back button (backAct) or none, and a gear for
     /// Settings on the first pages.
     function header(title, backAct, gear) {
         return '<div class="header">'
             + (backAct ? '<button class="back" data-act="' + backAct + '">‹</button>' : '')
-            + '<div class="title' + (backAct ? '' : ' no-back') + (gear ? ' with-gear' : '') + '">' + esc(title) + '</div>'
+            + '<div class="title' + (backAct ? '' : ' no-back') + (gear ? ' with-gear' : '') + '">' + title + '</div>'
             + (gear ? '<button class="gear" data-act="appsettings">' + GEAR + '</button>' : '')
             + '</div>';
     }
 
     function toggleRow(label, on, act, boxed) {
         return '<div class="toggle-row' + (boxed ? ' boxed' : '') + '">'
-            + '<span class="toggle-label">' + esc(label) + '</span>'
+            + '<span class="toggle-label">' + label + '</span>'
             + '<button class="toggle' + (on ? ' on' : '') + '" data-act="' + act + '"><span class="knob"></span></button></div>';
     }
 
@@ -176,7 +240,7 @@
         opts = opts || {};
         return '<button class="btn' + (opts.cls ? ' ' + opts.cls : '') + '" data-act="' + act + '"'
             + (opts.arg !== undefined ? ' data-arg="' + esc(opts.arg) + '"' : '')
-            + (opts.disabled ? ' disabled="disabled"' : '') + '>' + esc(label) + '</button>';
+            + (opts.disabled ? ' disabled="disabled"' : '') + '>' + label + '</button>';
     }
 
     function btnRow(buttons) {
@@ -191,56 +255,45 @@
     }
 
     function sectionLabel(text, aside) {
-        return '<div class="section-label">' + esc(text)
-            + (aside ? '<span class="aside">' + esc(aside) + '</span>' : '') + '</div>';
+        return '<div class="section-label">' + text
+            + (aside ? '<span class="aside">' + aside + '</span>' : '') + '</div>';
     }
 
     function field(id, label, type, value) {
-        return '<div class="field"><label for="' + id + '">' + esc(label) + '</label>'
+        return '<div class="field"><label for="' + id + '">' + label + '</label>'
             + '<input type="' + type + '" id="' + id + '" value="' + esc(value || "") + '" autocomplete="off" autocapitalize="off" /></div>';
     }
 
     function fact(k, v) {
-        return '<div class="fact"><span class="k">' + esc(k) + '</span><span class="v">' + v + '</span></div>';
+        return '<div class="fact"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
     }
 
     function forgetText(oldName, newName) {
-        return 'Your books and their series stay on the Kindle. The rest of what ' + esc(oldName)
-            + ' knew about them (tags, read status) is forgotten until ' + esc(newName) + ' sends its own.';
+        return t("replace.forget", { old: oldName, "new": newName });
     }
 
     // ---- pages ----
 
-    // What Home says for each state of the service (ADR 0008, 0020).
-    var STATE_LINES = {
-        connected: "Connected",
-        searching: "Connecting…",
-        not_found: "Library not available",
-        password_rejected: "Calibre rejected the password",
-        waiting_for_wifi: "Waiting for Wi-Fi",
-        paused: "Disconnected",
-        ejected: "Disconnected",
-        disconnecting: "Disconnecting…",
-        locked_out: "Calibre isn't accepting this Kindle",
-        error: "Problem",
-        not_linked: "No library linked",
-        stopped: "Stopped"
-    };
+    /// What Home says for a state of the service (ADR 0008, 0020).
+    function stateLine(state) {
+        return template("state." + state) !== null ? t("state." + state) : esc(state);
+    }
 
-    /// " (retrying in 23s)" while the service waits to try again. Counted
-    /// down here between polls, so the status itself stays unchanged.
+    /// " (retrying in 23s)" while the service waits to try again, as HTML.
+    /// Counted down here between polls, so the status itself stays unchanged.
     function retryText(s) {
         if (!s.retry_at) return "";
         var left = s.retry_at - Math.floor(new Date().getTime() / 1000);
-        return left > 0 ? " (retrying in " + left + "s)" : " (retrying…)";
+        return left > 0 ? t("home.retrying_in", { secs: left }) : t("home.retrying");
     }
 
-    /// The line under Home's status, if any: the service's advice, or the
-    /// detail where it adds to the state's own line. Newlines break it.
+    /// The line under Home's status, if any, as HTML: the service's
+    /// advice, or the detail where it adds to the state's own line.
+    /// Newlines break it.
     function statusDetail(s) {
         if (s.state === "password_rejected") return "";
-        if (s.advice) return s.advice;
-        if (!s.retry_at && s.state === "error") return s.detail || "";
+        if (s.advice) return msg(s.advice_msg, s.advice);
+        if (!s.retry_at && s.state === "error") return msg(s.detail_msg, s.detail);
         return "";
     }
 
@@ -249,10 +302,10 @@
     function readSyncAvailable(s) { return s.read_sync_available !== false; }
 
     function readSyncText(s, lib) {
-        if (!readSyncAvailable(s)) return "Reading status sync isn't available on this Kindle";
-        if (!lib.writable) return "Not syncing reading status";
-        if (!lib.read_column && !lib.last_read_column) return "Reading status sync is on, but no columns have been chosen";
-        return "Syncing reading status to Calibre";
+        if (!readSyncAvailable(s)) return t("readsync.unavailable");
+        if (!lib.writable) return t("readsync.off");
+        if (!lib.read_column && !lib.last_read_column) return t("readsync.no_columns");
+        return t("readsync.on");
     }
 
     var PAGES = {};
@@ -263,35 +316,34 @@
         // otherwise (resume, or try again now).
         var trying = !s.paused && (s.state === "connected" || s.state === "searching" || s.state === "waiting_for_wifi");
         var detail = statusDetail(s);
-        var html = header("Wireless Sync", null, true)
+        var html = header(t("app.name"), null, true)
             + '<div class="card">'
-            + fact("Status", '<b>' + esc(STATE_LINES[s.state] || s.state)
-                + '<span id="retryIn">' + esc(retryText(s)) + '</span></b>'
-                + (detail ? '<div class="status-detail">' + esc(detail).replace(/\n/g, "<br />") + '</div>' : ''))
-            + fact("Linked to", esc(lib.name || lib.uuid))
-            + fact("Address", esc(where(lib)))
-            + '<div class="note">' + esc(readSyncText(s, lib)) + '</div>';
+            + fact(t("home.status"), '<b>' + stateLine(s.state)
+                + '<span id="retryIn">' + retryText(s) + '</span></b>'
+                + (detail ? '<div class="status-detail">' + detail.replace(/\n/g, "<br />") + '</div>' : ''))
+            + fact(t("home.linked_to"), esc(lib.name || lib.uuid))
+            + fact(t("common.address"), esc(where(lib)))
+            + '<div class="note">' + readSyncText(s, lib) + '</div>';
         if (s.state === "password_rejected") {
-            html += wide("Enter the password", "password", { cls: "btn-strong", arg: "home" });
+            html += wide(t("home.enter_password"), "password", { cls: "btn-strong", arg: "home" });
         }
         html += '</div>'
-            + btnRow([button(trying ? "Disconnect" : "Connect", trying ? "disconnect" : "connect", { cls: "btn-strong" }),
-                      button("Library settings", "go", { arg: "settings" })])
-            + btnRow([button("Change library", "change"), button("Forget library", "unlink")]);
+            + btnRow([button(t(trying ? "home.disconnect" : "home.connect"), trying ? "disconnect" : "connect", { cls: "btn-strong" }),
+                      button(t("home.library_settings"), "go", { arg: "settings" })])
+            + btnRow([button(t("home.change_library"), "change"), button(t("home.forget_library"), "unlink")]);
         return html;
     };
 
     PAGES.choose = function (s) {
-        var html = s.library ? header("Choose a library", "back:home")
-            : header("Wireless Sync", null, true) + '<h1>Choose a Calibre library</h1>';
-        html += '<div class="hint">In Calibre, choose <b>Connect/share → Start wireless device connection</b>. '
-            + 'Then tap the library to use.</div>'
-            + sectionLabel("Found on the network", finding ? "Searching…" : "");
+        var html = s.library ? header(t("choose.title"), "back:home")
+            : header(t("app.name"), null, true) + '<h1>' + t("choose.heading") + '</h1>';
+        html += '<div class="hint">' + t("choose.hint") + '</div>'
+            + sectionLabel(t("choose.found"), finding ? t("choose.searching") : "");
         var found = s.found || [];
         if (s.wifi === false) {
-            html += '<div class="warning"><b>Wi-Fi is off.</b> Turn it on to find Calibre libraries.</div>';
+            html += '<div class="warning">' + t("choose.wifi_off") + '</div>';
         } else if (!found.length) {
-            html += '<div class="empty">' + (finding ? "Looking for Calibre…" : esc(findNote || "No libraries found.")) + '</div>';
+            html += '<div class="empty">' + (finding ? t("choose.looking") : (findNote || t("choose.none"))) + '</div>';
         } else {
             html += '<div class="rows">';
             for (var i = 0; i < found.length; i++) {
@@ -301,75 +353,73 @@
                     + '<span class="chev">›</span></div>';
             }
             html += '</div>';
-            if (findNote) html += '<div class="hint">' + esc(findNote) + '</div>';
+            if (findNote) html += '<div class="hint">' + findNote + '</div>';
         }
-        html += btnRow([button("Search again", "find", { disabled: finding || s.wifi === false }),
-                        button("Connect by address…", "go", { arg: "address" })]);
-        if (s.library) html += '<div class="hint">Linking another library replaces ' + esc(s.library.name) + '.</div>';
+        html += btnRow([button(t("choose.search_again"), "find", { disabled: finding || s.wifi === false }),
+                        button(t("choose.by_address"), "go", { arg: "address" })]);
+        if (s.library) html += '<div class="hint">' + t("choose.replaces", { name: s.library.name }) + '</div>';
         return html;
     };
 
     PAGES.address = function () {
-        return header("Connect by address", "back:" + addressFrom)
-            + '<div class="hint">For when Find can\'t see your computer. In Calibre\'s wireless settings, '
-            + 'tick <b>Use fixed network port</b> so the port doesn\'t change.</div>'
-            + field("inHost", "Computer name or address", "text", addr.host)
-            + field("inPort", "Port", "number", addr.port)
-            + field("inPassword", "Password (if Calibre has one)", "password", addr.password)
-            + wide("Connect", "checkaddress", { cls: "btn-strong" });
+        return header(t("address.title"), "back:" + addressFrom)
+            + '<div class="hint">' + t("address.hint") + '</div>'
+            + field("inHost", t("address.host"), "text", addr.host)
+            + field("inPort", t("address.port"), "number", addr.port)
+            + field("inPassword", t("address.password"), "password", addr.password)
+            + wide(t("address.connect"), "checkaddress", { cls: "btn-strong" });
     };
 
     PAGES.probe = function (s) {
         var p = s.probe || { state: "checking", target: {} };
         var name = p.target.name || address(p.target);
         if (p.state === "checking") {
-            return '<h1 class="top">Testing connection to ' + esc(name) + '…</h1>'
-                + '<div class="hint">Calibre will show the Kindle as connected for a few seconds.</div>'
-                + wide("Cancel", "cancelprobe");
+            return '<h1 class="top">' + t("probe.testing", { name: name }) + '</h1>'
+                + '<div class="hint">' + t("probe.testing_hint") + '</div>'
+                + wide(t("common.cancel"), "cancelprobe");
         }
         if (p.state === "password_needed" || p.state === "password_rejected") {
-            return header(name, "cancelprobe")
-                + '<h1>' + (p.state === "password_needed" ? "Password needed" : "Wrong password") + '</h1>'
+            return header(esc(name), "cancelprobe")
+                + '<h1>' + t(p.state === "password_needed" ? "probe.password_needed" : "probe.wrong_password") + '</h1>'
                 + '<div class="detail">' + (p.state === "password_needed"
-                    ? esc(name) + ' asks for a password.'
-                    : 'Calibre rejected that password.') + '</div>'
-                + '<div class="hint">It\'s set in Calibre\'s <b>Start wireless device connection</b> window.</div>'
-                + field("inProbePw", "Password", "password", "")
-                + wide("Continue", "probepw", { cls: "btn-strong" });
+                    ? t("probe.asks_password", { name: name })
+                    : t("probe.rejected")) + '</div>'
+                + '<div class="hint">' + t("probe.password_where") + '</div>'
+                + field("inProbePw", t("common.password"), "password", "")
+                + wide(t("probe.continue"), "probepw", { cls: "btn-strong" });
         }
-        return header(name, "cancelprobe")
-            + '<h1>Couldn\'t connect to ' + esc(name) + '</h1>'
-            + '<div class="detail">' + esc(p.error || "Something went wrong.") + '</div>'
-            + wide("Try again", "retryprobe", { cls: "btn-strong" });
+        return header(esc(name), "cancelprobe")
+            + '<h1>' + t("probe.failed", { name: name }) + '</h1>'
+            + '<div class="detail">' + (msg(p.message, p.error) || t("err.something_wrong")) + '</div>'
+            + wide(t("probe.try_again"), "retryprobe", { cls: "btn-strong" });
     };
 
     function pickerRow(label, kind, columns) {
         var lookup = kind === "bool" ? form.read_column : form.last_read_column;
         var none = !columnList(columns, kind).length;
         return '<div class="row" data-act="picker" data-arg="' + kind + '">'
-            + '<span class="name">' + esc(label) + '</span>'
-            + '<span class="value">' + esc(none && !lookup ? "No columns yet" : columnName(columns, lookup)) + '</span>'
+            + '<span class="name">' + label + '</span>'
+            + '<span class="value">' + (none && !lookup ? t("picker.no_columns_yet") : columnName(columns, lookup)) + '</span>'
             + '<span class="chev">›</span></div>';
     }
 
     function readSyncForm(s, columns) {
         if (!readSyncAvailable(s)) {
-            return '<div class="hint">Reading status sync needs Kindle firmware 5.19.1 or later. '
-                + 'This Kindle has ' + esc(s.firmware) + '.</div>';
+            return '<div class="hint">' + t("svc.read_sync_unavailable", { min: "5.19.1", firmware: s.firmware }) + '</div>';
         }
-        var html = toggleRow("Update read status in Calibre", form.writable, "writable", true)
-            + '<div class="hint">When enabled, books\' completion and last-read date are synced to Calibre.</div>';
+        var html = toggleRow(t("readsync.toggle"), form.writable, "writable", true)
+            + '<div class="hint">' + t("readsync.hint") + '</div>';
         if (!form.writable) return html;
         return html + '<div class="rows">'
-            + pickerRow("Read", "bool", columns) + pickerRow("Last read", "datetime", columns) + '</div>';
+            + pickerRow(t("readsync.read"), "bool", columns) + pickerRow(t("readsync.last_read"), "datetime", columns) + '</div>';
     }
 
     PAGES.setup = function (s) {
         var lib = s.probe.library;
-        return header("Link " + (lib.name || lib.uuid), "cancelprobe")
+        return header(t("setup.title", { name: lib.name || lib.uuid }), "cancelprobe")
             + '<div class="sub">' + esc(where(lib)) + '</div>'
             + readSyncForm(s, form.columns)
-            + wide("Link", "link", { cls: "btn-strong" });
+            + wide(t("setup.link"), "link", { cls: "btn-strong" });
     };
 
     PAGES.picker = function (s) {
@@ -380,10 +430,10 @@
         var isRead = pickerKind === "bool";
         var current = isRead ? form.read_column : form.last_read_column;
         var list = columnList(columns, pickerKind);
-        var html = header(isRead ? "Read column" : "Last-read column", "back:" + form.ctx)
-            + '<div class="hint">' + (isRead ? "Yes/No" : "Date") + ' columns in ' + esc(libName) + '.</div>';
+        var html = header(t(isRead ? "picker.read_title" : "picker.last_read_title"), "back:" + form.ctx)
+            + '<div class="hint">' + t(isRead ? "picker.bool_in" : "picker.date_in", { name: libName }) + '</div>';
         html += '<div class="rows"><div class="row plain" data-act="pick" data-arg="">'
-            + '<span class="mark' + (!current ? ' on' : '') + '"></span>Don\'t sync</div>';
+            + '<span class="mark' + (!current ? ' on' : '') + '"></span>' + t("column.dont_sync") + '</div>';
         for (var i = 0; i < list.length; i++) {
             html += '<div class="row plain" data-act="pick" data-arg="' + esc(list[i].lookup) + '">'
                 + '<span class="mark' + (current === list[i].lookup ? ' on' : '') + '"></span>'
@@ -391,21 +441,15 @@
         }
         html += '</div>';
         if (!list.length) {
-            html += '<div class="hint">' + esc(libName) + ' has no ' + (isRead ? "Yes/No" : "Date") + ' columns. '
-                + 'In Calibre, add one under <b>Preferences → Add your own columns</b>'
-                + (isRead ? ' (type "Yes/No")' : ' (type "Date")') + ', for example "'
-                + (isRead ? "Kindle read" : "Kindle last read") + '".</div>';
+            html += '<div class="hint">' + t(isRead ? "picker.bool_none" : "picker.date_none", { name: libName }) + '</div>';
         }
         // Calibre lists a new column only after a restart, which also stops
         // its wireless connection unless that starts automatically.
         if (setup) {
-            html += '<div class="hint">Added a column? Calibre lists it only after a restart. Restart Calibre, '
-                + 'start its wireless device connection again, then tap Refresh.</div>'
-                + wide(rechecking ? "Refreshing…" : "Refresh", "recheck", { disabled: rechecking });
+            html += '<div class="hint">' + t("picker.restart_setup") + '</div>'
+                + wide(t(rechecking ? "picker.refreshing" : "picker.refresh"), "recheck", { disabled: rechecking });
         } else {
-            html += '<div class="hint">Added a column? Calibre lists it only after a restart. Restart Calibre, '
-                + 'start its wireless device connection again, and tap Connect on the first page. '
-                + 'The column then shows up here.</div>';
+            html += '<div class="hint">' + t("picker.restart_settings") + '</div>';
         }
         return html;
     };
@@ -414,35 +458,33 @@
         var lib = s.library;
         var changed = form.writable !== lib.writable || form.read_column !== (lib.read_column || null)
             || form.last_read_column !== (lib.last_read_column || null);
-        return header(lib.name || lib.uuid, "back:home")
-            + fact("Computer", esc(lib.hostname || "–"))
-            + fact("Address", esc(address(lib)))
-            + fact("Password", (lib.has_password ? "Set" : "None")
-                + button("Change", "password", { cls: "btn-small", arg: "settings" }))
+        return header(esc(lib.name || lib.uuid), "back:home")
+            + fact(t("settings.computer"), esc(lib.hostname || "–"))
+            + fact(t("common.address"), esc(address(lib)))
+            + fact(t("common.password"), t(lib.has_password ? "settings.password_set" : "settings.password_none")
+                + button(t("common.change"), "password", { cls: "btn-small", arg: "settings" }))
             + readSyncForm(s, lib.columns)
-            + (form.writable && readSyncAvailable(s) ? '<div class="hint">Columns as of the last connection to Calibre.</div>' : '')
-            + wide("Save", "save", { cls: "btn-strong", disabled: !changed });
+            + (form.writable && readSyncAvailable(s) ? '<div class="hint">' + t("settings.columns_as_of") + '</div>' : '')
+            + wide(t("common.save"), "save", { cls: "btn-strong", disabled: !changed });
     };
 
     PAGES.password = function (s) {
-        return header("Password", "back:" + passwordFrom)
-            + '<div class="detail">The password for ' + esc(s.library.name) + ', as set in Calibre\'s '
-            + '<b>Start wireless device connection</b> window.</div>'
-            + field("inPw", "Password", "password", "")
-            + btnRow([button("Save", "savepw", { cls: "btn-strong" }), button("No password", "clearpw")]);
+        return header(t("common.password"), "back:" + passwordFrom)
+            + '<div class="detail">' + t("password.detail", { name: s.library.name }) + '</div>'
+            + field("inPw", t("common.password"), "password", "")
+            + btnRow([button(t("common.save"), "savepw", { cls: "btn-strong" }), button(t("password.none"), "clearpw")]);
     };
 
     // Where new books go (ADR 0023): a folder under documents, chosen by
     // browsing. "Up to …" goes up; Back leaves without changing anything.
     PAGES.folders = function () {
-        var html = header("Storage folder", "back:app")
-            + '<div class="hint">New books go into the folder shown here. Books already on the Kindle '
-            + 'stay where they are.</div>'
-            + '<div class="folder-here">Current folder: <b>' + esc(folderLabel(browse.path)) + '</b></div>'
+        var html = header(t("folders.title"), "back:app")
+            + '<div class="hint">' + t("folders.hint") + '</div>'
+            + '<div class="folder-here">' + t("folders.current", { folder: folderLabel(browse.path) }) + '</div>'
             + '<div class="rows">';
         if (browse.path) {
-            html += '<div class="row plain up" data-act="folderup">' + UP + '<i>Up to ' + esc(lastPart(parentOf(browse.path)))
-                + '</i></div>';
+            html += '<div class="row plain up" data-act="folderup">' + UP + '<i>'
+                + t("folders.up", { folder: lastPart(parentOf(browse.path)) }) + '</i></div>';
         }
         var list = browse.folders || [];
         var pages = Math.max(1, Math.ceil(list.length / FOLDERS_PER_PAGE));
@@ -451,55 +493,53 @@
         for (var i = 0; i < shown.length; i++) {
             var f = shown[i];
             html += f.problem
-                ? '<div class="row unusable" data-act="folderproblem" data-arg="' + esc(f.problem) + '">'
-                    + '<div class="name">' + FOLDER + esc(f.name) + '</div><div class="sub">Can\'t be used</div></div>'
+                ? '<div class="row unusable" data-act="folderproblem" data-arg="' + esc(msg(f.problem_msg, f.problem)) + '">'
+                    + '<div class="name">' + FOLDER + esc(f.name) + '</div><div class="sub">' + t("folders.unusable") + '</div></div>'
                 : '<div class="row" data-act="folderopen" data-arg="' + esc(f.name) + '">'
                     + '<div class="name">' + FOLDER + esc(f.name) + '</div><span class="chev">›</span></div>';
         }
         html += '</div>';
-        if (browse.loading) html += '<div class="empty">Loading…</div>';
-        else if (!list.length) html += '<div class="hint">No folders in here.</div>';
+        if (browse.loading) html += '<div class="empty">' + t("folders.loading") + '</div>';
+        else if (!list.length) html += '<div class="hint">' + t("folders.empty") + '</div>';
         if (pages > 1) {
-            html += btnRow([button("‹ Previous", "folderpage", { arg: -1, disabled: browse.at === 0 }),
-                            button("Next ›", "folderpage", { arg: 1, disabled: browse.at >= pages - 1 })])
-                + '<div class="hint">Page ' + (browse.at + 1) + ' of ' + pages + '</div>';
+            html += btnRow([button(t("folders.previous"), "folderpage", { arg: -1, disabled: browse.at === 0 }),
+                            button(t("folders.next"), "folderpage", { arg: 1, disabled: browse.at >= pages - 1 })])
+                + '<div class="hint">' + t("folders.page", { page: browse.at + 1, pages: pages }) + '</div>';
         }
-        return html + btnRow([button("New folder", "go", { arg: "newfolder" }),
-                              button("Use this folder", "usefolder", { cls: "btn-strong",
+        return html + btnRow([button(t("folders.new"), "go", { arg: "newfolder" }),
+                              button(t("folders.use"), "usefolder", { cls: "btn-strong",
                                      disabled: browse.loading })]);
     };
 
     PAGES.newfolder = function () {
-        return header("New folder", "back:folders")
-            + '<div class="detail">A new folder inside <b>' + esc(folderLabel(browse.path)) + '</b>.</div>'
-            + field("inFolder", "Name", "text", "")
-            + wide("Create", "createfolder", { cls: "btn-strong" });
+        return header(t("newfolder.title"), "back:folders")
+            + '<div class="detail">' + t("newfolder.inside", { folder: folderLabel(browse.path) }) + '</div>'
+            + field("inFolder", t("newfolder.name"), "text", "")
+            + wide(t("newfolder.create"), "createfolder", { cls: "btn-strong" });
     };
 
     PAGES.app = function (s) {
-        var html = header("Settings", "back:" + appFrom)
-            + toggleRow("Start automatically", s.autostart, "autostart")
-            + '<div class="hint">Start Wireless Sync when the Kindle starts.</div>';
+        var html = header(t("app.settings"), "back:" + appFrom)
+            + toggleRow(t("app.autostart"), s.autostart, "autostart")
+            + '<div class="hint">' + t("app.autostart_hint") + '</div>';
         if (s.autostart_disabled_by_guard && !s.autostart) {
-            html += '<div class="warning">Autostart was turned off after the service failed to start '
-                + 'properly three times in a row. Turn it on again to retry.</div>';
+            html += '<div class="warning">' + t("app.autostart_guard") + '</div>';
         }
-        html += '<div class="toggle-row"><span class="toggle-label">Storage folder</span>'
-            + button("Change", "folders", { cls: "btn-small" }) + '</div>'
-            + '<div class="hint">Books are currently syncing to <i>' + esc(folderLabel(s.books_folder || "")) + '</i>.</div>'
-            + toggleRow("Group books into series", s.series, "series")
-            + '<div class="hint">Books in a Calibre series show as one series in the Kindle\'s library.</div>'
-            + sectionLabel("Service")
-            + btnRow([button("Restart", "service", { arg: "restart" }), button("Stop", "service", { arg: "stop" })])
-            + '<div class="hint">The service will start again next time you open this app'
-            + (s.autostart ? ' or restart the Kindle.' : '.') + '</div>'
-            + '<div class="footer">Wireless Sync ' + esc(s.version || "") + '</div>';
+        html += '<div class="toggle-row"><span class="toggle-label">' + t("app.storage") + '</span>'
+            + button(t("common.change"), "folders", { cls: "btn-small" }) + '</div>'
+            + '<div class="hint">' + t("app.syncing_to", { folder: folderLabel(s.books_folder || "") }) + '</div>'
+            + toggleRow(t("app.series"), s.series, "series")
+            + '<div class="hint">' + t("app.series_hint") + '</div>'
+            + sectionLabel(t("app.service"))
+            + btnRow([button(t("app.restart"), "service", { arg: "restart" }), button(t("app.stop"), "service", { arg: "stop" })])
+            + '<div class="hint">' + t(s.autostart ? "app.starts_on_open_or_restart" : "app.starts_on_open") + '</div>'
+            + '<div class="footer">' + t("app.version", { version: s.version || "" }) + '</div>';
         return html;
     };
 
     PAGES.stopped = function (s) {
-        return '<h1 class="top">Service not running</h1><div class="detail">' + esc(s.error)
-            + ' Close and reopen Wireless Sync to start it.</div>';
+        return '<h1 class="top">' + t("stopped.title") + '</h1><div class="detail">' + s.error
+            + ' ' + t("stopped.reopen") + '</div>';
     };
 
     // ---- dialogs ----
@@ -509,15 +549,14 @@
         if (!dialog) { d.className = "overlay hidden"; d.innerHTML = ""; return; }
         var html = '<div class="dialog">';
         if (dialog.kind === "unlink") {
-            html += '<div class="title">Forget ' + esc(dialog.name) + '?</div>'
-                + '<div class="detail">Your books will remain on the Kindle, and you can reconnect to this '
-                + 'library later.</div>'
-                + btnRow([button("Cancel", "closedialog"), button("Forget", "dounlink", { cls: "btn-strong" })]);
+            html += '<div class="title">' + t("unlink.title", { name: dialog.name }) + '</div>'
+                + '<div class="detail">' + t("unlink.detail") + '</div>'
+                + btnRow([button(t("common.cancel"), "closedialog"), button(t("unlink.forget"), "dounlink", { cls: "btn-strong" })]);
         } else if (dialog.kind === "replace") {
-            html += '<div class="title">Replace ' + esc(dialog.linked) + '?</div>'
-                + '<div class="detail">This Kindle is linked to <b>' + esc(dialog.linked) + '</b>. Linking <b>'
-                + esc(dialog.name) + '</b> replaces it. ' + forgetText(dialog.linked, dialog.name) + '</div>'
-                + btnRow([button("Cancel", "closedialog"), button("Replace", "doreplace", { cls: "btn-strong" })]);
+            html += '<div class="title">' + t("replace.title", { linked: dialog.linked }) + '</div>'
+                + '<div class="detail">' + t("replace.detail", { linked: dialog.linked, name: dialog.name })
+                + ' ' + forgetText(dialog.linked, dialog.name) + '</div>'
+                + btnRow([button(t("common.cancel"), "closedialog"), button(t("replace.replace"), "doreplace", { cls: "btn-strong" })]);
         }
         d.innerHTML = html + '</div>';
         d.className = "overlay";
@@ -591,7 +630,7 @@
             renderedKey = key;
         }
         renderDialog();
-        if (status.config_error) showMessage("Settings file problem: " + status.config_error);
+        if (status.config_error) showMessage(t("err.config_problem", { error: status.config_error }));
     }
 
     function redraw() { renderedKey = null; render(); }
@@ -599,6 +638,7 @@
     function refresh() {
         request("GET", "/status", null, function (data, err) {
             var next = err ? { error: err } : data;
+            if (data && data.locale) loadLanguage(data.locale);
             var text = JSON.stringify(next);
             if (text === lastStatusText) return; // e-ink: only redraw on change
             lastStatusText = text;
@@ -615,15 +655,17 @@
         findNote = "";
         request("POST", "/find", {}, function (data, err) {
             finding = false;
+            // findNote is HTML.
             if (err) {
                 findNote = err;
             } else {
                 var notes = [], servers = data.servers || [];
                 for (var i = 0; i < servers.length; i++) {
-                    if (servers[i].status === "error") notes.push(servers[i].hostname + ": " + servers[i].error);
+                    if (servers[i].status === "error") {
+                        notes.push(esc(servers[i].hostname) + ": " + msg(servers[i].message, servers[i].error));
+                    }
                 }
-                findNote = notes.length ? notes.join(" ") : (servers.length ? "" : "Calibre not found. Check that "
-                    + "its wireless device connection is started and the Kindle is on the same network.");
+                findNote = notes.length ? notes.join(" ") : (servers.length ? "" : t("choose.not_found"));
             }
             lastStatusText = null;
             refresh();
@@ -641,7 +683,7 @@
         request("POST", "/folders", { path: path }, function (data, err) {
             browse.loading = false;
             if (err || !data.ok) {
-                showMessage(err || data.error);
+                showMessage(err || msg(data.message, data.error));
                 if (path) { openFolder(""); return; }
             } else {
                 browse.path = data.path;
@@ -671,7 +713,7 @@
                                name: data.library.name || data.library.uuid };
                     renderDialog();
                 } else if (data && data.ok) {
-                    showMessage("Linked to " + name + ".");
+                    showMessage(t("msg.linked", { name: name }));
                     form = null;
                     page = "home";
                 }
@@ -684,7 +726,7 @@
         autostart: function () {
             var on = !status.autostart;
             post("/autostart", { enabled: on }, function (data) {
-                if (data && data.ok) showMessage(on ? "Will start automatically." : "Won't start automatically.");
+                if (data && data.ok) showMessage(t(on ? "msg.autostart_on" : "msg.autostart_off"));
             });
         },
         series: function () { post("/series", { enabled: !status.series }); },
@@ -700,12 +742,12 @@
         usefolder: function () {
             var path = browse.path;
             post("/books-folder", { path: path }, function (data) {
-                if (data && data.ok) { showMessage("New books will go into " + folderLabel(path) + "."); page = "app"; }
+                if (data && data.ok) { showMessage(t("msg.folder_set", { folder: folderLabel(path) })); page = "app"; }
             });
         },
         createfolder: function () {
             var name = el("inFolder").value.replace(/^\s+|\s+$/g, "");
-            if (!name) { showMessage("Enter a name for the folder."); return; }
+            if (!name) { showMessage(t("svc.folder_name_missing")); return; }
             post("/folders/new", { path: browse.path, name: name }, function (data) {
                 if (data && data.ok) { page = "folders"; openFolder(data.path); }
             });
@@ -718,7 +760,7 @@
         checkaddress: function () {
             addr = { host: el("inHost").value.replace(/^\s+|\s+$/g, ""), port: el("inPort").value,
                      password: el("inPassword").value };
-            if (!addr.host) { showMessage("Enter the computer's name or address."); return; }
+            if (!addr.host) { showMessage(t("svc.enter_host")); return; }
             startProbe({ host: addr.host, port: parseInt(addr.port, 10) || 9090, password: addr.password || null }, "address");
         },
         probepw: function () {
@@ -751,18 +793,18 @@
         save: function () {
             post("/settings", { writable: form.writable, read_column: form.read_column,
                                 last_read_column: form.last_read_column }, function (data) {
-                if (data && data.ok) { showMessage("Saved. Reconnecting to Calibre to use them."); page = "home"; }
+                if (data && data.ok) { showMessage(t("msg.saved")); page = "home"; }
             });
         },
         password: function (from) { passwordFrom = from; page = "password"; redraw(); },
         savepw: function () {
             post("/password", { uuid: status.library.uuid, password: el("inPw").value || null }, function (data) {
-                if (data && data.ok) { showMessage("Password saved."); page = passwordFrom; redraw(); }
+                if (data && data.ok) { showMessage(t("msg.password_saved")); page = passwordFrom; redraw(); }
             });
         },
         clearpw: function () {
             post("/password", { uuid: status.library.uuid, password: null }, function (data) {
-                if (data && data.ok) { showMessage("Password cleared."); page = passwordFrom; redraw(); }
+                if (data && data.ok) { showMessage(t("msg.password_cleared")); page = passwordFrom; redraw(); }
             });
         },
         unlink: function () { dialog = { kind: "unlink", name: status.library.name }; renderDialog(); },
@@ -770,12 +812,12 @@
             dialog = null;
             renderDialog();
             post("/unlink", { uuid: status.library.uuid }, function (data) {
-                if (data && data.ok) showMessage("Library forgotten. Your books stay on the Kindle.");
+                if (data && data.ok) showMessage(t("msg.forgotten"));
             });
         },
         service: function (what) {
             post("/service", { action: what }, function (data) {
-                if (data && data.ok) showMessage(what === "stop" ? "Stopping the service." : "Restarting the service.");
+                if (data && data.ok) showMessage(t(what === "stop" ? "msg.stopping" : "msg.restarting"));
             });
         }
     };
@@ -807,8 +849,8 @@
     function tick() {
         var e = el("retryIn");
         if (!e || !status || page !== "home") return;
-        var text = esc(retryText(status));
-        if (e.innerHTML !== text) e.innerHTML = text;
+        var html = retryText(status);
+        if (e.innerHTML !== html) e.innerHTML = html;
     }
 
     function init() {

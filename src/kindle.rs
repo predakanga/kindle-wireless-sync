@@ -9,6 +9,7 @@
 //! TXTs have no thumbnail link in the catalog, so we give them no cover. See
 //! `docs/research/kindle-library-integration.md`.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -260,6 +261,35 @@ pub fn entry_listed(catalog_db: &Path, location: &str) -> Option<bool> {
     Some(rows.first()?["n"].as_u64()? > 0)
 }
 
+/// The Kindle's language setting.
+const LOCALE_FILE: &str = "/var/local/system/locale";
+
+/// The user's language as `en_GB`, for the app's strings (ADR 0028): the
+/// Kindle's setting, or `LANG` off a Kindle. `None` if neither says.
+pub fn locale() -> Option<String> {
+    let from_file = fs::read_to_string(LOCALE_FILE).ok().and_then(|text| {
+        text.lines()
+            .find_map(|l| l.strip_prefix("LANG="))
+            .map(str::to_owned)
+    });
+    from_file
+        .or_else(|| std::env::var("LANG").ok())
+        .and_then(|v| clean_locale(&v))
+}
+
+/// `en_GB.utf8` → `en_GB`. Only letters, digits, `_` and `-` survive, as
+/// the app builds a file name from it.
+pub fn clean_locale(raw: &str) -> Option<String> {
+    let base = raw.trim().trim_matches('"');
+    let base = base.split(['.', '@']).next().unwrap_or_default();
+    let ok = !base.is_empty()
+        && base.len() <= 16
+        && base
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    (ok && base != "C" && base != "POSIX").then(|| base.to_owned())
+}
+
 /// Resets powerd's idle timer, as a touch would, so the screensaver (and
 /// the Wi-Fi drop that comes with it) waits another full timeout (ADR
 /// 0027). Nothing to undo: the screensaver comes on as usual once this
@@ -355,6 +385,16 @@ pub fn decode_base64(input: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn cleans_locales() {
+        assert_eq!(clean_locale("en_GB.utf8").as_deref(), Some("en_GB"));
+        assert_eq!(clean_locale("de_DE.UTF-8@euro").as_deref(), Some("de_DE"));
+        assert_eq!(clean_locale("\"pt_BR\"\n").as_deref(), Some("pt_BR"));
+        assert_eq!(clean_locale("C"), None);
+        assert_eq!(clean_locale("../x"), None);
+        assert_eq!(clean_locale(""), None);
+    }
 
     /// Builds a minimal PalmDB/MOBI file with the given EXTH records.
     pub(crate) fn fake_mobi(exth: &[(u32, &[u8])]) -> Vec<u8> {

@@ -71,3 +71,16 @@ unreadable to the framework user (ADR 0012).
   an older service falls back to the English.
 - System errors (`{e}`) and Calibre's library names stay as they are.
 - The library tile's name and the KPM description stay English.
+
+## Implementation notes (2026-11-20)
+- **Folder errors** come from `folders::resolve`, `list` and `create` as
+  messages now, and replace the API's "Cannot open that folder: …" and
+  "Cannot use that folder: …" wrappers, so the app shows only the reason
+  ("Calibre/x leads outside the books folder"). A path or system error
+  inside one (`svc.folder_invalid`) stays English.
+- **Find's per-server errors** carry a `message` when they're Calibre's
+  doing (busy, the lockout); other network errors stay English.
+- **Checked** on the Mac in headless Chrome with a partial dummy
+  translation, and on the reference device (5.20.1, `en_GB`): mesquite
+  loaded a temporary `strings-en_GB.js` added by `<script>`, and with no
+  such file the app is unchanged.

@@ -137,6 +137,11 @@ track individual bytes.
   live in the daemon's memory. Linking only changes `config.json`; the
   daemon resets the state (`Library::reset_if_relinked`) before its next
   session when driveinfo's `last_library_uuid` names another library.
+- `message` and `package/ui/strings-en.js`: text the user sees (ADR
+  0028). The service's messages are `Message`s: a code and an English
+  template in `src/message.rs`, the same template under the same key in
+  `strings-en.js` (a test checks). The app's own text is only in
+  `strings-en.js`, looked up with `t(key, params)` in `script.js`.
 - `adopt`: finds book files Calibre sent over USB and builds records for them
   from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
   it once per session.

@@ -26,6 +26,7 @@ use crate::config::{self, Config, Link, LinkedLibrary};
 use crate::discovery::CalibreServer;
 use crate::firmware;
 use crate::library::Library;
+use crate::message::Message;
 use crate::protocol::{read_message, Connection, Opcode};
 use crate::session::{self, Admission, Admit, CalibreInfo, DeviceConfig, SessionEnd};
 
@@ -79,7 +80,8 @@ impl State {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Status {
     pub state: State,
-    pub detail: String,
+    /// For the command line and the log, in English (ADR 0028).
+    pub detail: Message,
     /// Unix seconds.
     pub since: u64,
     /// When the next attempt is due (Unix seconds), while waiting to
@@ -88,7 +90,7 @@ pub struct Status {
     /// What the app shows under the state while retrying, if anything
     /// beyond "not available" (`detail` adds the retry delay, for the
     /// command line).
-    pub advice: Option<String>,
+    pub advice: Option<Message>,
 }
 
 fn unix_now() -> u64 {
@@ -155,20 +157,26 @@ struct Shared {
 }
 
 impl Shared {
-    fn set(&self, state: State, detail: String) {
+    fn set(&self, state: State, detail: Message) {
         self.set_full(state, detail, None, None);
     }
 
     /// A state while waiting `delay` to try again, with optional advice.
-    fn set_retrying(&self, state: State, detail: String, advice: Option<String>, delay: Duration) {
+    fn set_retrying(
+        &self,
+        state: State,
+        detail: Message,
+        advice: Option<Message>,
+        delay: Duration,
+    ) {
         self.set_full(state, detail, advice, Some(unix_now() + delay.as_secs()));
     }
 
     fn set_full(
         &self,
         state: State,
-        detail: String,
-        advice: Option<String>,
+        detail: Message,
+        advice: Option<Message>,
         retry_at: Option<u64>,
     ) {
         let mut status = self.status.lock().unwrap();
@@ -186,8 +194,8 @@ impl Shared {
             retry_at,
             advice,
         };
-        let body =
-            json!({"state": status.state.as_str(), "detail": status.detail, "since": status.since});
+        let body = json!({"state": status.state.as_str(), "detail": status.detail.english(),
+                          "since": status.since});
         let tmp = self.status_file.with_extension("json.tmp");
         if let Err(e) =
             fs::write(&tmp, body.to_string()).and_then(|_| fs::rename(&tmp, &self.status_file))
@@ -343,10 +351,8 @@ impl Handle {
     /// ADR 0022).
     pub fn pause(&self) {
         if self.shared.leave() {
-            self.shared.set(
-                State::Disconnecting,
-                "Disconnecting once Calibre has finished what it's doing.".into(),
-            );
+            self.shared
+                .set(State::Disconnecting, Message::new("svc.disconnecting"));
         }
         let _ = self.tx.send(Control::Pause);
     }
@@ -555,13 +561,6 @@ impl Default for Away {
     }
 }
 
-/// What Home says under the status while Calibre is away (ADR 0021); a
-/// newline breaks the line.
-pub const CALIBRE_CLOSED: &str =
-    "Can't connect to Calibre.\nTap Connect below to retry immediately.";
-/// What Home says under the status after an eject.
-pub const EJECTED: &str = "Ejected by Calibre.\nTap Connect below to reconnect.";
-
 pub struct Daemon {
     lib: Library,
     opts: Options,
@@ -610,7 +609,7 @@ impl Daemon {
         let shared = Arc::new(Shared {
             status: Mutex::new(Status {
                 state: State::Stopped,
-                detail: String::new(),
+                detail: Message::new("svc.stopped"),
                 since: 0,
                 retry_at: None,
                 advice: None,
@@ -652,8 +651,8 @@ impl Daemon {
         )
     }
 
-    fn set(&self, state: State, detail: impl Into<String>) {
-        self.shared.set(state, detail.into());
+    fn set(&self, state: State, detail: Message) {
+        self.shared.set(state, detail);
     }
 
     /// Broadcasts for Calibre servers, also asking `also` directly, and
@@ -746,7 +745,7 @@ impl Daemon {
 
         loop {
             if self.paused {
-                self.set(State::Paused, "Sync paused. Resume to reconnect.");
+                self.set(State::Paused, Message::new("svc.paused"));
                 match self.wait(None) {
                     Wake::Network(up) => {
                         if up && !self.net_up {
@@ -771,7 +770,7 @@ impl Daemon {
                 continue;
             }
             if !self.net_up {
-                self.set(State::WaitingForWifi, "Waiting for Wi-Fi.");
+                self.set(State::WaitingForWifi, Message::new("svc.waiting_for_wifi"));
                 match self.wait(None) {
                     Wake::Network(true) => {
                         self.net_up = true;
@@ -790,9 +789,8 @@ impl Daemon {
             if ejected {
                 self.shared.set_full(
                     State::Ejected,
-                    "Ejected by Calibre. Will reconnect when Wi-Fi reconnects, or with Connect now."
-                        .into(),
-                    Some(EJECTED.into()),
+                    Message::new("svc.ejected"),
+                    Some(Message::new("svc.ejected_advice")),
                     None,
                 );
                 match self.wait(None) {
@@ -813,7 +811,10 @@ impl Daemon {
             let config = match Config::load(&self.opts.state_dir) {
                 Ok(c) => c,
                 Err(e) => {
-                    self.set(State::Error, format!("Cannot read settings: {e}"));
+                    self.set(
+                        State::Error,
+                        Message::new("svc.cannot_read_settings").with("error", e),
+                    );
                     match self.wait(Some(NO_LIBRARY_RECHECK)) {
                         Wake::Network(false) => self.net_up = false,
                         Wake::Shutdown => break,
@@ -823,10 +824,7 @@ impl Daemon {
                 }
             };
             let Some(library) = config.library else {
-                self.set(
-                    State::NotLinked,
-                    "No Calibre library is linked yet. Use Find libraries, or link one by address.",
-                );
+                self.set(State::NotLinked, Message::new("svc.not_linked"));
                 match self.wait(Some(NO_LIBRARY_RECHECK)) {
                     Wake::Network(false) => self.net_up = false,
                     Wake::Shutdown => break,
@@ -859,7 +857,7 @@ impl Daemon {
             if let Err(e) = self.lib.reset_if_relinked(&library.uuid) {
                 self.set(
                     State::Error,
-                    format!("Cannot reset for the newly linked library: {e}"),
+                    Message::new("svc.cannot_reset").with("error", e),
                 );
                 match self.wait(Some(NO_LIBRARY_RECHECK)) {
                     Wake::Network(false) => self.net_up = false,
@@ -870,7 +868,10 @@ impl Daemon {
             }
 
             let name = library.display_name().to_owned();
-            self.set(State::Searching, format!("Looking for {name}."));
+            self.set(
+                State::Searching,
+                Message::new("svc.looking").with("name", &name),
+            );
             // Also ask the library's last address directly: Calibre answers
             // the sender, so this crosses routers, where broadcasts don't
             // (ADR 0021, amendment).
@@ -894,8 +895,8 @@ impl Daemon {
                     };
                     self.shared.set_retrying(
                         State::NotFound,
-                        format!("Calibre has closed. Looking again in {}s.", delay.as_secs()),
-                        Some(CALIBRE_CLOSED.into()),
+                        Message::new("svc.calibre_closed_retrying").with("secs", delay.as_secs()),
+                        Some(Message::new("svc.calibre_closed")),
                         delay,
                     );
                     match self.wait(Some(delay)) {
@@ -1051,10 +1052,7 @@ impl Daemon {
                     }
                     // A user's eject, or Calibre quitting? A quitting
                     // Calibre stops answering broadcasts.
-                    self.set(
-                        State::Searching,
-                        "Disconnected by Calibre. Checking whether Calibre is still open.",
-                    );
+                    self.set(State::Searching, Message::new("svc.checking_still_open"));
                     match self.wait(Some(self.opts.away.settle)) {
                         Wake::Network(false) => {
                             self.net_up = false;
@@ -1086,7 +1084,7 @@ impl Daemon {
                     }
                     self.set(
                         State::Searching,
-                        format!("Waiting while Calibre at the address of {name} is checked."),
+                        Message::new("svc.waiting_for_check").with("name", &name),
                     );
                     match self.wait(Some(Duration::from_secs(120))) {
                         Wake::Network(false) => self.net_up = false,
@@ -1099,18 +1097,17 @@ impl Daemon {
                 Outcome::PasswordRejected(name) => {
                     self.set(
                         State::PasswordRejected,
-                        format!("Calibre library {name} rejected the password. Fix it, then use Connect now."),
+                        Message::new("svc.password_rejected").with("name", &name),
                     );
                     continue;
                 }
                 Outcome::NotFound => match skip.iter().next() {
                     // Calibre is there, serving another library: say so.
                     Some((addr, other)) => {
-                        let advice = format!(
-                            "Calibre at {} is serving {other}, not {name}. Switch back to {name} \
-                             in Calibre, then use Connect.",
-                            addr.ip()
-                        );
+                        let advice = Message::new("svc.serving_other")
+                            .with("addr", addr.ip())
+                            .with("other", other)
+                            .with("name", &name);
                         self.shared.set_retrying(
                             State::NotFound,
                             advice.clone(),
@@ -1120,27 +1117,31 @@ impl Daemon {
                     }
                     None => self.shared.set_retrying(
                         State::NotFound,
-                        format!("Calibre library {name} not found. Retrying in {secs}s."),
+                        Message::new("svc.not_found_retrying")
+                            .with("name", &name)
+                            .with("secs", secs),
                         None,
                         delay,
                     ),
                 },
                 Outcome::Busy => self.shared.set_retrying(
                     State::NotFound,
-                    format!("Calibre is busy with another device. Retrying in {secs}s."),
-                    Some("Calibre is busy with another device.".into()),
+                    Message::new("svc.busy_retrying").with("secs", secs),
+                    Some(Message::new("svc.busy")),
                     delay,
                 ),
                 Outcome::Lost(name) => self.shared.set_retrying(
                     State::NotFound,
-                    format!("Lost the connection to {name}. Retrying in {secs}s."),
-                    Some(format!("Lost the connection to {name}.")),
+                    Message::new("svc.lost_retrying")
+                        .with("name", &name)
+                        .with("secs", secs),
+                    Some(Message::new("svc.lost").with("name", &name)),
                     delay,
                 ),
                 Outcome::LockedOut => self.shared.set_retrying(
                     State::LockedOut,
-                    format!("{} Retrying in {secs}s.", check::LOCKED_OUT),
-                    Some(check::LOCKED_OUT.into()),
+                    Message::new("svc.locked_out_retrying").with("secs", secs),
+                    Some(Message::new("svc.locked_out")),
                     delay,
                 ),
             }
@@ -1156,7 +1157,7 @@ impl Daemon {
                 Wake::Network(true) | Wake::Timeout | Wake::Pause => {}
             }
         }
-        self.set(State::Stopped, "Stopped.");
+        self.set(State::Stopped, Message::new("svc.stopped"));
     }
 
     /// Connects and runs one session. `Err` means we never got a session
@@ -1262,7 +1263,7 @@ impl Admit for LinkedAdmit<'_> {
         self.admitted = true;
         self.shared.set(
             State::Connected,
-            format!("Connected to {}.", info.library_name),
+            Message::new("svc.connected").with("name", &info.library_name),
         );
         Admission::Accept {
             password: self.library.password.clone(),
@@ -1365,12 +1366,18 @@ enum ProbeError {
     LockedOut,
 }
 
+impl ProbeError {
+    fn message(&self) -> Message {
+        match self {
+            ProbeError::Busy => Message::new("svc.busy"),
+            ProbeError::LockedOut => check::locked_out(),
+        }
+    }
+}
+
 impl std::fmt::Display for ProbeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            ProbeError::Busy => "Calibre is busy with another device",
-            ProbeError::LockedOut => check::LOCKED_OUT,
-        })
+        f.write_str(&self.message().english())
     }
 }
 
@@ -1379,6 +1386,11 @@ impl std::error::Error for ProbeError {}
 fn probe_error(e: &io::Error) -> Option<&ProbeError> {
     e.get_ref()
         .and_then(|inner| inner.downcast_ref::<ProbeError>())
+}
+
+/// What to tell the user about a [`probe`] error that's Calibre's doing.
+pub fn probe_message(e: &io::Error) -> Option<Message> {
+    probe_error(e).map(ProbeError::message)
 }
 
 /// Whether a [`probe`] error means Calibre is serving another device.
@@ -1758,7 +1770,10 @@ mod tests {
 
         // Calibre still answers after the eject: the user's eject.
         wait_until("first eject", || h.status().state == State::Ejected);
-        assert_eq!(h.status().advice.as_deref(), Some(EJECTED));
+        assert_eq!(
+            h.status().advice.map(|a| a.code()),
+            Some("svc.ejected_advice")
+        );
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(count.load(Ordering::SeqCst), 1, "no reconnect after eject");
 
@@ -1768,7 +1783,7 @@ mod tests {
         h.remember_find(other, CalibreInfo::default());
         h.connect_now();
         wait_until("Calibre closed", || {
-            h.status().advice.as_deref() == Some(CALIBRE_CLOSED)
+            h.status().advice.map(|a| a.code()) == Some("svc.calibre_closed")
         });
         let s = h.status();
         assert_eq!(s.state, State::NotFound);
@@ -2108,7 +2123,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (h, thread) = start(tmp.path(), None);
         wait_until("not linked", || h.status().state == State::NotLinked);
-        assert!(h.status().detail.contains("Find libraries"));
+        assert!(h.status().detail.english().contains("Find libraries"));
         h.shutdown();
         thread.join().unwrap();
     }
@@ -2251,7 +2266,7 @@ mod tests {
         };
         let status = check::run(&env, &target, None, &|_| {});
         assert_eq!(status.state, CheckState::LockedOut);
-        assert_eq!(status.error.as_deref(), Some(check::LOCKED_OUT));
+        assert_eq!(status.error, Some(check::locked_out()));
 
         let dead = TcpListener::bind("127.0.0.1:0")
             .unwrap()
@@ -2339,6 +2354,7 @@ mod tests {
         assert!(
             h.status()
                 .detail
+                .english()
                 .contains("serving Library lib-2, not Test Library"),
             "{}",
             h.status().detail
@@ -2542,7 +2558,7 @@ mod tests {
         let (h, thread) =
             start_with_backoff(tmp.path(), Some(("lib-1", addr)), Duration::from_secs(60));
         wait_until("the lockout", || h.status().state == State::LockedOut);
-        assert_eq!(h.status().advice.as_deref(), Some(check::LOCKED_OUT));
+        assert_eq!(h.status().advice.map(|a| a.code()), Some("svc.locked_out"));
         assert!(h.status().retry_at.is_some());
         h.shutdown();
         thread.join().unwrap();
@@ -2556,7 +2572,7 @@ mod tests {
         std::thread::spawn(move || listener.incoming().for_each(drop));
         let (h, thread) = start(tmp.path(), Some(("lib-1", addr)));
         wait_until("the lockout", || h.status().state == State::LockedOut);
-        assert!(h.status().detail.starts_with(check::LOCKED_OUT));
+        assert_eq!(h.status().detail.code(), "svc.locked_out_retrying");
         h.shutdown();
         thread.join().unwrap();
     }

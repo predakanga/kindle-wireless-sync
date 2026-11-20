@@ -8,16 +8,20 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::lpath;
+use crate::message::Message;
 
 /// A folder in a listing, and why it can't be used, if it can't.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Folder {
     pub name: String,
-    pub problem: Option<String>,
+    pub problem: Option<Message>,
 }
 
-fn invalid(msg: impl Into<String>) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, msg.into())
+/// `path` can't be used: `error` is English (a path or system error).
+fn invalid(path: &str, error: impl std::fmt::Display) -> Message {
+    Message::new("svc.folder_invalid")
+        .with("path", path)
+        .with("error", error)
 }
 
 /// `name` inside the folder `rel`.
@@ -30,30 +34,36 @@ pub fn join(rel: &str, name: &str) -> String {
 
 /// The folder `rel` inside `root`, checked: a valid lpath (ADR 0003), an
 /// existing folder, and still inside `root` once symlinks are followed.
-pub fn resolve(root: &Path, rel: &str) -> io::Result<PathBuf> {
+pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf, Message> {
     let rel = rel.trim_matches('/');
     let dir = if rel.is_empty() {
         root.to_path_buf()
     } else {
-        root.join(lpath::validate(rel, None).map_err(|e| invalid(format!("{rel}: {e}")))?)
+        root.join(lpath::validate(rel, None).map_err(|e| invalid(rel, e))?)
     };
-    let real = dir.canonicalize()?;
-    if !real.starts_with(root.canonicalize()?) {
-        return Err(invalid(format!("{rel} leads outside the books folder")));
+    let real = dir.canonicalize().map_err(|e| invalid(rel, e))?;
+    let root_real = root.canonicalize().map_err(|e| invalid(rel, e))?;
+    if !real.starts_with(root_real) {
+        return Err(Message::new("svc.folder_outside").with("path", rel));
     }
     if !real.is_dir() {
-        return Err(invalid(format!("{rel} isn't a folder")));
+        return Err(Message::new("svc.folder_not_folder").with("path", rel));
     }
     Ok(dir)
 }
 
 /// The folders inside `rel`, by name, leaving out hidden folders and the
 /// Kindle's `.sdr` folders.
-pub fn list(root: &Path, rel: &str) -> io::Result<Vec<Folder>> {
+pub fn list(root: &Path, rel: &str) -> Result<Vec<Folder>, Message> {
     let dir = resolve(root, rel)?;
     let mut out = Vec::new();
-    for entry in fs::read_dir(&dir)? {
-        let name = entry?.file_name().to_string_lossy().into_owned();
+    let unreadable = |e: io::Error| invalid(rel, e);
+    for entry in fs::read_dir(&dir).map_err(unreadable)? {
+        let name = entry
+            .map_err(unreadable)?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
         if name.starts_with('.') || name.to_ascii_lowercase().ends_with(".sdr") {
             continue;
         }
@@ -61,9 +71,7 @@ pub fn list(root: &Path, rel: &str) -> io::Result<Vec<Folder>> {
         if !dir.join(&name).is_dir() {
             continue;
         }
-        let problem = resolve(root, &join(rel, &name))
-            .err()
-            .map(|e| e.to_string());
+        let problem = resolve(root, &join(rel, &name)).err();
         out.push(Folder { name, problem });
     }
     out.sort_by_key(|f| f.name.to_lowercase());
@@ -71,22 +79,27 @@ pub fn list(root: &Path, rel: &str) -> io::Result<Vec<Folder>> {
 }
 
 /// Creates the folder `name` inside `rel`, and returns its path.
-pub fn create(root: &Path, rel: &str, name: &str) -> io::Result<String> {
+pub fn create(root: &Path, rel: &str, name: &str) -> Result<String, Message> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(invalid("Enter a name for the folder."));
+        return Err(Message::new("svc.folder_name_missing"));
     }
     if name.contains('/') {
-        return Err(invalid("A folder name can't contain \"/\"."));
+        return Err(Message::new("svc.folder_name_slash"));
     }
     let parent = resolve(root, rel)?;
     let path = join(rel, name);
-    lpath::validate(&path, None).map_err(|e| invalid(format!("{name}: {e}")))?;
+    lpath::validate(&path, None).map_err(|e| {
+        Message::new("svc.folder_name_invalid")
+            .with("name", name)
+            .with("error", e)
+    })?;
     match fs::create_dir(parent.join(name)) {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-            Err(invalid(format!("There's already a folder called {name}.")))
+            Err(Message::new("svc.folder_exists").with("name", name))
         }
-        other => other.map(|()| path),
+        Err(e) => Err(Message::new("svc.cannot_create_folder").with("error", e)),
+        Ok(()) => Ok(path),
     }
 }
 
@@ -149,7 +162,7 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), tmp.path().join("Elsewhere")).unwrap();
         let top = list(tmp.path(), "").unwrap();
         let link = top.iter().find(|f| f.name == "Elsewhere").unwrap();
-        assert!(link.problem.as_deref().unwrap().contains("outside"));
+        assert_eq!(link.problem.as_ref().unwrap().code(), "svc.folder_outside");
         assert!(list(tmp.path(), "Elsewhere").is_err());
     }
 

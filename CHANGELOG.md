@@ -8,6 +8,11 @@ one.
 
 ## [Unreleased]
 
+### Changed
+- The app's text can now be translated. It's in one file,
+  `strings-en.js`; a copy named for a language (`strings-de.js`) is used
+  when the Kindle is set to that language. No translations yet.
+
 ### Fixed
 - A long send from Calibre is no longer cut off when the Kindle's
   screensaver comes on (which turns Wi-Fi off). The Kindle now stays awake

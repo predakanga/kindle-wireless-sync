@@ -21,6 +21,7 @@ use crate::config::{Link, LinkedLibrary};
 use crate::daemon::{self, FindResult, FoundLibrary, Handle, LinkError, State};
 use crate::discovery::CalibreServer;
 use crate::folders;
+use crate::message::Message;
 use crate::readsync::Columns;
 use crate::session::CalibreInfo;
 
@@ -202,8 +203,20 @@ fn ok() -> (u16, Value) {
     (200, json!({"ok": true}))
 }
 
-fn fail(error: impl Into<String>) -> (u16, Value) {
-    (200, json!({"ok": false, "error": error.into()}))
+/// A failure the app shows: the English, and the code it translates
+/// (ADR 0028).
+fn fail(error: Message) -> (u16, Value) {
+    (
+        200,
+        json!({"ok": false, "error": error.english(), "message": error.to_json()}),
+    )
+}
+
+/// Linking `library` would replace the linked one (ADR 0018).
+fn replace_message(linked: &str, library: &str) -> Message {
+    Message::new("svc.needs_replace")
+        .with("linked", linked)
+        .with("library", library)
 }
 
 fn bad_request(error: &str) -> (u16, Value) {
@@ -245,7 +258,7 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
         ("POST", "/autostart") => match body.get("enabled").and_then(Value::as_bool) {
             Some(enabled) => match set_autostart(&api.home_dir, enabled) {
                 Ok(()) => ok(),
-                Err(e) => fail(format!("Cannot change autostart: {e}")),
+                Err(e) => fail(Message::new("svc.cannot_change_autostart").with("error", e)),
             },
             None => bad_request("expected {\"enabled\": true|false}"),
         },
@@ -271,7 +284,7 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
                     api.handle.set_series(enabled);
                     ok()
                 }
-                Err(e) => fail(format!("Cannot save settings: {e}")),
+                Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
             },
             None => bad_request("expected {\"enabled\": true|false}"),
         },
@@ -284,8 +297,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
                         api.handle.reconnect();
                         ok()
                     }
-                    Ok(false) => fail("That library isn't linked."),
-                    Err(e) => fail(format!("Cannot save settings: {e}")),
+                    Ok(false) => fail(Message::new("svc.library_not_linked")),
+                    Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
                 }
             }
             None => bad_request("expected {\"uuid\": ...}"),
@@ -302,8 +315,8 @@ fn route(api: &Api, req: &Request) -> (u16, Value) {
                         api.handle.reconnect();
                         ok()
                     }
-                    Ok(false) => fail("That library isn't linked."),
-                    Err(e) => fail(format!("Cannot save settings: {e}")),
+                    Ok(false) => fail(Message::new("svc.library_not_linked")),
+                    Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
                 },
                 None => bad_request("expected {\"uuid\": ..., \"password\": ...}"),
             }
@@ -329,14 +342,18 @@ fn list_folders(api: &Api, body: &Value) -> (u16, Value) {
         Ok(list) => {
             let list: Vec<Value> = list
                 .iter()
-                .map(|f| json!({"name": f.name, "problem": f.problem}))
+                .map(|f| {
+                    json!({"name": f.name,
+                           "problem": f.problem.as_ref().map(Message::english),
+                           "problem_msg": f.problem.as_ref().map(Message::to_json)})
+                })
                 .collect();
             (
                 200,
                 json!({"ok": true, "path": path.trim_matches('/'), "folders": list}),
             )
         }
-        Err(e) => fail(format!("Cannot open that folder: {e}")),
+        Err(e) => fail(e),
     }
 }
 
@@ -347,7 +364,7 @@ fn new_folder(api: &Api, body: &Value) -> (u16, Value) {
     };
     match folders::create(api.handle.books_dir(), path_field(body), name) {
         Ok(path) => (200, json!({"ok": true, "path": path})),
-        Err(e) => fail(e.to_string()),
+        Err(e) => fail(e),
     }
 }
 
@@ -356,11 +373,11 @@ fn new_folder(api: &Api, body: &Value) -> (u16, Value) {
 fn set_books_folder(api: &Api, body: &Value) -> (u16, Value) {
     let path = path_field(body).trim_matches('/').to_owned();
     if let Err(e) = folders::resolve(api.handle.books_dir(), &path) {
-        return fail(format!("Cannot use that folder: {e}"));
+        return fail(e);
     }
     match config::update(&api.state_dir, |c| c.books_folder = path) {
         Ok(()) => ok(),
-        Err(e) => fail(format!("Cannot save settings: {e}")),
+        Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
     }
 }
 
@@ -369,11 +386,15 @@ fn status_json(api: &Api) -> Value {
     let mut out = json!({
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
+        // The app's language (ADR 0028).
+        "locale": crate::kindle::locale(),
         "state": status.state.as_str(),
-        "detail": status.detail,
+        "detail": status.detail.english(),
+        "detail_msg": status.detail.to_json(),
         "since": status.since,
         "retry_at": status.retry_at,
-        "advice": status.advice,
+        "advice": status.advice.as_ref().map(Message::english),
+        "advice_msg": status.advice.as_ref().map(Message::to_json),
         "paused": status.state == State::Paused,
         "autostart": api.home_dir.join(AUTOSTART).exists(),
         "autostart_disabled_by_guard": api.home_dir.join(AUTOSTART_DISABLED).exists(),
@@ -456,7 +477,7 @@ fn find(api: &Api) -> (u16, Value) {
     api.handle.note_servers(&found);
     let config = match Config::load(&api.state_dir) {
         Ok(c) => c,
-        Err(e) => return fail(format!("Cannot read settings: {e}")),
+        Err(e) => return fail(Message::new("svc.cannot_read_settings").with("error", e)),
     };
     let cached = |addr| api.handle.cached_find(addr);
     let servers: Vec<Value> = daemon::find_libraries(&config, &found, &cached)
@@ -488,6 +509,7 @@ fn find(api: &Api) -> (u16, Value) {
                 FindResult::Failed(e) => {
                     v["status"] = json!("error");
                     v["error"] = json!(e.to_string());
+                    v["message"] = json!(daemon::probe_message(e).map(|m| m.to_json()));
                 }
             }
             v
@@ -506,13 +528,15 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
         .get("replace")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    // Where a link by address went, for its error.
+    let mut target: Option<(String, u64)> = None;
     let result = match body.get("host") {
         None => {
             let Some(uuid) = uuid else {
                 return bad_request("expected {\"uuid\": ...} or {\"host\": ..., \"port\": ...}");
             };
             let Some(found) = api.handle.found().into_iter().find(|f| f.uuid == uuid) else {
-                return fail("That library isn't in the found list. Use Find libraries again.");
+                return fail(Message::new("svc.not_found_find_again"));
             };
             match daemon::link_found(&api.state_dir, &found, replace) {
                 Ok(Link::Refused(linked)) => Err(LinkError::NeedsReplace {
@@ -536,19 +560,14 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
             if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
-                return fail("Enter the computer's name or address.");
+                return fail(Message::new("svc.enter_host"));
             }
             let Some(port) = port.filter(|p| (1..=65535).contains(p)) else {
-                return fail("Enter a port between 1 and 65535.");
+                return fail(Message::new("svc.enter_port"));
             };
+            target = Some((host.to_owned(), port));
             daemon::link_address(&api.state_dir, host, port as u16, password, uuid, replace)
                 .map(|(info, link)| (info.library_uuid, info.library_name, link))
-                .map_err(|e| match e {
-                    LinkError::Unreachable(e) => LinkError::Unreachable(io::Error::other(format!(
-                        "Could not reach Calibre at {host}:{port}: {e}"
-                    ))),
-                    other => other,
-                })
         }
     };
     match result {
@@ -571,21 +590,27 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
             json!({
                 "ok": false,
                 "needs_replace": true,
-                "error": format!(
-                    "This Kindle is linked to {}. Linking {} replaces it.",
-                    linked.display_name(),
-                    display_info(&answered)
-                ),
+                "error": replace_message(linked.display_name(), display_info(&answered)).english(),
+                "message": replace_message(linked.display_name(), display_info(&answered)).to_json(),
                 "linked": {"uuid": linked.uuid, "name": linked.name},
                 "library": {"uuid": answered.library_uuid, "name": answered.library_name},
             }),
         ),
-        Err(LinkError::OtherLibrary(info)) => fail(format!(
-            "A different library answered: {}.",
-            display_info(&info)
-        )),
-        Err(LinkError::Unreachable(e)) => fail(e.to_string()),
-        Err(LinkError::Settings(e)) => fail(format!("Cannot save settings: {e}")),
+        Err(LinkError::OtherLibrary(info)) => {
+            fail(Message::new("svc.other_library_answered").with("library", display_info(&info)))
+        }
+        Err(LinkError::Unreachable(e)) => {
+            let (host, port) = target.unwrap_or_default();
+            fail(
+                Message::new("svc.cannot_reach")
+                    .with("host", host)
+                    .with("port", port)
+                    .with("error", e),
+            )
+        }
+        Err(LinkError::Settings(e)) => {
+            fail(Message::new("svc.cannot_save_settings").with("error", e))
+        }
     }
 }
 
@@ -596,7 +621,7 @@ fn link(api: &Api, body: &Value) -> (u16, Value) {
 /// guard, which counts boots (ADR 0010).
 fn service(api: &Api, action: &str) -> (u16, Value) {
     let Some(job) = api.job.clone() else {
-        return fail("Not running as a service.");
+        return fail(Message::new("svc.not_a_service"));
     };
     let action = action.to_owned();
     std::thread::spawn(move || {
@@ -622,11 +647,11 @@ fn host_port(body: &Value) -> Result<(String, u16), (u16, Value)> {
         .unwrap_or("")
         .trim();
     if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
-        return Err(fail("Enter the computer's name or address."));
+        return Err(fail(Message::new("svc.enter_host")));
     }
     let port = body.get("port").and_then(Value::as_u64);
     let Some(port) = port.filter(|p| (1..=65535).contains(p)) else {
-        return Err(fail("Enter a port between 1 and 65535."));
+        return Err(fail(Message::new("svc.enter_port")));
     };
     Ok((host.to_owned(), port as u16))
 }
@@ -643,7 +668,7 @@ fn probe(api: &Api, body: &Value) -> (u16, Value) {
     let target = match body.get("uuid").and_then(Value::as_str) {
         Some(uuid) => match api.handle.found().into_iter().find(|f| f.uuid == uuid) {
             Some(found) => Target::Found(found),
-            None => return fail("That library isn't in the found list. Search again."),
+            None => return fail(Message::new("svc.not_found_search_again")),
         },
         None => match host_port(body) {
             Ok((host, port)) => Target::Address { host, port },
@@ -664,7 +689,7 @@ fn chosen_columns(
         .get("writable")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let pick = |key: &str, datatype: &str, what: &str| -> Result<Option<String>, (u16, Value)> {
+    let pick = |key: &str, datatype: &str, code: Message| -> Result<Option<String>, (u16, Value)> {
         let Some(lookup) = body
             .get(key)
             .and_then(Value::as_str)
@@ -677,13 +702,15 @@ fn chosen_columns(
         if fits {
             Ok(Some(lookup.to_owned()))
         } else {
-            Err(fail(format!(
-                "{lookup} isn't a {what} column in this library."
-            )))
+            Err(fail(code.with("column", lookup)))
         }
     };
-    let read = pick("read_column", "bool", "Yes/No")?;
-    let last_read = pick("last_read_column", "datetime", "Date")?;
+    let read = pick("read_column", "bool", Message::new("svc.not_bool_column"))?;
+    let last_read = pick(
+        "last_read_column",
+        "datetime",
+        Message::new("svc.not_date_column"),
+    )?;
     Ok((writable, Columns { read, last_read }))
 }
 
@@ -699,7 +726,7 @@ fn read_sync_refused(api: &Api, writable: bool) -> Option<(u16, Value)> {
 /// Replacing a different linked library needs `"replace": true` (ADR 0018).
 fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
     let Some(checked) = api.handle.checked() else {
-        return fail("Check the library first.");
+        return fail(Message::new("svc.check_first"));
     };
     let (writable, columns) = match chosen_columns(body, &checked.columns) {
         Ok(c) => c,
@@ -737,11 +764,8 @@ fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
             json!({
                 "ok": false,
                 "needs_replace": true,
-                "error": format!(
-                    "This Kindle is linked to {}. Linking {} replaces it.",
-                    linked.display_name(),
-                    checked.name
-                ),
+                "error": replace_message(linked.display_name(), &checked.name).english(),
+                "message": replace_message(linked.display_name(), &checked.name).to_json(),
                 "linked": {"uuid": linked.uuid, "name": linked.name},
                 "library": {"uuid": checked.uuid, "name": checked.name},
             }),
@@ -763,7 +787,7 @@ fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
                        "replaced": replaced}),
             )
         }
-        Err(e) => fail(format!("Cannot save settings: {e}")),
+        Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
     }
 }
 
@@ -773,10 +797,10 @@ fn link_checked(api: &Api, body: &Value) -> (u16, Value) {
 fn settings(api: &Api, body: &Value) -> (u16, Value) {
     let linked = match Config::load(&api.state_dir) {
         Ok(c) => c.library,
-        Err(e) => return fail(format!("Cannot read settings: {e}")),
+        Err(e) => return fail(Message::new("svc.cannot_read_settings").with("error", e)),
     };
     let Some(linked) = linked else {
-        return fail("No library is linked.");
+        return fail(Message::new("svc.no_library_linked"));
     };
     let (writable, columns) = match chosen_columns(body, &linked.columns) {
         Ok(c) => c,
@@ -799,8 +823,8 @@ fn settings(api: &Api, body: &Value) -> (u16, Value) {
             api.handle.settings_changed();
             ok()
         }
-        Ok(false) => fail("That library is no longer linked."),
-        Err(e) => fail(format!("Cannot save settings: {e}")),
+        Ok(false) => fail(Message::new("svc.no_longer_linked")),
+        Err(e) => fail(Message::new("svc.cannot_save_settings").with("error", e)),
     }
 }
 
@@ -949,7 +973,10 @@ mod tests {
 
         let (code, v) = post(&f, "/folders", r#"{"path": ""}"#);
         assert_eq!(code, 200);
-        assert_eq!(v["folders"], json!([{"name": "Calibre", "problem": null}]));
+        assert_eq!(
+            v["folders"],
+            json!([{"name": "Calibre", "problem": null, "problem_msg": null}])
+        );
 
         let (_, v) = post(&f, "/folders/new", r#"{"path": "Calibre", "name": "SF"}"#);
         assert_eq!(v, json!({"ok": true, "path": "Calibre/SF"}));

@@ -8,6 +8,8 @@
 use std::cmp::Ordering;
 use std::path::Path;
 
+use crate::message::Message;
+
 pub const PRETTY_VERSION: &str = "/etc/prettyversion.txt";
 
 /// The first firmware whose catalog has `Entries.p_lastOpenTime`
@@ -56,11 +58,10 @@ pub fn read_sync_available(firmware: Option<&str>) -> bool {
 }
 
 /// Why read sync can't be turned on, for the API and the command line.
-pub fn read_sync_unavailable(firmware: &str) -> String {
-    format!(
-        "Reading status sync needs Kindle firmware {READ_SYNC_MIN} or later. \
-         This Kindle has {firmware}."
-    )
+pub fn read_sync_unavailable(firmware: &str) -> Message {
+    Message::new("svc.read_sync_unavailable")
+        .with("min", READ_SYNC_MIN)
+        .with("firmware", firmware)
 }
 
 #[cfg(test)]
