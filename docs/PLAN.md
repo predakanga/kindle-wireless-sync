@@ -44,11 +44,11 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 1: Research and feasibility | ✅ | Every base requirement feasible with stock Calibre (ADRs 0001–0005) |
 | Phase 2: Protocol client on the host | ✅ | Calibre treats the host CLI as a device (2026-10-15) |
 | Phase 3: Running on the Kindle | ✅ | A sent book opens in the built-in reader without a reboot (2026-10-15) |
-| Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.0** (2026-10-19) |
+| Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.2** (2026-10-21) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
 | Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
-| Later 1, 2b, 3–7, 9, 14 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 2a, 8, 10–13 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 1, 2b, 3–6, 9, 14 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2a, 7, 8, 10–13 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -204,9 +204,6 @@ them. Each item's full text is in the
   it; first check whether that is reported to Amazon.
   [More](progress-log.md#later-6)
 
-- **7. A tap-debugging helper in this repo,** instead of relying on Kindle
-  Button Mapper's `tap.sh`. [More](progress-log.md#later-7)
-
 - **9. Test KFX.** Receiving works; still to check deleting and replacing a
   KFX book, whether it carries Calibre's UUID, and relinking.
   [More](progress-log.md#later-9)
@@ -219,6 +216,10 @@ them. Each item's full text is in the
 - ✅ **2a. Review the UI:** e-ink usability and the wording of every
   message (developer, 2026-10-21). Split from Later 2.
   [More](progress-log.md#later-2)
+
+- ✅ **7. A tap-debugging helper in this repo:** `just tap`, `just
+  screenshot` and `just tap-shot`, with a credited copy of Button Mapper's
+  `tap.sh` (2026-11-20). [More](progress-log.md#later-7)
 
 - ✅ **8. Reconnect after Calibre restarts** (ADR 0021, 0.3.2).
   [More](progress-log.md#later-8)

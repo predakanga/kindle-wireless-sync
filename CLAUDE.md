@@ -44,6 +44,8 @@ just device-connect --allow <uuid>   # dev: one foreground session on the Kindle
 just install-service      # install the upstart jobs (briefly remounts / read-write)
 just start | stop | restart | status | logs | autostart-on | autostart-off
 just screensaver-off | screensaver-on   # keep the Kindle awake for long tests (Wi-Fi drops with it)
+just tap X Y | screenshot [OUT] | tap-shot X Y [OUT]
+                          # dev: tap at X% Y%, fetch a screenshot to target/screens/
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
 just ui-prototype         # dev: open the clickable UI prototype (tools/ui-prototype) in a browser
@@ -177,9 +179,10 @@ transcripts/NAME.jsonl` (the folder is gitignored), then run
 - Never write to `/var/local/cc.db` or `/var/local/ksdk.asset.db`. The two
   stores are kept in sync by triggers, and hand edits can desync the library
   (ADR 0005). Reads must tolerate `database is locked`.
-- To check the UI from SSH, run `/usr/sbin/screenshot`. It writes a PNG to
-  `/mnt/us/screenshots/`; delete it after fetching. Button Mapper's
-  `/mnt/us/kindle-button-mapper/scripts/tap.sh 76 96` taps the Library tab.
+- To check the UI from SSH: `just screenshot` fetches a PNG to
+  `target/screens/` (and deletes the device's copy), `just tap 76 96` taps
+  the Library tab (X% Y%), and `just tap-shot X Y` does both. The tap script
+  is a copy of Kindle Button Mapper's (`tools/device/tap.sh`).
 - Name test files `kws-*`. When cleaning up, also remove the `.sdr/` folder
   the indexer creates for each file, because it is not removed automatically.
 - **Make test files TXT, never copies of real books.** A copy shares the

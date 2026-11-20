@@ -470,6 +470,15 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    copy, after checking its licence), plus a recipe that taps, screenshots
    and fetches the PNG.
 
+   **Done (2026-11-20).** `tools/device/tap.sh` is Button Mapper's script
+   at `a7a1fa5`, unchanged under a credit header (both projects are
+   GPL-3.0-or-later). `just tap X Y` pipes it over SSH, so nothing is
+   installed on the device; `just screenshot [OUT]` runs the stock
+   `/usr/sbin/screenshot`, fetches the PNG to `target/screens/` and deletes
+   the device's copy; `just tap-shot X Y` does both with a 2 s wait. Checked
+   on the reference device: tapping Home (24, 96) from the Library switched
+   to Home.
+
 <a id="later-8"></a>
 ### Later 8
 

@@ -329,7 +329,9 @@ reading `cc.db` every second:
 
 `/usr/sbin/screenshot` (stock) writes a PNG of the framebuffer to
 `/mnt/us/screenshots/`. Kindle Button Mapper's `scripts/tap.sh X% Y%` injects
-a tap, for example `76 96` for the Library tab on the reference device.
+a tap, for example `76 96` for the Library tab on the reference device. A
+copy is in `tools/device/` now, behind `just tap` and `just screenshot`
+(Later 7, 2026-11-20).
 `lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home` goes to
 Home.
 

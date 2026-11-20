@@ -114,6 +114,22 @@ screensaver-off:
 screensaver-on:
     ssh {{kindle_host}} "lipc-set-prop -i com.lab126.powerd preventScreenSaver 0 && lipc-get-prop com.lab126.powerd preventScreenSaver"
 
+# tools/device/tap.sh is from Kindle Button Mapper. `just tap 76 96` taps the
+# Library tab on the reference device.
+# Tap the screen at X% Y% of its width and height
+tap x y:
+    ssh {{kindle_host}} "sh -s -- {{x}} {{y}}" < tools/device/tap.sh
+
+# Screenshot to OUT (default target/screens/<time>.png), deleting the device's copy
+screenshot out="":
+    tools/device/screenshot.sh {{kindle_host}} {{out}}
+
+# Tap, give e-ink time to redraw, then screenshot.
+tap-shot x y out="" wait="2":
+    just tap {{x}} {{y}}
+    sleep {{wait}}
+    just screenshot {{out}}
+
 # Build the library-tile scriptlet with its icon embedded
 scriptlet:
     #!/bin/sh
