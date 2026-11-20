@@ -509,7 +509,15 @@ pub struct Options {
     /// The Kindle's firmware version, if known: read sync needs 5.19.1 or
     /// later (ADR 0026). Given rather than read, for tests.
     pub firmware: Option<String>,
+    /// Resets the Kindle's idle timer, so the screensaver doesn't take
+    /// Wi-Fi down while Calibre is sending (ADR 0027). Called at most every
+    /// [`KEEP_AWAKE_EVERY`] while the linked library is busy.
+    pub keep_awake: Box<dyn FnMut() + Send>,
 }
+
+/// How often a busy session resets the idle timer (ADR 0027). The
+/// screensaver comes after 10 minutes, so this leaves a wide margin.
+pub const KEEP_AWAKE_EVERY: Duration = Duration::from_secs(30);
 
 /// How long the user's Disconnect waits for Calibre's next keep-alive before
 /// cutting the connection anyway (ADR 0022). Idle, Calibre sends one about
@@ -1180,6 +1188,8 @@ impl Daemon {
             state_dir: &self.opts.state_dir,
             answered: None,
             admitted: false,
+            keep_awake: &mut self.opts.keep_awake,
+            last_awake: None,
         };
         let end = session::run_with_quiet(
             &mut conn,
@@ -1238,6 +1248,9 @@ struct LinkedAdmit<'a> {
     state_dir: &'a Path,
     answered: Option<CalibreInfo>,
     admitted: bool,
+    keep_awake: &'a mut (dyn FnMut() + Send),
+    /// When the idle timer was last reset in this session.
+    last_awake: Option<Instant>,
 }
 
 impl Admit for LinkedAdmit<'_> {
@@ -1280,6 +1293,22 @@ impl Admit for LinkedAdmit<'_> {
         Config::load(self.state_dir)
             .map(|c| c.books_folder)
             .unwrap_or_default()
+    }
+
+    /// Only for the linked library, and not on every message (ADR 0027).
+    fn busy(&mut self) {
+        if !self.admitted {
+            return;
+        }
+        let now = Instant::now();
+        if self
+            .last_awake
+            .is_some_and(|t| now.duration_since(t) < KEEP_AWAKE_EVERY)
+        {
+            return;
+        }
+        self.last_awake = Some(now);
+        (self.keep_awake)();
     }
 }
 
@@ -1663,6 +1692,7 @@ mod tests {
             quiet: Duration::ZERO,
             leave_within: LEAVE_WITHIN,
             firmware: None,
+            keep_awake: Box::new(|| {}),
         };
         edit(&mut opts);
         let (daemon, handle) = Daemon::new(lib, opts, true);
@@ -2005,6 +2035,48 @@ mod tests {
         wait_until("retry after wifi cycle", || {
             count.load(Ordering::SeqCst) == 2
         });
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    /// Starts a daemon linked to `linked` at `addr` that counts the idle
+    /// timer resets (ADR 0027).
+    fn start_counting_awake(
+        state: &Path,
+        linked: &str,
+        addr: SocketAddr,
+    ) -> (Handle, std::thread::JoinHandle<()>, Arc<AtomicUsize>) {
+        let awake = Arc::new(AtomicUsize::new(0));
+        let a = awake.clone();
+        let (h, thread) = launch(state, Some((linked, addr)), move |opts| {
+            opts.keep_awake = Box::new(move || {
+                a.fetch_add(1, Ordering::SeqCst);
+            });
+        });
+        (h, thread, awake)
+    }
+
+    #[test]
+    fn a_busy_linked_library_keeps_the_kindle_awake() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, count) = fake_calibre("lib-1");
+        let (h, thread, awake) = start_counting_awake(tmp.path(), "lib-1", addr);
+        wait_until("eject", || h.status().state == State::Ejected);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        // Library info and the eject, after the handshake: one reset, as
+        // the second comes within KEEP_AWAKE_EVERY.
+        assert_eq!(awake.load(Ordering::SeqCst), 1);
+        h.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn another_library_never_keeps_the_kindle_awake() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (addr, _count) = fake_calibre("lib-2");
+        let (h, thread, awake) = start_counting_awake(tmp.path(), "lib-1", addr);
+        wait_until("not found", || h.status().state == State::NotFound);
+        assert_eq!(awake.load(Ordering::SeqCst), 0);
         h.shutdown();
         thread.join().unwrap();
     }

@@ -595,3 +595,12 @@ end-to-end checks noisy. The results below mention checks it no longer has.
     however the session ends, including when the daemon crashes, or the
     Kindle stays awake until a reboot. Check also whether other apps set
     it, so that clearing it doesn't undo theirs.
+
+    **Done (2026-11-20), ADR 0027 (proposed).** Not `preventScreenSaver`:
+    it's one global flag that a crash would leave set. Instead, each
+    non-keep-alive message from the linked library resets powerd's idle
+    timer with `touchScreenSaverTimeout` (as KOReader's `resetT1Timeout`
+    does), at most every 30 s, so the screensaver comes back 10 minutes
+    after the last one whatever happens. On the reference device, a
+    restart's reconnect took powerd's remaining time from 344 s to 598 s,
+    and it then counted down while Calibre sent only keep-alives.

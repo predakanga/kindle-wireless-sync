@@ -853,6 +853,7 @@ mod tests {
             quiet: Duration::ZERO,
             leave_within: daemon::LEAVE_WITHIN,
             firmware: firmware.map(str::to_owned),
+            keep_awake: Box::new(|| {}),
         };
         let (daemon, handle) = Daemon::new(lib, opts, true);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

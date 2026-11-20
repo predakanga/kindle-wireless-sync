@@ -47,8 +47,8 @@ Stretch (a Calibre plugin is allowed for these):
 | Phase 4: UI and packaging | ✅ | App, KPM package and releases; latest **0.4.2** (2026-10-21) |
 | Phase 5: Stretch goals | ✅ | Native series, read status to Calibre, device name; percent read deferred (Later 5) |
 | Phase 6: Other firmware | ✅ | Every model checked on its newest firmware; read sync needs 5.19.1 (ADR 0026, 2026-10-21) |
-| Later 1, 2b, 3–6, 9, 14 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
-| Later 2a, 7, 8, 10–13 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 1, 2b, 3–6, 9 | Open | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
+| Later 2a, 7, 8, 10–14 | ✅ Done or closed | See [Later](#later-to-revisit-once-the-goals-above-are-met) |
 
 Full status notes, as they were written, are in the
 [progress log](progress-log.md).
@@ -208,8 +208,6 @@ them. Each item's full text is in the
   KFX book, whether it carries Calibre's UUID, and relinking.
   [More](progress-log.md#later-9)
 
-- **14. Keep the screensaver off while transferring.** Wi-Fi goes down
-  with it, which ends the session mid-transfer. [More](progress-log.md#later-14)
 
 ### Done or closed
 
@@ -232,6 +230,10 @@ them. Each item's full text is in the
 
 - ✅ **12. Choose where books are stored** (ADR 0023, 0.4.0).
   [More](progress-log.md#later-12)
+
+- ✅ **14. Keep the Kindle awake while transferring:** a busy session
+  resets powerd's idle timer (ADR 0027, proposed, 2026-11-20).
+  [More](progress-log.md#later-14)
 
 - ✅ **13. Fractional series positions:** closed; ordered right, but the
   Library's badge shows only whole numbers. [More](progress-log.md#later-13)

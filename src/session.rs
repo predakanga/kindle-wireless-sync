@@ -116,6 +116,11 @@ pub trait Admit {
     fn books_folder(&mut self) -> String {
         String::new()
     }
+
+    /// Calibre sent something other than a keep-alive, so it's working and
+    /// the Kindle should stay awake (ADR 0027). Called for every such
+    /// message, including the handshake's.
+    fn busy(&mut self) {}
 }
 
 impl<F: FnMut(&CalibreInfo) -> Admission> Admit for F {
@@ -213,6 +218,7 @@ pub fn run_with_quiet<R: BufRead, W: Write>(
         let keep_alive = op == Opcode::Noop && p.as_object().is_none_or(Map::is_empty);
         if !keep_alive {
             last_busy = Instant::now();
+            admit.busy();
         }
         match op {
             Opcode::GetInitializationInfo => {
@@ -1199,6 +1205,41 @@ mod tests {
             replies += 1;
         }
         assert_eq!(replies, 2);
+    }
+
+    #[test]
+    fn busy_is_called_for_work_but_not_keep_alives() {
+        #[derive(Default)]
+        struct Counting(usize);
+        impl Admit for Counting {
+            fn admit(&mut self, _: &CalibreInfo) -> Admission {
+                Admission::Accept {
+                    password: None,
+                    columns: None,
+                    known_columns: Map::new(),
+                }
+            }
+            fn busy(&mut self) {
+                self.0 += 1;
+            }
+        }
+        let (_tmp, mut lib) = setup();
+        let script = Script::new()
+            .handshake()
+            .msg(Opcode::Noop, json!({}))
+            .msg(Opcode::Noop, json!({}));
+        let script = send_book(script, "kws-a.azw3", b"hello")
+            .msg(Opcode::Noop, json!({}))
+            .msg(Opcode::Noop, json!({"ejecting": true}));
+        let mut admit = Counting::default();
+        let mut out = Vec::new();
+        let end = {
+            let mut conn = Connection::new(Cursor::new(script.0), &mut out);
+            run(&mut conn, &mut lib, &DeviceConfig::default(), &mut admit).unwrap()
+        };
+        assert_eq!(end, SessionEnd::Ejected);
+        // Init, the book and the eject; not the three keep-alives.
+        assert_eq!(admit.0, 3);
     }
 
     #[test]

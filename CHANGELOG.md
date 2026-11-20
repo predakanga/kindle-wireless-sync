@@ -8,6 +8,12 @@ one.
 
 ## [Unreleased]
 
+### Fixed
+- A long send from Calibre is no longer cut off when the Kindle's
+  screensaver comes on (which turns Wi-Fi off). The Kindle now stays awake
+  while Calibre is sending or changing books, and sleeps as usual
+  afterwards.
+
 ## [0.4.2] - 2026-10-21
 
 ### Fixed

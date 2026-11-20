@@ -54,3 +54,4 @@ What this commits us to, and any follow-up work or risks.
 - [0024: Publish through the shared kindle-apps KPM index](0024-shared-kindle-apps-index.md)
 - [0025: Read the catalog with an embedded SQLite](0025-embedded-sqlite.md)
 - [0026: Read sync only on firmware 5.19.1 and later](0026-read-sync-needs-firmware-5-19-1.md)
+- [0027: Keep the Kindle awake while Calibre is busy](0027-keep-the-kindle-awake-while-calibre-is-busy.md)

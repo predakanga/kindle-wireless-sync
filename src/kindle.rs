@@ -10,7 +10,7 @@
 //! `docs/research/kindle-library-integration.md`.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::catalog;
 
@@ -258,6 +258,23 @@ pub fn entry_listed(catalog_db: &Path, location: &str) -> Option<bool> {
     )
     .ok()?;
     Some(rows.first()?["n"].as_u64()? > 0)
+}
+
+/// Resets powerd's idle timer, as a touch would, so the screensaver (and
+/// the Wi-Fi drop that comes with it) waits another full timeout (ADR
+/// 0027). Nothing to undo: the screensaver comes on as usual once this
+/// stops. Fails harmlessly once the screensaver is showing.
+pub fn reset_screensaver_timer() {
+    let status = Command::new("lipc-set-prop")
+        .args(["-i", "com.lab126.powerd", "touchScreenSaverTimeout", "1"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => log::debug!("reset the screensaver timer"),
+        Ok(s) => log::debug!("cannot reset the screensaver timer: {s}"),
+        Err(e) => log::debug!("cannot run lipc-set-prop: {e}"),
+    }
 }
 
 /// Longest device name we report to Calibre, in characters.

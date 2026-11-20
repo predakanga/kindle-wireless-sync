@@ -218,6 +218,12 @@ fn daemon_cmd(mut args: lexopt::Parser) -> CmdResult {
         quiet: kws::session::QUIET_BEFORE_RECONNECT,
         leave_within: daemon::LEAVE_WITHIN,
         firmware: firmware::read(),
+        // Only on a Kindle, where lipc answers (ADR 0027).
+        keep_awake: if wifi.is_some() {
+            Box::new(kindle::reset_screensaver_timer)
+        } else {
+            Box::new(|| {})
+        },
     };
     let catalog_changed = lib.catalog_signal();
     let (daemon, handle) = Daemon::new(lib, opts, wifi.unwrap_or(true));
