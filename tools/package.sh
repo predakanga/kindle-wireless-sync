@@ -28,6 +28,7 @@ cp "$scriptlet" "$stage/WirelessSync.sh"
 cp package/install.sh package/uninstall.sh package/launch.sh \
    package/service.sh package/autostart.sh package/register-app.sh "$stage/"
 cp package/upstart/*.conf "$stage/upstart/"
+python3 tools/strings.py
 cp package/ui/* "$stage/ui/"
 chmod 755 "$stage"/*.sh "$stage/kindle-wireless-sync"
 chmod 644 "$stage/manifest.json" "$stage"/upstart/* "$stage"/ui/*

@@ -418,12 +418,13 @@ end-to-end checks noisy. The results below mention checks it no longer has.
    still open.
 
    **2b done (2026-11-20), ADR 0028 (proposed).** The app's text is in
-   `package/ui/strings-en.js`; `script.js` looks it up with `t(key,
-   params)`. The service's messages (`src/message.rs`) carry a code beside
+   `package/i18n/en.json` (JSON, so Weblate can take it), built into
+   `package/ui/strings-<lang>.js` by `just strings`; `script.js` looks it
+   up with `t(key, params)`. The service's messages (`src/message.rs`) carry a code beside
    their English (`detail_msg`, `advice_msg`, `message`), which the app
    translates; the log and the command line stay English. `/status` gives
    the Kindle's `locale` (`en_GB` on the reference device, from
-   `/var/local/system/locale`). Tests keep `strings-en.js` and the service's
+   `/var/local/system/locale`). Tests keep `en.json` and the service's
    English identical, and check every key `script.js` uses exists and vice
    versa. Checked end to end on the Mac in headless Chrome with a dummy
    `zz` translation (partial: the rest fell back to English; a service

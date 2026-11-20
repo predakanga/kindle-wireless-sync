@@ -3,7 +3,8 @@
  * Wireless Sync settings app: one screen per page (ADR 0020), talking to the
  * service's localhost API (ADR 0011). ES5 only: the Kindle's mesquite engine
  * has no fetch, promises or arrow functions. The design was settled with
- * tools/ui-prototype. Its text is in strings-<language>.js (ADR 0028).
+ * tools/ui-prototype. Its text is in strings-<language>.js, built from
+ * package/i18n by `just strings` (ADR 0028).
  */
 (function () {
     "use strict";

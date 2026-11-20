@@ -1,20 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/*
- * The app's text in English: the source for translations, and the fallback
- * for any text a translation leaves out (ADR 0028).
- *
- * To translate: copy this file to strings-<language>.js (strings-de.js, or
- * strings-pt_BR.js for one country), change "en" on the first line to the
- * same name, and translate the text on the right. Keep each {name} as it is:
- * the app fills it in. <b> and <i> may move but should stay. One entry per
- * line, as "key": "text".
- *
- * Entries starting "svc." come from the service; src/message.rs has the
- * same English, and a test checks that they match.
- */
-(window.KWS_STRINGS = window.KWS_STRINGS || {}).en = {
+{
     "app.name": "Wireless Sync",
-
     "err.no_answer": "The service didn't answer.",
     "err.not_running": "The service isn't running.",
     "err.unexpected_reply": "Unexpected reply (HTTP {status}).",
@@ -23,13 +8,11 @@
     "err.didnt_work": "That didn't work.",
     "err.something_wrong": "Something went wrong.",
     "err.config_problem": "Settings file problem: {error}",
-
     "common.cancel": "Cancel",
     "common.change": "Change",
     "common.save": "Save",
     "common.address": "Address",
     "common.password": "Password",
-
     "state.connected": "Connected",
     "state.searching": "Connecting…",
     "state.not_found": "Library not available",
@@ -42,7 +25,6 @@
     "state.error": "Problem",
     "state.not_linked": "No library linked",
     "state.stopped": "Stopped",
-
     "home.status": "Status",
     "home.retrying_in": " (retrying in {secs}s)",
     "home.retrying": " (retrying…)",
@@ -53,7 +35,6 @@
     "home.library_settings": "Library settings",
     "home.change_library": "Change library",
     "home.forget_library": "Forget library",
-
     "readsync.unavailable": "Reading status sync isn't available on this Kindle",
     "readsync.off": "Not syncing reading status",
     "readsync.no_columns": "Reading status sync is on, but no columns have been chosen",
@@ -62,7 +43,6 @@
     "readsync.hint": "When enabled, books' completion and last-read date are synced to Calibre.",
     "readsync.read": "Read",
     "readsync.last_read": "Last read",
-
     "choose.title": "Choose a library",
     "choose.heading": "Choose a Calibre library",
     "choose.hint": "In Calibre, choose <b>Connect/share → Start wireless device connection</b>. Then tap the library to use.",
@@ -75,14 +55,12 @@
     "choose.search_again": "Search again",
     "choose.by_address": "Connect by address…",
     "choose.replaces": "Linking another library replaces {name}.",
-
     "address.title": "Connect by address",
     "address.hint": "For when Find can't see your computer. In Calibre's wireless settings, tick <b>Use fixed network port</b> so the port doesn't change.",
     "address.host": "Computer name or address",
     "address.port": "Port",
     "address.password": "Password (if Calibre has one)",
     "address.connect": "Connect",
-
     "probe.testing": "Testing connection to {name}…",
     "probe.testing_hint": "Calibre will show the Kindle as connected for a few seconds.",
     "probe.password_needed": "Password needed",
@@ -93,10 +71,8 @@
     "probe.continue": "Continue",
     "probe.failed": "Couldn't connect to {name}",
     "probe.try_again": "Try again",
-
     "setup.title": "Link {name}",
     "setup.link": "Link",
-
     "column.dont_sync": "Don't sync",
     "column.missing": "{lookup} (missing)",
     "picker.no_columns_yet": "No columns yet",
@@ -110,15 +86,12 @@
     "picker.restart_settings": "Added a column? Calibre lists it only after a restart. Restart Calibre, start its wireless device connection again, and tap Connect on the first page. The column then shows up here.",
     "picker.refresh": "Refresh",
     "picker.refreshing": "Refreshing…",
-
     "settings.computer": "Computer",
     "settings.password_set": "Set",
     "settings.password_none": "None",
     "settings.columns_as_of": "Columns as of the last connection to Calibre.",
-
     "password.detail": "The password for {name}, as set in Calibre's <b>Start wireless device connection</b> window.",
     "password.none": "No password",
-
     "folders.title": "Storage folder",
     "folders.hint": "New books go into the folder shown here. Books already on the Kindle stay where they are.",
     "folders.current": "Current folder: <b>{folder}</b>",
@@ -131,12 +104,10 @@
     "folders.page": "Page {page} of {pages}",
     "folders.new": "New folder",
     "folders.use": "Use this folder",
-
     "newfolder.title": "New folder",
     "newfolder.inside": "A new folder inside <b>{folder}</b>.",
     "newfolder.name": "Name",
     "newfolder.create": "Create",
-
     "app.settings": "Settings",
     "app.autostart": "Start automatically",
     "app.autostart_hint": "Start Wireless Sync when the Kindle starts.",
@@ -151,10 +122,8 @@
     "app.starts_on_open": "The service will start again next time you open this app.",
     "app.starts_on_open_or_restart": "The service will start again next time you open this app or restart the Kindle.",
     "app.version": "Wireless Sync {version}",
-
     "stopped.title": "Service not running",
     "stopped.reopen": "Close and reopen Wireless Sync to start it.",
-
     "unlink.title": "Forget {name}?",
     "unlink.detail": "Your books will remain on the Kindle, and you can reconnect to this library later.",
     "unlink.forget": "Forget",
@@ -162,7 +131,6 @@
     "replace.detail": "This Kindle is linked to <b>{linked}</b>. Linking <b>{name}</b> replaces it.",
     "replace.forget": "Your books and their series stay on the Kindle. The rest of what {old} knew about them (tags, read status) is forgotten until {new} sends its own.",
     "replace.replace": "Replace",
-
     "msg.linked": "Linked to {name}.",
     "msg.autostart_on": "Will start automatically.",
     "msg.autostart_off": "Won't start automatically.",
@@ -173,7 +141,6 @@
     "msg.forgotten": "Library forgotten. Your books stay on the Kindle.",
     "msg.stopping": "Stopping the service.",
     "msg.restarting": "Restarting the service.",
-
     "svc.paused": "Sync paused. Resume to reconnect.",
     "svc.waiting_for_wifi": "Waiting for Wi-Fi.",
     "svc.disconnecting": "Disconnecting once Calibre has finished what it's doing.",
@@ -228,4 +195,4 @@
     "svc.not_date_column": "{column} isn't a Date column in this library.",
     "svc.read_sync_unavailable": "Reading status sync needs Kindle firmware {min} or later. This Kindle has {firmware}.",
     "svc.check_first": "Check the library first."
-};
+}

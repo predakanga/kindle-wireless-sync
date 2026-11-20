@@ -130,6 +130,10 @@ tap-shot x y out="" wait="2":
     sleep {{wait}}
     just screenshot {{out}}
 
+# Build the app's strings-<lang>.js from package/i18n/*.json (ADR 0028)
+strings:
+    python3 tools/strings.py
+
 # Build the library-tile scriptlet with its icon embedded
 scriptlet:
     #!/bin/sh
@@ -141,7 +145,7 @@ scriptlet:
     sed "s|@ICON@|$icon|" package/scriptlet.sh.in > target/package/WirelessSync.sh
 
 # Deploy the WAF app and scriptlet, register the app, restart the service
-deploy-ui: deploy deploy-scripts scriptlet
+deploy-ui: deploy deploy-scripts scriptlet strings
     # A closed app keeps running in the background with its old page; stop it
     # so reopening loads the new one, as install.sh does.
     ssh {{kindle_host}} "lipc-set-prop com.lab126.appmgrd stop app://com.kindlewirelesssync.app 2>/dev/null || true"

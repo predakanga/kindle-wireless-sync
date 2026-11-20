@@ -207,7 +207,7 @@ them. Each item's full text is in the
   message (developer, 2026-10-21). Split from Later 2.
   [More](progress-log.md#later-2)
 
-- ✅ **2b. Translations:** the app's text is in `strings-en.js`, and the
+- ✅ **2b. Translations:** the app's text is in `package/i18n/en.json`, and the
   service's messages carry codes the app translates (ADR 0028, proposed,
   2026-11-20). [More](progress-log.md#later-2)
 

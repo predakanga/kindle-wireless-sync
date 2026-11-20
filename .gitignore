@@ -10,6 +10,9 @@
 # IDE settings
 /.idea/
 
+# The app's strings, built from package/i18n (just strings, ADR 0028)
+/package/ui/strings-*.js
+
 # Python bytecode (tools/)
 __pycache__/
 

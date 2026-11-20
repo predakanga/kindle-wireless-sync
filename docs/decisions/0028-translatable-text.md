@@ -27,33 +27,50 @@ copy and `chmod 644` everything in it, which would make a subfolder
 unreadable to the framework user (ADR 0012).
 
 ## Decision
-1. **A strings file per language,** `package/ui/strings-<lang>.js`, plain
-   ES5 that adds a table to `window.KWS_STRINGS`:
-   `KWS_STRINGS.en = {"home.title": "Wireless Sync", …}`. Keys are names,
-   not English text. Placeholders are `{name}`. Templates may hold simple
-   HTML (`<b>`); values filled in are escaped. English (`strings-en.js`)
-   is the source and the fallback for any missing key.
-2. **The app picks the language from the service:** `/status` gains
+1. **A JSON file per language,** `package/i18n/<lang>.json`: one object of
+   keys and text (`{"home.status": "Status", …}`), the plain key/value
+   format translation platforms such as Weblate take (developer,
+   2026-11-20). Keys are names, not English text. Placeholders are
+   `{name}`. Templates may hold simple HTML (`<b>`); values filled in are
+   escaped. English (`en.json`) is the source and the fallback for any
+   missing key. Notes for translators are in `package/i18n/TRANSLATING.md`.
+2. **Built into scripts:** `tools/strings.py` (`just strings`, also run by
+   `just deploy-ui` and `tools/package.sh`) turns each into
+   `package/ui/strings-<lang>.js`, plain ES5 that adds its table to
+   `window.KWS_STRINGS`. They're build output, ignored by git, so a
+   platform's commits (JSON only) never leave them stale.
+3. **The app picks the language from the service:** `/status` gains
    `locale` (`en_GB`), read from `/var/local/system/locale`, or `LANG`
-   off a Kindle. The app loads `strings-en.js` up front, then
-   `strings-en_GB.js` or else `strings-en.js`'s language part (`strings-de.js`
-   for `de_DE`) by adding a `<script>`; a missing file leaves English.
-3. **The service sends a code alongside its English.** Each message is a
+   off a Kindle. `index.html` loads `strings-en.js` with a `<script>` tag,
+   so English is there before the first page is drawn. The app then adds
+   `<script>` tags for `strings-<locale>.js` and its language alone
+   (`strings-de.js` for `de_DE`); the most specific one that loads wins,
+   and a missing file leaves English.
+4. **The service sends a code alongside its English.** Each message is a
    `message::Message`: a code, named parameters, and an English template
    in one table in `src/message.rs`. JSON carries both:
    `"advice": "Calibre is busy …", "advice_msg": {"code": "busy"}`, and
    likewise `detail_msg`, and `message` beside an API or check `error`.
    The app shows the code's translation when it has one, otherwise the
    English. The log and the CLI keep the English.
-4. **A test keeps the English in step:** every code in `src/message.rs`
-   must have the same template under the same key in `strings-en.js`.
+5. **Tests keep the English in step:** every code in `src/message.rs` must
+   have the same template under the same key in `en.json`, and every key
+   `script.js` uses must be in `en.json`, and the other way round.
 
 ## Alternatives considered
-- **JSON strings files fetched with XHR:** unproven from `file://` in
-  mesquite, and an extra failure path before anything can be drawn.
-- **gettext `.po` files:** the usual translator format, but they need a
-  build step to become something ES5 can load. Can be added later by
-  generating the JS file from them.
+- **Strings files written as JavaScript** (`strings-en.js` as the source,
+  the first version of this decision): no build step, but no translation
+  platform reads that format.
+- **Loading the JSON at runtime with XHR.** Mesquite allows it (reference
+  device, 2026-11-20: a JSON file next to `index.html` loaded and parsed;
+  a missing one gives status 0 and empty text, no exception; `fetch`
+  doesn't exist). But desktop Chrome and Firefox block XHR between
+  `file://` pages, so opening the app in a browser on the Mac, as the
+  development set-up does (ADR 0011), would show no text. Generating
+  English as a script but translations as JSON would mean two ways of
+  loading; generating every language is one.
+- **gettext `.po` files:** the usual translator format, and Weblate takes
+  them, but key/value JSON is simpler to build from and to check in a test.
 - **The service translates its own messages:** two sets of translation
   files, and the binary carries every language.
 - **Only `script.js`'s strings now:** the service's messages are the ones
@@ -66,7 +83,9 @@ unreadable to the framework user (ADR 0012).
 - The English of a service message lives in two places, kept identical by
   the test.
 - A new message needs a code, a template in `src/message.rs`, and the same
-  template in `strings-en.js`.
+  template in `en.json`.
+- Opening `package/ui/index.html` by hand needs `just strings` first.
+  Building needs Python 3 (already used by the tools; on CI's Ubuntu).
 - An app older than the service ignores the new fields; a newer app with
   an older service falls back to the English.
 - System errors (`{e}`) and Calibre's library names stay as they are.
@@ -83,4 +102,5 @@ unreadable to the framework user (ADR 0012).
 - **Checked** on the Mac in headless Chrome with a partial dummy
   translation, and on the reference device (5.20.1, `en_GB`): mesquite
   loaded a temporary `strings-en_GB.js` added by `<script>`, and with no
-  such file the app is unchanged.
+  such file the app is unchanged. Moved to JSON sources the same day,
+  after the developer asked about Weblate.

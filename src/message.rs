@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Messages the service shows the user, with a code the app translates
 //! (ADR 0028). The English here goes to the log and the command line, and
-//! is the app's fallback; `package/ui/strings-en.js` must have the same
+//! is the app's fallback; `package/i18n/en.json` must have the same
 //! template under the same code (checked by a test).
 
 use std::fmt;
@@ -188,64 +188,36 @@ mod tests {
         assert_eq!(codes.len(), ENGLISH.len());
     }
 
-    /// The `"svc.…": "…"` entries of a strings file, unescaped.
-    fn js_strings(text: &str) -> BTreeMap<String, String> {
-        let mut out = BTreeMap::new();
-        for line in text.lines() {
-            let line = line.trim();
-            let Some(rest) = line.strip_prefix('"') else {
-                continue;
-            };
-            let Some((key, value)) = rest.split_once("\": \"") else {
-                continue;
-            };
-            let value = value.trim_end_matches(',');
-            let Some(value) = value.strip_suffix('"') else {
-                continue;
-            };
-            let mut s = String::new();
-            let mut chars = value.chars();
-            while let Some(c) = chars.next() {
-                if c == '\\' {
-                    match chars.next() {
-                        Some('n') => s.push('\n'),
-                        Some(other) => s.push(other),
-                        None => {}
-                    }
-                } else {
-                    s.push(c);
-                }
-            }
-            out.insert(key.to_owned(), s);
-        }
-        out
+    /// The app's English, `package/i18n/en.json`.
+    fn english_json() -> BTreeMap<String, String> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("package/i18n/en.json");
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
     #[test]
     fn the_apps_english_matches() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("package/ui/strings-en.js");
-        let js = js_strings(&std::fs::read_to_string(path).unwrap());
+        let js = english_json();
         for (code, english) in ENGLISH {
             assert_eq!(
                 js.get(*code).map(String::as_str),
                 Some(*english),
-                "strings-en.js differs for {code}"
+                "en.json differs for {code}"
             );
         }
         for key in js.keys().filter(|k| k.starts_with("svc.")) {
             assert!(
                 template(key).is_some(),
-                "strings-en.js has {key}, the service doesn't"
+                "en.json has {key}, the service doesn't"
             );
         }
     }
 
-    /// Every `"area.name"` string in script.js is a key in strings-en.js,
+    /// Every `"area.name"` string in script.js is a key in en.json,
     /// and every key but the service's and the states' is used there.
     #[test]
     fn the_apps_keys_exist() {
         let ui = Path::new(env!("CARGO_MANIFEST_DIR")).join("package/ui");
-        let en = js_strings(&std::fs::read_to_string(ui.join("strings-en.js")).unwrap());
+        let en = english_json();
         let script = std::fs::read_to_string(ui.join("script.js")).unwrap();
         let is_key = |s: &str| {
             s.split_once('.').is_some_and(|(a, b)| {
@@ -259,14 +231,14 @@ mod tests {
         for key in &used {
             assert!(
                 en.contains_key(*key),
-                "script.js uses {key}, strings-en.js lacks it"
+                "script.js uses {key}, en.json lacks it"
             );
         }
         for key in en.keys() {
             if !key.starts_with("svc.") && !key.starts_with("state.") {
                 assert!(
                     used.contains(key.as_str()),
-                    "strings-en.js has {key}, script.js never uses it"
+                    "en.json has {key}, script.js never uses it"
                 );
             }
         }

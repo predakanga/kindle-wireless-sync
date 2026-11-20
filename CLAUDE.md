@@ -48,6 +48,7 @@ just tap X Y | screenshot [OUT] | tap-shot X Y [OUT]
                           # dev: tap at X% Y%, fetch a screenshot to target/screens/
 just size-kindle          # size of the packaged (no dev-tools) armv7 binary
 just deploy-ui | open-ui  # dev: copy the WAF app and scriptlet; open the app
+just strings              # build the app's strings-<lang>.js from package/i18n (ADR 0028)
 just ui-prototype         # dev: open the clickable UI prototype (tools/ui-prototype) in a browser
 just package              # build target/package/kindle-wireless-sync.kpkg (ADR 0012)
 just kpm-install | kpm-uninstall   # install/remove the package with the device's own KPM
@@ -137,11 +138,13 @@ track individual bytes.
   live in the daemon's memory. Linking only changes `config.json`; the
   daemon resets the state (`Library::reset_if_relinked`) before its next
   session when driveinfo's `last_library_uuid` names another library.
-- `message` and `package/ui/strings-en.js`: text the user sees (ADR
-  0028). The service's messages are `Message`s: a code and an English
-  template in `src/message.rs`, the same template under the same key in
-  `strings-en.js` (a test checks). The app's own text is only in
-  `strings-en.js`, looked up with `t(key, params)` in `script.js`.
+- `message` and `package/i18n/`: text the user sees (ADR 0028). The
+  service's messages are `Message`s: a code and an English template in
+  `src/message.rs`, the same template under the same key in
+  `package/i18n/en.json` (a test checks). The app's own text is only in
+  `en.json`, looked up with `t(key, params)` in `script.js`. `just strings`
+  builds `package/ui/strings-<lang>.js` from the JSON (gitignored; run it
+  before opening `package/ui/index.html` by hand).
 - `adopt`: finds book files Calibre sent over USB and builds records for them
   from `metadata.calibre` or EXTH (ADR 0013). `Library::adopt_existing` runs
   it once per session.
